@@ -23,6 +23,8 @@ The Rust module imports functions from the `browser` WebAssembly module. Pointer
 
 Input and output use bounded shared rings. Only the dedicated worker waits with `Atomics.wait`. The main thread publishes bytes, resize epochs, interrupts and shutdown directly into shared memory; a blocked worker cannot run Comlink callbacks. Comlink handles asynchronous initialization and control outside the blocking shell execution.
 
+The module also exports `browser_scalar_width(codepoint) -> u32`. The host uses the same pinned `unicode-width` 0.2.2 scalar table as Brush's editor to erase canonical stdin cells. Invalid Unicode scalars and nonprinting control characters return zero. Caret notation for echoed ASCII controls remains a host translation. Ghostty's default mode 2027 is off, so joined and modified emoji retain the sum of their scalar cell widths.
+
 ## Upstream patch
 
 `patches/brush-browser.patch` applies to the pinned submodule revision. Changes are local to this repository, with no upstream publication.

@@ -33,7 +33,9 @@ if (revision !== pins.terminal.revision) {
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "package.json",
-    "docs",
+    "docs/integration.md",
+    "docs/api.md",
+    "AGENTS.md",
   ];
   execFileSync(
     "tar",

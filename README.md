@@ -53,9 +53,11 @@ cargo fmt --manifest-path rust/brush-browser/Cargo.toml --check
 
 `npm run verify` builds from pinned sources, checks TypeScript and Oxfmt, and tests the production bundle in Chromium using Ghostty Canvas2D. This is explicitly fallback-renderer coverage. For an installed Chromium, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to its executable path.
 
+`npm run compare` inventories actual commands and runs four shared workloads with five warm trials per engine. It checks each result and records raw evidence.
+
 `npm run measure` records startup, actual terminal frame latency, output streaming, and available memory data under `docs/evidence`. It owns and stops its temporary server and browser. Set `BRUSH_RENDERER=webgpu` to request the GPU path and `BRUSH_HEADED=1` to run a visible browser for visual review. Report the returned adapter information; a WebGPU API alone does not prove hardware acceleration.
 
-See the [manual UX checklist](docs/ux-checklist.md), [runtime architecture and patches](docs/brush-runtime.md), [worker transport](docs/architecture.md), [just-bash adapter](docs/baseline.md), and [measured comparison](docs/comparison.md).
+See the [manual UX checklist](docs/ux-checklist.md), [runtime architecture and patches](docs/brush-runtime.md), [worker transport](docs/architecture.md), [just-bash adapter](docs/baseline.md), and [measured comparison](docs/comparison.md), and [command inventory and workload benchmarks](docs/commands.md).
 
 ## Static hosting
 

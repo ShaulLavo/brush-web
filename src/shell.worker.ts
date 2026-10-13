@@ -40,9 +40,19 @@ const api: WorkerControl = {
     });
     const memory = instance.exports.memory;
     const start = instance.exports._start;
-    if (!(memory instanceof WebAssembly.Memory) || typeof start !== "function")
+    const scalarWidth = instance.exports.browser_scalar_width;
+    if (
+      !(memory instanceof WebAssembly.Memory) ||
+      typeof start !== "function" ||
+      typeof scalarWidth !== "function"
+    )
       throw new Error("Brush WASM exports are invalid");
-    host.attach(memory);
+    host.attach(memory, (codepoint) => {
+      const width: unknown = scalarWidth(codepoint);
+      if (typeof width !== "number" || !Number.isInteger(width) || width < 0 || width > 2)
+        throw new Error("WASM text width is invalid");
+      return width;
+    });
     setTimeout(() => {
       try {
         const status = host.wasi.start({ exports: { memory, _start: () => start() } });

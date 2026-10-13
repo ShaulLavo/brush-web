@@ -19,6 +19,7 @@ export class BrowserHost {
   private canonical: number[] = [];
   private pendingLine: Uint8Array = new Uint8Array();
   private memory: WebAssembly.Memory | undefined;
+  private scalarWidth: ((codepoint: number) => number) | undefined;
   readonly root = new PreopenDirectory(
     "/",
     new Map([
@@ -50,8 +51,9 @@ export class BrowserHost {
     );
     this.limitFilesystem();
   }
-  attach(memory: WebAssembly.Memory) {
+  attach(memory: WebAssembly.Memory, scalarWidth: (codepoint: number) => number) {
     this.memory = memory;
+    this.scalarWidth = scalarWidth;
   }
   get imports() {
     return {
@@ -181,7 +183,12 @@ export class BrowserHost {
     const last = segments.at(-1);
     if (!last) return;
     this.canonical = Array.from(encoder.encode(text.slice(0, last.index)));
-    const cells = Array.from(last.segment).reduce((width, char) => width + scalarCells(char), 0);
+    const scalarWidth = this.scalarWidth;
+    if (!scalarWidth) throw new Error("WASM text-width export is unavailable");
+    const cells = Array.from(last.segment).reduce((width, char) => {
+      const code = char.codePointAt(0) ?? 0;
+      return width + (code < 32 || code === 127 ? 2 : scalarWidth(code));
+    }, 0);
     this.write(encoder.encode("\b \b".repeat(cells)));
   }
   sleep(ms: number) {
@@ -348,15 +355,4 @@ class NullFd extends OpenFile {
   override fd_write(bytes: Uint8Array) {
     return { ret: 0, nwritten: bytes.length };
   }
-}
-
-function scalarCells(char: string): number {
-  if (/[\p{Mark}\p{Format}]/u.test(char)) return 0;
-  const value = char.codePointAt(0) ?? 0;
-  if (value < 32 || value === 127) return 2;
-  return /[\p{Extended_Pictographic}\p{Emoji_Modifier}\u1100-\u115f\u2329-\u232a\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe10-\ufe6f\uff00-\uff60]/u.test(
-    char,
-  )
-    ? 2
-    : 1;
 }

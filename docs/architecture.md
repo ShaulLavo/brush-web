@@ -34,7 +34,7 @@ File accounting includes open, unlinked files. WASI writes, positioned writes, a
 
 ## Echo, modes, and Unicode
 
-Brush's native editor owns prompt echo and cursor drawing. Command stdin uses the worker's minimal canonical discipline, with line echo, grapheme backspace, Enter, and EOF. Control characters display as caret notation. The `keydemo` utility switches to raw bytes explicitly. The host converts lone LF bytes to CRLF on terminal output, retaining the previous CR across writes. File contents and pipeline bytes receive no newline translation.
+Brush's native editor owns prompt echo and cursor drawing. Command stdin uses the worker's minimal canonical discipline, with line echo, grapheme backspace, Enter, and EOF. Canonical deletion asks the Rust `browser_scalar_width` export for the same pinned width table used by Brush. Control characters display as caret notation. The `keydemo` utility switches to raw bytes explicitly. The host converts lone LF bytes to CRLF on terminal output, retaining the previous CR across writes. File contents and pipeline bytes receive no newline translation.
 
 Brush's patched edit buffer moves and deletes whole grapheme clusters. Ghostty mode 2027 remains off; the upstream editor's scalar width measurement follows that default convention. Complex scripts, very tall edit buffers, and OS-specific composition require the manual checklist. Incremental UTF-8 decoding occurs only in the just-bash adapter and WASI path decoding; Brush and terminal traffic stay bytes.
 

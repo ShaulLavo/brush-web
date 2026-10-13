@@ -24,7 +24,7 @@ Both engines pass the same browser-driven fixture for directory creation, file r
 
 Brush patches add cancellation, safe paste, grapheme editing, resize notifications, truthful WASI file probes, portable native printf, and explicit unsupported-mode failures. They are reproducible local patches, documented in [the runtime notes](brush-runtime.md).
 
-The baseline has 429 TypeScript lines, including its editor, scheduling, and execution adapter. The Brush browser host has 362 TypeScript lines for WASI stdio, files, and quotas, and 500 Rust lines for terminal bindings and utilities. Both use the common session, worker entry, and shared-ring code. Counts include comments and blanks, measured with `wc -l`; patch line counts include diff context and are not equivalent implementation-size measurements. Brush saves a second editor implementation, while WASI hosting and upstream changes add integration work.
+The baseline has 429 TypeScript lines, including its editor, scheduling, and execution adapter. The Brush browser host has 358 TypeScript lines for WASI stdio, files, and quotas, and 546 Rust lines for terminal bindings and utilities. Both use the common session, worker entry, and shared-ring code. Counts include comments and blanks, measured with `wc -l`; patch line counts include diff context and are not equivalent implementation-size measurements. Brush saves a second editor implementation, while WASI hosting and upstream changes add integration work.
 
 ## Recorded measurements
 

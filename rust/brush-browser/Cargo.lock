@@ -202,6 +202,7 @@ dependencies = [
  "brush-core",
  "brush-interactive",
  "tokio",
+ "unicode-width",
 ]
 
 [[package]]

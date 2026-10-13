@@ -306,3 +306,19 @@ test("canonical stdin backspace erases joined emoji cells without corruption", a
   expect((await lines(page)).join("\n")).not.toContain("👩");
   expect((await lines(page)).join("\n")).not.toContain("👍");
 });
+
+test("canonical deletion of text presentation symbols preserves preceding ASCII", async ({
+  page,
+}) => {
+  await open(page);
+  await command(page, "read answer; echo symbol:$answer");
+  await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("running");
+  await page.keyboard.insertText("ab©");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.insertText("❤");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.insertText("x");
+  await expect.poll(() => lines(page)).toContain("abx");
+  await page.keyboard.press("Enter");
+  await output(page, "symbol:abx");
+});

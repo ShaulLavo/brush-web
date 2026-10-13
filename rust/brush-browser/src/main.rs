@@ -7,6 +7,14 @@ use std::sync::Arc;
 use brush_core::{ProfileLoadBehavior, RcLoadBehavior, Shell, ShellVariable};
 use brush_interactive::{InteractiveOptions, InteractiveShell, VtInputBackend};
 use tokio::sync::Mutex;
+use unicode_width::UnicodeWidthChar;
+
+#[unsafe(no_mangle)]
+pub extern "C" fn browser_scalar_width(codepoint: u32) -> u32 {
+    char::from_u32(codepoint)
+        .and_then(UnicodeWidthChar::width)
+        .unwrap_or(0) as u32
+}
 
 fn main() {
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -54,4 +62,42 @@ async fn run() -> Result<u8, Box<dyn std::error::Error>> {
         InteractiveShell::new(&shell, &mut input, &InteractiveOptions::default())?;
     interactive.run_interactively().await?;
     Ok(shell.lock().await.last_exit_status())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::browser_scalar_width;
+
+    #[test]
+    fn scalar_widths_match_the_terminal_contract() {
+        for (scalar, width) in [
+            ('©', 1),
+            ('❤', 1),
+            ('界', 2),
+            ('😀', 2),
+            ('🏽', 2),
+            ('\u{200d}', 0),
+            ('\u{fe0f}', 0),
+            ('\u{301}', 0),
+        ] {
+            assert_eq!(browser_scalar_width(u32::from(scalar)), width, "{scalar}");
+        }
+    }
+
+    #[test]
+    fn joined_emoji_keep_scalar_cell_width_with_mode_2027_off() {
+        for (text, width) in [("👩‍💻", 4), ("👍🏽", 4), ("e\u{301}", 1)] {
+            let actual: u32 = text
+                .chars()
+                .map(|scalar| browser_scalar_width(u32::from(scalar)))
+                .sum();
+            assert_eq!(actual, width, "{text}");
+        }
+    }
+
+    #[test]
+    fn invalid_scalars_have_no_cells() {
+        assert_eq!(browser_scalar_width(0xd800), 0);
+        assert_eq!(browser_scalar_width(0x110000), 0);
+    }
 }
