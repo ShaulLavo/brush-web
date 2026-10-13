@@ -1,0 +1,243 @@
+{
+  "recordedAt": "2026-10-13T20:09:11.512Z",
+  "platform": "linux",
+  "kernel": "7.2.8-arch1-2",
+  "cpu": "Intel(R) Core(TM) i7-14700K",
+  "headed": true,
+  "renderer": "webgpu",
+  "browser": "152.0.7977.82",
+  "gpu": {
+    "vendor": "nvidia",
+    "architecture": "ampere",
+    "device": "",
+    "description": "",
+    "isFallbackAdapter": false
+  },
+  "samples": [
+    {
+      "engine": "brush",
+      "cold": {
+        "snapshot": {
+          "engine": "brush",
+          "state": "ready",
+          "renderer": "webgpu",
+          "cols": 136,
+          "rows": 25,
+          "firstFrameMs": 404.65500009059906
+        },
+        "metrics": {
+          "startupMs": 43.4099999666214,
+          "outputBytes": 203,
+          "inputBytes": 0,
+          "inputLatenciesMs": [],
+          "outputFrames": 1,
+          "wasmBytes": 5072613,
+          "memoryBytes": 1769472
+        }
+      },
+      "warm": [
+        {
+          "snapshot": {
+            "engine": "brush",
+            "state": "ready",
+            "renderer": "webgpu",
+            "cols": 136,
+            "rows": 25,
+            "firstFrameMs": 129.86999988555908
+          },
+          "metrics": {
+            "startupMs": 22.37000000476837,
+            "outputBytes": 203,
+            "inputBytes": 0,
+            "inputLatenciesMs": [],
+            "outputFrames": 1,
+            "wasmBytes": 5072613,
+            "memoryBytes": 1769472
+          }
+        },
+        {
+          "snapshot": {
+            "engine": "brush",
+            "state": "ready",
+            "renderer": "webgpu",
+            "cols": 136,
+            "rows": 25,
+            "firstFrameMs": 165.9650000333786
+          },
+          "metrics": {
+            "startupMs": 51.864999890327454,
+            "outputBytes": 203,
+            "inputBytes": 0,
+            "inputLatenciesMs": [],
+            "outputFrames": 1,
+            "wasmBytes": 5072613,
+            "memoryBytes": 1769472
+          }
+        },
+        {
+          "snapshot": {
+            "engine": "brush",
+            "state": "ready",
+            "renderer": "webgpu",
+            "cols": 136,
+            "rows": 25,
+            "firstFrameMs": 149.8050000667572
+          },
+          "metrics": {
+            "startupMs": 31.34499990940094,
+            "outputBytes": 203,
+            "inputBytes": 0,
+            "inputLatenciesMs": [],
+            "outputFrames": 1,
+            "wasmBytes": 5072613,
+            "memoryBytes": 1769472
+          }
+        }
+      ],
+      "inputLatenciesMs": [
+        24.93500006198883,
+        9.754999995231628,
+        1.2149999141693115,
+        4.3399999141693115,
+        15.929999947547913,
+        6.360000014305115,
+        21.259999990463257,
+        8.370000004768372,
+        0.75,
+        10.954999923706055,
+        5.014999985694885,
+        6.434999942779541,
+        16.259999990463257,
+        8.235000014305115,
+        2.149999976158142,
+        3.009999990463257,
+        8.044999957084656,
+        5.819999933242798,
+        30.179999947547913,
+        15.514999985694885,
+        17.644999980926514
+      ],
+      "streaming": {
+        "firstChunkMs": 31.283880999999838,
+        "completedMs": 314.6279089999998
+      },
+      "mainPageJSHeap": 12658225
+    },
+    {
+      "engine": "just-bash",
+      "cold": {
+        "snapshot": {
+          "engine": "just-bash",
+          "state": "ready",
+          "renderer": "webgpu",
+          "cols": 136,
+          "rows": 23,
+          "firstFrameMs": 195.78999996185303
+        },
+        "metrics": {
+          "startupMs": 67.92500007152557,
+          "outputBytes": 230,
+          "inputBytes": 0,
+          "inputLatenciesMs": [],
+          "outputFrames": 1,
+          "wasmBytes": 0,
+          "memoryBytes": 0
+        }
+      },
+      "warm": [
+        {
+          "snapshot": {
+            "engine": "just-bash",
+            "state": "ready",
+            "renderer": "webgpu",
+            "cols": 136,
+            "rows": 23,
+            "firstFrameMs": 166.86000001430511
+          },
+          "metrics": {
+            "startupMs": 54.019999980926514,
+            "outputBytes": 230,
+            "inputBytes": 0,
+            "inputLatenciesMs": [],
+            "outputFrames": 1,
+            "wasmBytes": 0,
+            "memoryBytes": 0
+          }
+        },
+        {
+          "snapshot": {
+            "engine": "just-bash",
+            "state": "ready",
+            "renderer": "webgpu",
+            "cols": 136,
+            "rows": 23,
+            "firstFrameMs": 150.47500002384186
+          },
+          "metrics": {
+            "startupMs": 48.5,
+            "outputBytes": 230,
+            "inputBytes": 0,
+            "inputLatenciesMs": [],
+            "outputFrames": 1,
+            "wasmBytes": 0,
+            "memoryBytes": 0
+          }
+        },
+        {
+          "snapshot": {
+            "engine": "just-bash",
+            "state": "ready",
+            "renderer": "webgpu",
+            "cols": 136,
+            "rows": 23,
+            "firstFrameMs": 150.07500004768372
+          },
+          "metrics": {
+            "startupMs": 47.799999952316284,
+            "outputBytes": 230,
+            "inputBytes": 0,
+            "inputLatenciesMs": [],
+            "outputFrames": 1,
+            "wasmBytes": 0,
+            "memoryBytes": 0
+          }
+        }
+      ],
+      "inputLatenciesMs": [
+        29.424999952316284,
+        14.90499997138977,
+        7.289999961853027,
+        3.075000047683716,
+        1.8899999856948853,
+        7.584999918937683,
+        4.694999933242798,
+        6.174999952316284,
+        14.984999895095825,
+        0.7849999666213989,
+        2.2699999809265137,
+        4.335000038146973,
+        7.919999957084656,
+        6,
+        12.240000009536743,
+        14.860000014305115,
+        1.4350000619888306,
+        19.110000014305115,
+        4.960000038146973,
+        7.555000066757202,
+        10.240000009536743
+      ],
+      "streaming": {
+        "firstChunkMs": 315.76646099999925,
+        "completedMs": 317.0907809999999
+      },
+      "mainPageJSHeap": 7324517
+    }
+  ],
+  "limitations": [
+    "Cold means a new browser context. HTTP cache is disabled for the cold navigation; OS caches and driver caches remain warm.",
+    "Warm means a new terminal and shell worker on the same page with browser caching enabled.",
+    "Latency ends at Ghostty onFrame after worker output. It excludes physical display scanout and compositor presentation.",
+    "WASM memory is linear memory committed at prompt/command phase events. Chromium JS heap is main-page reporting, not comparable worker process RSS.",
+    "Brush pipeline stages buffer sequentially, while terminal output streams. just-bash public exec aggregates output and resets shell state."
+  ]
+}

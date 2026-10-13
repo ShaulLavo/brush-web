@@ -1,0 +1,19 @@
+[package]
+name = "brush-browser"
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[dependencies]
+brush-core = { path = "../../vendor/brush/brush-core", features = ["browser-host"] }
+brush-builtins = { path = "../../vendor/brush/brush-builtins" }
+brush-interactive = { path = "../../vendor/brush/brush-interactive", features = ["vt"] }
+tokio = { version = "1.52.3", features = ["rt", "sync"] }
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+

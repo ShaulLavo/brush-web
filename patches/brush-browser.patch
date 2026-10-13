@@ -1,0 +1,925 @@
+diff --git i/Cargo.lock w/Cargo.lock
+index 4655492..ef5c99b 100644
+--- i/Cargo.lock
++++ w/Cargo.lock
+@@ -566,6 +566,7 @@ dependencies = [
+  "thiserror 2.0.21",
+  "tokio",
+  "tracing",
++ "unicode-segmentation",
+  "unicode-width 0.2.2",
+  "vt100",
+ ]
+diff --git i/brush-builtins/Cargo.toml w/brush-builtins/Cargo.toml
+index 84cfa61..a4a827d 100644
+--- i/brush-builtins/Cargo.toml
++++ w/brush-builtins/Cargo.toml
+@@ -139,6 +139,7 @@ strum = "0.28.0"
+ thiserror = "2.0.18"
+ tracing = "0.1.44"
+ utf8-chars = "3.0.6"
++uucore = { version = "0.12.0", default-features = false, features = ["format"] }
+ 
+ [target.'cfg(target_family = "wasm")'.dependencies]
+ tokio = { version = "1.52.3", features = ["io-util", "macros", "rt"] }
+@@ -153,10 +154,7 @@ tokio = { version = "1.52.3", features = [
+     "signal",
+     "sync",
+ ] }
+-uucore = { version = "0.12.0", default-features = false, features = [
+-    "format",
+-    "signals",
+-] }
++uucore = { version = "0.12.0", default-features = false, features = ["signals"] }
+ 
+ [target.'cfg(unix)'.dependencies]
+ nix = { version = "0.31.2", features = [
+diff --git i/brush-builtins/src/factory.rs w/brush-builtins/src/factory.rs
+index 99eeb8e..09ffe00 100644
+--- i/brush-builtins/src/factory.rs
++++ w/brush-builtins/src/factory.rs
+@@ -164,7 +164,7 @@ pub fn default_builtins<SE: brush_core::ShellExtensions>(
+         m.insert("mapfile".into(), builtin::<mapfile::MapFileCommand, SE>());
+         #[cfg(feature = "builtin.mapfile")]
+         m.insert("readarray".into(), builtin::<mapfile::MapFileCommand, SE>());
+-        #[cfg(all(feature = "builtin.printf", any(unix, windows)))]
++        #[cfg(feature = "builtin.printf")]
+         m.insert("printf".into(), builtin::<printf::PrintfCommand, SE>());
+         #[cfg(feature = "builtin.shopt")]
+         m.insert("shopt".into(), builtin::<shopt::ShoptCommand, SE>());
+diff --git i/brush-builtins/src/lib.rs w/brush-builtins/src/lib.rs
+index 0dd7fab..34d834e 100644
+--- i/brush-builtins/src/lib.rs
++++ w/brush-builtins/src/lib.rs
+@@ -77,7 +77,7 @@ mod let_;
+ mod mapfile;
+ #[cfg(feature = "builtin.popd")]
+ mod popd;
+-#[cfg(all(feature = "builtin.printf", any(unix, windows)))]
++#[cfg(feature = "builtin.printf")]
+ mod printf;
+ #[cfg(feature = "builtin.pushd")]
+ mod pushd;
+diff --git i/brush-builtins/src/read.rs w/brush-builtins/src/read.rs
+index 08f32c8..4d5ee01 100644
+--- i/brush-builtins/src/read.rs
++++ w/brush-builtins/src/read.rs
+@@ -106,6 +106,14 @@ impl builtins::Command for ReadCommand {
+         let input_stream = context
+             .try_fd(fd_num)
+             .ok_or_else(|| ErrorKind::BadFileDescriptor(fd_num))?;
++        brush_core::sys::browser::check_read_support(
++            input_stream.is_terminal(),
++            self.silent
++                || self.return_after_n_chars.is_some()
++                || self.return_after_n_chars_no_delimiter.is_some()
++                || self.delimiter.is_some(),
++            self.timeout_in_seconds.is_some(),
++        )?;
+ 
+         // Retrieve effective value of IFS for splitting.
+         // We convert to owned String to release the borrow before the mutable borrow
+diff --git i/brush-core/Cargo.toml w/brush-core/Cargo.toml
+index fdef806..793bf92 100644
+--- i/brush-core/Cargo.toml
++++ w/brush-core/Cargo.toml
+@@ -20,6 +20,7 @@ workspace = true
+ default = []
+ serde = ["dep:serde", "brush-parser/serde", "rpds/serde", "chrono/serde"]
+ experimental-parser = ["brush-parser/winnow-parser"]
++browser-host = []
+ 
+ [dependencies]
+ async-recursion = "1.1.1"
+diff --git i/brush-core/src/error.rs w/brush-core/src/error.rs
+index 9f3ed3d..70fe2d9 100644
+--- i/brush-core/src/error.rs
++++ w/brush-core/src/error.rs
+@@ -367,6 +367,7 @@ where
+ impl From<&ErrorKind> for results::ExecutionExitCode {
+     fn from(value: &ErrorKind) -> Self {
+         match value {
++            ErrorKind::Interrupted => Self::Interrupted,
+             ErrorKind::CommandNotFound(..) => Self::NotFound,
+             ErrorKind::Unimplemented(..) | ErrorKind::UnimplementedAndTracked(..) => {
+                 Self::Unimplemented
+@@ -387,6 +388,8 @@ impl From<&std::io::Error> for results::ExecutionExitCode {
+     fn from(io_err: &std::io::Error) -> Self {
+         if io_err.kind() == std::io::ErrorKind::BrokenPipe {
+             Self::BrokenPipe
++        } else if io_err.kind() == std::io::ErrorKind::Interrupted {
++            Self::Interrupted
+         } else {
+             Self::GeneralError
+         }
+diff --git i/brush-core/src/interp.rs w/brush-core/src/interp.rs
+index 617e36e..644da8b 100644
+--- i/brush-core/src/interp.rs
++++ w/brush-core/src/interp.rs
+@@ -211,18 +211,27 @@ impl Execute for ast::Program {
+         let mut result = ExecutionResult::success();
+ 
+         for command in &self.complete_commands {
++            sys::browser::check_cancelled()?;
+             // Execute the command and handle any errors without immediately propagating them.
+             // This allows interactive shells to continue executing subsequent commands even after
+             // errors.
+             match command.execute(shell, params).await {
+                 Ok(exec_result) => result = exec_result,
+                 Err(err) => {
++                    if matches!(
++                        ExecutionExitCode::from(&err),
++                        ExecutionExitCode::Interrupted
++                    ) {
++                        return Err(error::ErrorKind::Interrupted.into());
++                    }
+                     // Display the error and convert to an execution result.
+                     let _ = shell.display_error(&mut params.stderr(shell), &err);
+                     result = err.into_result(shell);
+                 }
+             }
+ 
++            sys::browser::check_cancelled()?;
++
+             // Update status
+             shell.set_last_exit_status(result.exit_code.into());
+ 
+@@ -246,9 +255,11 @@ impl Execute for ast::CompoundList {
+         let mut result = ExecutionResult::success();
+ 
+         for ast::CompoundListItem(ao_list, sep) in &self.0 {
++            sys::browser::check_cancelled()?;
+             let run_async = matches!(sep, ast::SeparatorOperator::Async);
+ 
+             if run_async {
++                sys::browser::check_background_support()?;
+                 let job = spawn_async_ao_list_in_task(ao_list, shell, params);
+                 let job_formatted = job.to_pid_style_string();
+ 
+@@ -322,6 +333,7 @@ impl Execute for ast::AndOrList {
+         let mut result = self.first.execute(shell, &first_params).await?;
+ 
+         for (index, next_ao) in self.additional.iter().enumerate() {
++            sys::browser::check_cancelled()?;
+             // Check for non-normal control flow.
+             if !result.is_normal_flow() {
+                 break;
+@@ -367,6 +379,7 @@ impl Execute for ast::Pipeline {
+         shell: &mut Shell<impl extensions::ShellExtensions>,
+         params: &ExecutionParameters,
+     ) -> Result<ExecutionResult, error::Error> {
++        sys::browser::check_cancelled()?;
+         // Capture current timing if so requested.
+         let stopwatch = self
+             .timed
+@@ -722,6 +735,7 @@ impl Execute for ast::CoprocessCommand {
+         shell: &mut Shell<impl extensions::ShellExtensions>,
+         params: &ExecutionParameters,
+     ) -> Result<ExecutionResult, error::Error> {
++        sys::browser::check_background_support()?;
+         if shell.options().do_not_execute_commands {
+             return Ok(ExecutionResult::success());
+         }
+@@ -819,6 +833,7 @@ impl Execute for ast::ForClauseCommand {
+         };
+ 
+         for value in expanded_values {
++            sys::browser::check_cancelled()?;
+             if shell.options().print_commands_and_arguments {
+                 if let Some(unexpanded_values) = &self.values {
+                     shell
+@@ -1007,6 +1022,7 @@ impl Execute for (WhileOrUntil, &ast::WhileOrUntilClauseCommand) {
+         condition_params.suppress_errexit = true;
+ 
+         loop {
++            sys::browser::check_cancelled()?;
+             let condition_result = test_condition.execute(shell, &condition_params).await?;
+ 
+             // Update status for condition
+@@ -1077,6 +1093,7 @@ impl Execute for ast::ArithmeticForClauseCommand {
+         }
+ 
+         loop {
++            sys::browser::check_cancelled()?;
+             if let Some(condition) = &self.condition {
+                 // An empty condition (e.g., `for (( ; ; ))`) means "always true".
+                 if !condition.value.is_empty() && condition.eval(shell, params, true).await? == 0 {
+@@ -1991,6 +2008,7 @@ fn setup_process_substitution(
+     kind: &ast::ProcessSubstitutionKind,
+     subshell_cmd: &ast::SubshellCommand,
+ ) -> Result<(ShellFd, OpenFile), error::Error> {
++    sys::browser::check_background_support()?;
+     // TODO(execute): Don't execute synchronously!
+     // Execute in a subshell.
+     let mut subshell = shell.clone();
+diff --git i/brush-core/src/sys.rs w/brush-core/src/sys.rs
+index f0fe981..c5d0e44 100644
+--- i/brush-core/src/sys.rs
++++ w/brush-core/src/sys.rs
+@@ -29,6 +29,7 @@ pub mod tokio_process;
+ #[cfg(any(unix, windows))]
+ pub(crate) mod tokio_tasks;
+ 
++pub mod browser;
+ pub mod fs;
+ 
+ pub use platform::async_pipe;
+diff --git i/brush-core/src/sys/wasm/fs.rs w/brush-core/src/sys/wasm/fs.rs
+index 423ab3c..72f3f87 100644
+--- i/brush-core/src/sys/wasm/fs.rs
++++ w/brush-core/src/sys/wasm/fs.rs
+@@ -4,15 +4,15 @@ pub use crate::sys::stubs::fs::*;
+ 
+ impl crate::sys::fs::PathExt for std::path::Path {
+     fn readable(&self) -> bool {
+-        true
++        self.exists()
+     }
+ 
+     fn writable(&self) -> bool {
+-        true
++        self.exists()
+     }
+ 
+     fn executable(&self) -> bool {
+-        true
++        self.is_file()
+     }
+ 
+     fn exists_and_is_block_device(&self) -> bool {
+@@ -48,6 +48,15 @@ impl crate::sys::fs::PathExt for std::path::Path {
+     }
+ }
+ 
++/// Opens the browser host's null device through its WASI filesystem.
++#[cfg(target_os = "wasi")]
++pub fn open_null_file() -> Result<std::fs::File, crate::Error> {
++    Ok(std::fs::File::options()
++        .read(true)
++        .write(true)
++        .open("/dev/null")?)
++}
++
+ /// Splits a PATH-like value into individual paths.
+ ///
+ /// On WASM, `std::env::split_paths` is not available, so this
+diff --git i/brush-core/src/sys/wasm/pipes.rs w/brush-core/src/sys/wasm/pipes.rs
+index 4fa8edc..3450785 100644
+--- i/brush-core/src/sys/wasm/pipes.rs
++++ w/brush-core/src/sys/wasm/pipes.rs
+@@ -107,7 +107,15 @@ impl std::io::Read for PipeWriter {
+ 
+ impl std::io::Write for PipeWriter {
+     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+-        self.0.lock().buffer.extend(buf);
++        crate::sys::browser::check_cancelled().map_err(std::io::Error::other)?;
++        let mut state = self.0.lock();
++        if state.buffer.len().saturating_add(buf.len()) > 1024 * 1024 {
++            return Err(std::io::Error::new(
++                std::io::ErrorKind::OutOfMemory,
++                "browser pipeline buffer exceeds 1 MiB; stages execute sequentially",
++            ));
++        }
++        state.buffer.extend(buf);
+         Ok(buf.len())
+     }
+ 
+diff --git i/brush-interactive/Cargo.toml w/brush-interactive/Cargo.toml
+index 0eee206..3d5d98a 100644
+--- i/brush-interactive/Cargo.toml
++++ w/brush-interactive/Cargo.toml
+@@ -21,7 +21,7 @@ basic = ["vt"]
+ completion = []
+ minimal = []
+ # `minimal` reads input when standard input isn't a terminal.
+-vt = ["dep:unicode-width", "completion", "minimal"]
++vt = ["dep:unicode-width", "dep:unicode-segmentation", "completion", "minimal"]
+ reedline = ["dep:reedline", "dep:nu-ansi-term", "completion", "highlighting"]
+ highlighting = []
+ 
+@@ -40,6 +40,7 @@ thiserror = "2.0.18"
+ tokio = { version = "1.52.3", features = ["rt", "sync"] }
+ tracing = "0.1.44"
+ unicode-width = { version = "0.2.2", optional = true }
++unicode-segmentation = { version = "1.12.0", optional = true }
+ 
+ [dev-dependencies]
+ pretty_assertions = { version = "1.4.1", features = ["unstable"] }
+diff --git i/brush-interactive/src/interactive_shell.rs w/brush-interactive/src/interactive_shell.rs
+index 8163bae..5068f81 100644
+--- i/brush-interactive/src/interactive_shell.rs
++++ w/brush-interactive/src/interactive_shell.rs
+@@ -185,6 +185,7 @@ impl<'a, IB: InputBackend, SE: brush_core::ShellExtensions> InteractiveShell<'a,
+ 
+     /// Runs the interactive shell loop once, reading a single command from standard input.
+     async fn run_interactively_once(&mut self) -> Result<InteractiveExecutionResult, ShellError> {
++        brush_core::sys::browser::begin_prompt();
+         let mut shell = self.shell.lock().await;
+ 
+         // Check for any completed jobs.
+@@ -300,10 +301,18 @@ impl<'a, IB: InputBackend, SE: brush_core::ShellExtensions> InteractiveShell<'a,
+             .on_pre_exec_command(&read_result)?;
+ 
+         // Execute the command.
++        brush_core::sys::browser::begin_command();
+         let params = shell.default_exec_params();
+         let source_info = brush_core::SourceInfo::from("main");
+         let result = match shell.run_string(read_result, &source_info, &params).await {
+             Ok(result) => Ok(InteractiveExecutionResult::Executed(result)),
++            Err(e) if matches!(e.kind(), brush_core::ErrorKind::Interrupted) => {
++                shell.set_last_exit_status(130);
++                writeln!(shell.stderr(), "^C")?;
++                Ok(InteractiveExecutionResult::Executed(
++                    brush_core::ExecutionExitCode::Interrupted.into(),
++                ))
++            }
+             Err(e) => Ok(InteractiveExecutionResult::Failed(e)),
+         };
+ 
+diff --git i/brush-interactive/src/vt/input_backend.rs w/brush-interactive/src/vt/input_backend.rs
+index 06fcabd..c796ff5 100644
+--- i/brush-interactive/src/vt/input_backend.rs
++++ w/brush-interactive/src/vt/input_backend.rs
+@@ -87,11 +87,13 @@ impl<T: Terminal> InputBackend for VtInputBackend<T> {
+         }
+ 
+         let mut terminal = RawMode::enable(&mut self.terminal)?;
++        std::io::Write::write_all(&mut std::io::stderr(), b"\x1b[?2004h")?;
+         let result = self
+             .reader
+             .read_program(shell, &prompt, &mut *terminal, &mut std::io::stderr())
+             .await;
+         let restored = terminal.restore();
++        std::io::Write::write_all(&mut std::io::stderr(), b"\x1b[?2004l")?;
+ 
+         let result = result?;
+         restored?;
+diff --git i/brush-interactive/src/vt/keys.rs w/brush-interactive/src/vt/keys.rs
+index 8ced6df..83c26b1 100644
+--- i/brush-interactive/src/vt/keys.rs
++++ w/brush-interactive/src/vt/keys.rs
+@@ -16,6 +16,8 @@ const ESC: u8 = 0x1b;
+ /// A key pressed at the terminal (or typed by a macro).
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub(crate) struct Keypress {
++    /// Text inserted atomically by bracketed paste, without interpreting keys.
++    pub paste: Option<String>,
+     /// The key, or `None` for a sequence this backend doesn't recognize.
+     pub stroke: Option<KeyStroke>,
+     /// The bytes it arrived as.
+@@ -81,6 +83,19 @@ impl KeyReader {
+             let mut bytes = [0; 256];
+             let count = loop {
+                 match terminal.read(&mut bytes) {
++                    Err(err)
++                        if err.kind() == std::io::ErrorKind::Interrupted
++                            && terminal.interrupted_read_is_ctrl_c() =>
++                    {
++                        self.pending.clear();
++                        self.queued.clear();
++                        return Ok(Some(Keypress {
++                            paste: None,
++                            stroke: None,
++                            bytes: vec![0x03],
++                            from_macro: false,
++                        }));
++                    }
+                     Err(err) if err.kind() == std::io::ErrorKind::Interrupted => {}
+                     result => break result?,
+                 }
+@@ -90,6 +105,13 @@ impl KeyReader {
+             }
+             self.pending
+                 .extend_from_slice(bytes.get(..count).unwrap_or_default());
++            if self.pending.len() > 256 * 1024 {
++                self.pending.clear();
++                return Err(std::io::Error::new(
++                    std::io::ErrorKind::InvalidInput,
++                    "paste exceeds 256 KiB",
++                ));
++            }
+         }
+     }
+ 
+@@ -115,8 +137,23 @@ impl KeyReader {
+     /// Decodes the next key from the bytes read, if they hold a whole one.
+     /// `more_coming` is as for [`decode`].
+     fn decode(&mut self, more_coming: bool) -> Option<Keypress> {
++        if self.pending.starts_with(b"\x1b[200~") {
++            let end = self
++                .pending
++                .windows(6)
++                .position(|bytes| bytes == b"\x1b[201~")?;
++            let paste = String::from_utf8_lossy(&self.pending[6..end]).into_owned();
++            self.pending.drain(..end + 6);
++            return Some(Keypress {
++                paste: Some(paste),
++                stroke: None,
++                bytes: vec![],
++                from_macro: false,
++            });
++        }
+         let (stroke, len) = decode(&self.pending, more_coming)?;
+         Some(Keypress {
++            paste: None,
+             stroke,
+             bytes: self.pending.drain(..len).collect(),
+             from_macro: false,
+@@ -130,6 +167,7 @@ pub(crate) fn decode_all(mut bytes: &[u8]) -> Vec<Keypress> {
+     while let Some((stroke, len)) = decode(bytes, false) {
+         let (key, rest) = bytes.split_at(len);
+         keys.push(Keypress {
++            paste: None,
+             stroke,
+             bytes: key.to_vec(),
+             from_macro: true,
+diff --git i/brush-interactive/src/vt/line_buffer.rs w/brush-interactive/src/vt/line_buffer.rs
+index 9bd63db..0d3f36b 100644
+--- i/brush-interactive/src/vt/line_buffer.rs
++++ w/brush-interactive/src/vt/line_buffer.rs
+@@ -6,12 +6,13 @@
+ )]
+ 
+ use std::ops::Range;
++use unicode_segmentation::UnicodeSegmentation;
+ 
+ /// A line of text being edited, with a cursor.
+ #[derive(Clone, Debug, Default, PartialEq, Eq)]
+ pub(crate) struct LineBuffer {
+     text: String,
+-    /// The cursor's byte offset in `text`; always at a character boundary.
++    /// The cursor's byte offset in `text`; always at a grapheme boundary.
+     cursor: usize,
+ }
+ 
+@@ -32,51 +33,47 @@ impl LineBuffer {
+     }
+ 
+     /// Replaces the buffer's text, putting the cursor at `cursor` (clamped to a
+-    /// character boundary within the text).
++    /// grapheme boundary within the text).
+     pub fn set(&mut self, text: String, cursor: usize) {
+         self.text = text;
+         self.move_to(cursor);
+     }
+ 
+-    /// Moves the cursor to byte offset `cursor` (clamped to a character boundary
++    /// Moves the cursor to byte offset `cursor` (clamped to a grapheme boundary
+     /// within the text).
+     pub fn move_to(&mut self, cursor: usize) {
+-        let mut cursor = cursor.min(self.text.len());
+-        while !self.text.is_char_boundary(cursor) {
+-            cursor -= 1;
+-        }
+-        self.cursor = cursor;
++        self.cursor = self.boundary_before(cursor.min(self.text.len()));
+     }
+ 
+     pub fn insert(&mut self, s: &str) {
+         self.text.insert_str(self.cursor, s);
+-        self.cursor += s.len();
++        self.cursor = self.boundary_after(self.cursor + s.len());
+     }
+ 
+     /// Replaces the text in `range` with `replacement`, leaving the cursor just after
+     /// it.
+     pub fn replace(&mut self, range: Range<usize>, replacement: &str) {
+         self.text.replace_range(range.clone(), replacement);
+-        self.cursor = range.start + replacement.len();
++        self.cursor = self.boundary_after(range.start + replacement.len());
+     }
+ 
+     pub fn backspace(&mut self) {
+-        let start = self.prev_char_boundary(self.cursor);
++        let start = self.prev_grapheme_boundary(self.cursor);
+         self.text.replace_range(start..self.cursor, "");
+         self.cursor = start;
+     }
+ 
+     pub fn delete(&mut self) {
+-        let end = self.next_char_boundary(self.cursor);
++        let end = self.next_grapheme_boundary(self.cursor);
+         self.text.replace_range(self.cursor..end, "");
+     }
+ 
+     pub fn left(&mut self) {
+-        self.cursor = self.prev_char_boundary(self.cursor);
++        self.cursor = self.prev_grapheme_boundary(self.cursor);
+     }
+ 
+     pub fn right(&mut self) {
+-        self.cursor = self.next_char_boundary(self.cursor);
++        self.cursor = self.next_grapheme_boundary(self.cursor);
+     }
+ 
+     pub const fn home(&mut self) {
+@@ -129,12 +126,12 @@ impl LineBuffer {
+     /// are two characters to swap.
+     pub fn transpose(&mut self) {
+         let b = if self.cursor == self.text.len() {
+-            self.prev_char_boundary(self.cursor)
++            self.prev_grapheme_boundary(self.cursor)
+         } else {
+             self.cursor
+         };
+-        let a = self.prev_char_boundary(b);
+-        let c = self.next_char_boundary(b);
++        let a = self.prev_grapheme_boundary(b);
++        let c = self.next_grapheme_boundary(b);
+         if a < b && b < c {
+             let swapped = std::format!("{}{}", &self.text[b..c], &self.text[a..b]);
+             self.text.replace_range(a..c, &swapped);
+@@ -149,29 +146,50 @@ impl LineBuffer {
+         killed
+     }
+ 
+-    /// Returns the start of the char before byte offset `pos`, or 0 at the start.
+-    fn prev_char_boundary(&self, pos: usize) -> usize {
++    /// Returns the start of the grapheme before `pos`, or 0 at the start.
++    fn prev_grapheme_boundary(&self, pos: usize) -> usize {
+         self.text[..pos]
+-            .char_indices()
++            .grapheme_indices(true)
+             .next_back()
+             .map_or(0, |(i, _)| i)
+     }
+ 
+-    /// Returns the end of the char at byte offset `pos`, or `pos` at the end.
+-    fn next_char_boundary(&self, pos: usize) -> usize {
++    /// Returns the end of the grapheme at `pos`, or `pos` at the end.
++    fn next_grapheme_boundary(&self, pos: usize) -> usize {
+         self.text[pos..]
+-            .chars()
++            .graphemes(true)
+             .next()
+-            .map_or(pos, |c| pos + c.len_utf8())
++            .map_or(pos, |grapheme| pos + grapheme.len())
++    }
++
++    fn boundary_before(&self, pos: usize) -> usize {
++        if pos == self.text.len() {
++            return pos;
++        }
++        self.text
++            .grapheme_indices(true)
++            .map(|(index, _)| index)
++            .take_while(|index| *index <= pos)
++            .last()
++            .unwrap_or(0)
++    }
++
++    fn boundary_after(&self, pos: usize) -> usize {
++        self.text
++            .grapheme_indices(true)
++            .map(|(index, _)| index)
++            .find(|index| *index >= pos)
++            .unwrap_or(self.text.len())
+     }
+ 
+     /// Finds the start of the word before the cursor: skips back over non-word
+     /// chars, then over word chars.
+     fn word_start_before(&self, in_word: impl Fn(char) -> bool) -> usize {
+-        self.text[..self.cursor]
++        let pos = self.text[..self.cursor]
+             .trim_end_matches(|c| !in_word(c))
+             .trim_end_matches(&in_word)
+-            .len()
++            .len();
++        self.boundary_before(pos)
+     }
+ 
+     /// Finds the end of the word after the cursor: skips over non-word chars, then
+@@ -180,7 +198,7 @@ impl LineBuffer {
+         let rest = self.text[self.cursor..]
+             .trim_start_matches(|c| !in_word(c))
+             .trim_start_matches(&in_word);
+-        self.text.len() - rest.len()
++        self.boundary_after(self.text.len() - rest.len())
+     }
+ }
+ 
+@@ -330,17 +348,42 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn edits_a_character_at_a_time_even_when_characters_combine() {
+-        // Like readline, the cursor moves over, and backspace deletes, one
+-        // character: an accent that combines with the letter before it is one too.
++    fn edits_combining_characters_as_one_grapheme() {
+         let mut b = buffer("e\u{301}|x");
+         b.backspace();
+-        assert_eq!(marked(&b), "e|x");
+-        b.insert("\u{301}");
++        assert_eq!(marked(&b), "|x");
++        b.insert("e\u{301}");
+         b.left();
+-        assert_eq!(marked(&b), "e|\u{301}x");
++        assert_eq!(marked(&b), "|e\u{301}x");
+         b.delete();
+-        assert_eq!(marked(&b), "e|x");
++        assert_eq!(marked(&b), "|x");
++    }
++
++    #[test]
++    fn edits_joined_and_modified_emoji_as_one_grapheme() {
++        let mut b = buffer("a👩‍💻👍🏽|z");
++        b.left();
++        assert_eq!(marked(&b), "a👩‍💻|👍🏽z");
++        b.backspace();
++        assert_eq!(marked(&b), "a|👍🏽z");
++        b.delete();
++        assert_eq!(marked(&b), "a|z");
++    }
++
++    #[test]
++    fn does_not_place_cursor_inside_grapheme() {
++        let mut b = LineBuffer::new("ae\u{301}👩‍💻z");
++        b.move_to(2);
++        assert_eq!(marked(&b), "a|e\u{301}👩‍💻z");
++        b.move_to(8);
++        assert_eq!(marked(&b), "ae\u{301}|👩‍💻z");
++    }
++
++    #[test]
++    fn transposes_complete_graphemes() {
++        let mut b = buffer("e\u{301}|👩‍💻");
++        b.transpose();
++        assert_eq!(marked(&b), "👩‍💻e\u{301}|");
+     }
+ 
+     #[test]
+diff --git i/brush-interactive/src/vt/line_editor.rs w/brush-interactive/src/vt/line_editor.rs
+index b9cad35..290a8ae 100644
+--- i/brush-interactive/src/vt/line_editor.rs
++++ w/brush-interactive/src/vt/line_editor.rs
+@@ -187,6 +187,15 @@ impl<'a> LineEditor<'a> {
+     }
+ 
+     /// Draws the line, replacing what was drawn before.
++    pub fn resized(&mut self, columns: usize) {
++        self.renderer.resized(
++            self.prompt,
++            self.buffer.text(),
++            self.buffer.cursor(),
++            columns,
++        );
++    }
++
+     pub fn draw(&mut self, out: &mut impl Write, columns: usize) -> std::io::Result<()> {
+         let prompt = self.search_prompt();
+         let prompt = prompt.as_deref().unwrap_or(self.prompt);
+diff --git i/brush-interactive/src/vt/line_reader.rs w/brush-interactive/src/vt/line_reader.rs
+index 6aecf77..7ccb119 100644
+--- i/brush-interactive/src/vt/line_reader.rs
++++ w/brush-interactive/src/vt/line_reader.rs
+@@ -117,10 +117,7 @@ impl LineReader {
+             Some((above, last)) => (printable(above), last),
+             None => (String::new(), prompt),
+         };
+-        // The terminal's width is read once per line, not on every redraw: a line
+-        // being entered while the terminal is resized is drawn for the old width
+-        // until the next line.
+-        let columns = columns(terminal);
++        let mut columns = columns(terminal);
+         let mut editor = LineEditor::new(prompt, prompt_above, self.style);
+         // Output (e.g., from the last command) may not have ended with a newline.
+         editor.start_on_own_row(out, columns)?;
+@@ -139,6 +136,22 @@ impl LineReader {
+                 editor.finish(out, columns)?;
+                 return Ok(LineResult::Eof);
+             };
++            let updated_columns = self::columns(terminal);
++            if columns != updated_columns {
++                columns = updated_columns;
++                editor.resized(columns);
++            }
++            if key.bytes == b"\x1b[997~" {
++                editor.draw(out, columns)?;
++                continue;
++            }
++            if let Some(pasted) = &key.paste {
++                editor
++                    .buffer
++                    .insert(&pasted.replace("\r\n", "\n").replace('\r', "\n"));
++                editor.draw(out, columns)?;
++                continue;
++            }
+             if !key.from_macro {
+                 self.macro_expansions = 0;
+             }
+@@ -312,6 +325,7 @@ mod tests {
+     struct FakeTerminal {
+         columns: Option<usize>,
+         input: VecDeque<Chunk>,
++        explicit_interrupt: bool,
+     }
+ 
+     impl FakeTerminal {
+@@ -319,6 +333,7 @@ mod tests {
+             Self {
+                 columns: Some(80),
+                 input: input.into_iter().collect(),
++                explicit_interrupt: false,
+             }
+         }
+     }
+@@ -336,6 +351,10 @@ mod tests {
+             self.columns
+         }
+ 
++        fn interrupted_read_is_ctrl_c(&self) -> bool {
++            self.explicit_interrupt
++        }
++
+         fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+             while let Some(chunk) = self.input.pop_front() {
+                 match chunk {
+@@ -685,6 +704,56 @@ mod tests {
+         assert_eq!(outcome, input("ab\n"));
+     }
+ 
++    #[tokio::test]
++    async fn cursor_editing_does_not_split_graphemes() {
++        let bytes = "echo e\u{301}👩‍💻👍🏽\x1b[D\x7f\x1b[3~X\r";
++        let (outcome, _) = read(&mut reader(), &shell().await, bytes.as_bytes()).await;
++        assert_eq!(outcome, input("echo e\u{301}X\n"));
++    }
++
++    #[tokio::test]
++    async fn bracketed_paste_is_text_until_an_explicit_enter() {
++        let mut backend = reader();
++        let shell = shell().await;
++        let (outcome, _) = read(
++            &mut backend,
++            &shell,
++            b"\x1b[200~echo one\necho two\x1b[201~\r",
++        )
++        .await;
++        assert_eq!(outcome, input("echo one\necho two\n"));
++        let (outcome, _) = read(
++            &mut reader(),
++            &shell,
++            b"\x1b[200~echo one\necho two\x1b[201~",
++        )
++        .await;
++        assert_eq!(outcome, Outcome::Eof);
++    }
++
++    #[tokio::test]
++    async fn bracketed_paste_can_arrive_in_separate_reads() {
++        let (outcome, _) = read_with(
++            &mut reader(),
++            &shell().await,
++            "$ ",
++            vec![
++                data(b"\x1b[200~echo "),
++                data("界\n"),
++                data(b"done\x1b[20"),
++                data(b"1~\r"),
++            ],
++        )
++        .await;
++        assert_eq!(outcome, input("echo 界\ndone\n"));
++    }
++
++    #[tokio::test]
++    async fn resize_notification_does_not_insert_text() {
++        let (outcome, _) = read(&mut reader(), &shell().await, b"echo hi\x1b[997~\r").await;
++        assert_eq!(outcome, input("echo hi\n"));
++    }
++
+     #[tokio::test]
+     async fn retries_interrupted_reads() {
+         let (outcome, _) = read_with(
+@@ -697,6 +766,25 @@ mod tests {
+         assert_eq!(outcome, input("x\n"));
+     }
+ 
++    #[tokio::test]
++    async fn explicit_host_interrupt_cancels_the_line() {
++        let mut terminal =
++            FakeTerminal::new([data(b"draft"), Chunk::Interrupted, data(b"unread\r")]);
++        terminal.explicit_interrupt = true;
++        let mut output = vec![];
++        let result = reader()
++            .read_program(
++                &shell().await,
++                &InteractivePrompt::default(),
++                &mut terminal,
++                &mut output,
++            )
++            .await
++            .unwrap();
++        assert_eq!(Outcome::from(result), Outcome::Interrupted);
++        assert!(output.ends_with(b"^C\n"));
++    }
++
+     #[tokio::test]
+     async fn starts_with_the_line_a_bound_command_left() {
+         let mut reader = reader();
+diff --git i/brush-interactive/src/vt/render.rs w/brush-interactive/src/vt/render.rs
+index 212bcf4..b3b6e37 100644
+--- i/brush-interactive/src/vt/render.rs
++++ w/brush-interactive/src/vt/render.rs
+@@ -15,6 +15,17 @@ pub(crate) enum Renderer {
+ }
+ 
+ impl Renderer {
++    pub fn resized(&mut self, prompt: &str, text: &str, cursor: usize, columns: usize) {
++        if let Self::Vt(renderer) = self {
++            let (text, cursor) = shown_text(text, cursor);
++            renderer.cursor_row = position_after(
++                visible_text(prompt).chars().chain(text[..cursor].chars()),
++                columns.max(1),
++            )
++            .0;
++        }
++    }
++
+     pub fn new(style: Style) -> Self {
+         match style {
+             Style::Vt => Self::Vt(VtRenderer::default()),
+diff --git i/brush-interactive/src/vt/terminal.rs w/brush-interactive/src/vt/terminal.rs
+index 27716b4..72e537d 100644
+--- i/brush-interactive/src/vt/terminal.rs
++++ w/brush-interactive/src/vt/terminal.rs
+@@ -27,6 +27,12 @@ pub trait Terminal: Send {
+         std::io::stdin().is_terminal()
+     }
+ 
++    /// Whether an interrupted read represents the host's explicit Ctrl+C signal.
++    /// Native terminals retry incidental interrupted system calls by default.
++    fn interrupted_read_is_ctrl_c(&self) -> bool {
++        false
++    }
++
+     /// Reads what the terminal sends as keys are pressed. By default, from
+     /// standard input.
+     ///
+diff --git a/brush-core/src/sys/browser.rs b/brush-core/src/sys/browser.rs
+new file mode 100644
+--- /dev/null
++++ b/brush-core/src/sys/browser.rs
+@@ -0,0 +1,62 @@
++//! Cooperative execution controls for a single browser-hosted shell.
++
++#[cfg(all(target_os = "wasi", feature = "browser-host"))]
++#[link(wasm_import_module = "browser")]
++unsafe extern "C" {
++    fn cancelled() -> u32;
++    fn clear_cancel();
++    fn event(kind: u32, value: u32);
++}
++
++/// Stops the current execution when the host has requested an interrupt.
++pub fn check_cancelled() -> Result<(), crate::Error> {
++    #[cfg(all(target_os = "wasi", feature = "browser-host"))]
++    if unsafe { cancelled() } != 0 {
++        return Err(crate::ErrorKind::Interrupted.into());
++    }
++    Ok(())
++}
++
++/// Starts a new prompt after the preceding execution has fully unwound.
++pub fn begin_prompt() {
++    #[cfg(all(target_os = "wasi", feature = "browser-host"))]
++    unsafe {
++        clear_cancel();
++        event(1, 0);
++    }
++}
++
++/// Marks a user command as executing, without clearing pending cancellation.
++pub fn begin_command() {
++    #[cfg(all(target_os = "wasi", feature = "browser-host"))]
++    unsafe {
++        event(2, 0);
++    }
++}
++
++/// Rejects jobs that need concurrent execution while a synchronous reader blocks.
++pub fn check_background_support() -> Result<(), crate::Error> {
++    #[cfg(all(target_os = "wasi", feature = "browser-host"))]
++    return Err(crate::ErrorKind::NotSupportedOnThisPlatform(
++        "background jobs, coprocesses and process substitution in this browser runtime",
++    )
++    .into());
++    #[cfg(not(all(target_os = "wasi", feature = "browser-host")))]
++    Ok(())
++}
++
++/// Rejects read options whose terminal modes or polling the browser host cannot supply.
++pub fn check_read_support(
++    is_terminal: bool,
++    requests_terminal_modes: bool,
++    requests_timeout: bool,
++) -> Result<(), crate::Error> {
++    #[cfg(all(target_os = "wasi", feature = "browser-host"))]
++    if requests_timeout || (is_terminal && requests_terminal_modes) {
++        return Err(crate::ErrorKind::NotSupportedOnThisPlatform(
++            "read -t or terminal read -n/-N/-s/-d in this browser runtime; plain read and read -r/-p are supported",
++        ).into());
++    }
++    let _ = (is_terminal, requests_terminal_modes, requests_timeout);
++    Ok(())
++}

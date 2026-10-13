@@ -7,3 +7,5 @@ test-results/
 playwright-report/
 public/brush/
 .env*
+
+public/THIRD_PARTY_NOTICES.txt

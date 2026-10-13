@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["vite/client", "node", "@webgpu/types"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "remix/component",
+    "paths": { "ghostty-webgpu": ["./.sources/ghostty-webgpu/src/index.ts"] }
+  },
+  "include": ["src", "tests", "vite.config.ts", "playwright.config.ts"]
+}

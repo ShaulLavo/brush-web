@@ -1,0 +1,29 @@
+name: Browser shell
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.7.0
+          cache: npm
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          targets: wasm32-wasip1
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/brush-browser -> ../../.build/rust
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run verify
+      - run: npm run test:rust
+        env:
+          CARGO_TARGET_DIR: .build/rust
+      - run: cargo fmt --manifest-path rust/brush-browser/Cargo.toml --check

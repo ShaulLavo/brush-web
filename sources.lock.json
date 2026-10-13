@@ -1,0 +1,28 @@
+{
+  "brush": {
+    "repository": "https://github.com/reubeno/brush",
+    "revision": "4cfba081f2f8bcda8150010a57203d020f14f0cc",
+    "strategy": "git submodule plus patches"
+  },
+  "terminal": {
+    "repository": "https://github.com/ShaulLavo/ghostty-webgpu",
+    "revision": "cf0d1a0e75f61e47732648d6fba32645a4fc8de7",
+    "canonicalRepository": "https://github.com/ShaulLavo/fregat",
+    "canonicalRevision": "f03e65e7741646d6fe950b2b7405e4f5cd716aa1",
+    "canonicalDirectory": "ghostty-webgpu",
+    "version": "0.3.24",
+    "archiveSha256": "54945ace7f58a228686f907c472ba072f3aa49456c520a4f03981ff6191cf77c"
+  },
+  "remix": {
+    "version": "3.0.0",
+    "repository": "https://github.com/remix-run/remix",
+    "revision": "6f8acb3c6b5879bffb1566d9956c9afdd46d434f"
+  },
+  "justBash": {
+    "version": "3.6.0",
+    "repository": "https://github.com/vercel-labs/just-bash",
+    "revision": "7537a260e38648e8998db7a95504102ad80b0194",
+    "discoveredHead": "3ebd1c291462bc6bad3c6df7ebfe563d8799bfd9",
+    "provenance": "https://registry.npmjs.org/-/npm/v1/attestations/just-bash@3.6.0"
+  }
+}
