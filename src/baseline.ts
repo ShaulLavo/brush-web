@@ -279,10 +279,9 @@ class BaselineEditor {
         this.pending = "";
         return { kind: "interrupt" };
       }
-      if (this.pasting) {
-        if (!this.consumePaste()) break;
-        continue;
-      }
+      const paste = this.pasting;
+      if (paste && !this.consumePaste()) break;
+      if (paste) continue;
       if (this.pending.startsWith("\x1b[200~")) {
         this.pending = this.pending.slice(6);
         this.pasting = true;

@@ -181,11 +181,8 @@ export class BrowserHost {
     const last = segments.at(-1);
     if (!last) return;
     this.canonical = Array.from(encoder.encode(text.slice(0, last.index)));
-    const wide =
-      /[\p{Extended_Pictographic}\u1100-\u115f\u2329-\u232a\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe10-\ufe6f\uff00-\uff60]/u.test(
-        last.segment,
-      );
-    this.write(encoder.encode("\b \b".repeat(wide ? 2 : 1)));
+    const cells = Array.from(last.segment).reduce((width, char) => width + scalarCells(char), 0);
+    this.write(encoder.encode("\b \b".repeat(cells)));
   }
   sleep(ms: number) {
     const end = performance.now() + ms;
@@ -351,4 +348,15 @@ class NullFd extends OpenFile {
   override fd_write(bytes: Uint8Array) {
     return { ret: 0, nwritten: bytes.length };
   }
+}
+
+function scalarCells(char: string): number {
+  if (/[\p{Mark}\p{Format}]/u.test(char)) return 0;
+  const value = char.codePointAt(0) ?? 0;
+  if (value < 32 || value === 127) return 2;
+  return /[\p{Extended_Pictographic}\p{Emoji_Modifier}\u1100-\u115f\u2329-\u232a\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe10-\ufe6f\uff00-\uff60]/u.test(
+    char,
+  )
+    ? 2
+    : 1;
 }

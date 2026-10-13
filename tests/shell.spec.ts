@@ -274,3 +274,35 @@ test("missing WASM gives an actionable startup error and Restart recovers", asyn
   await command(page, "echo wasm-recovered");
   await output(page, "wasm-recovered");
 });
+
+test("long wrapped prompt survives resizing while editing and streaming", async ({ page }) => {
+  await open(page);
+  await command(page, `PS1='${"p".repeat(100)} $ '; echo long-prompt-ready`);
+  await output(page, "long-prompt-ready");
+  await page.keyboard.insertText("echo wrap-edited");
+  await page.keyboard.press("ArrowLeft");
+  await page.setViewportSize({ width: 580, height: 620 });
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await output(page, "wrap-edited");
+  await command(page, "seq 1000000");
+  await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("running");
+  await page.setViewportSize({ width: 950, height: 700 });
+  await page.keyboard.press("Control+c");
+  await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("ready");
+  await command(page, "echo resized-stream");
+  await output(page, "resized-stream");
+});
+
+test("canonical stdin backspace erases joined emoji cells without corruption", async ({ page }) => {
+  await open(page);
+  await command(page, "read answer; echo canonical:$answer");
+  await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("running");
+  await page.keyboard.insertText("👩‍💻👍🏽");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.press("Backspace");
+  await command(page, "ok");
+  await output(page, "canonical:ok");
+  expect((await lines(page)).join("\n")).not.toContain("👩");
+  expect((await lines(page)).join("\n")).not.toContain("👍");
+});
