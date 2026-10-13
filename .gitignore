@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.build/
+.scratch/
+.sources/
+test-results/
+playwright-report/
+public/brush/
+.env*
