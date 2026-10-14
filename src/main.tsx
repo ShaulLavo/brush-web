@@ -423,13 +423,14 @@ function Workbench(handle: Handle) {
           <div class="baseline-note">
             Experimental: variables, functions, arrays and cwd persist; prior exit status resets.
             Collected output. CPU loops may delay Ctrl+C. Command completion only; live stdin is
-            unavailable.
+            unavailable. Repeated large file reads can return incomplete data.
           </div>
         )}
         {engine === "bashkit-terminal" && (
           <div class="baseline-note">
             Experimental source API: native editing, live input and streaming output. CPU loops may
-            delay Ctrl+C. Tab completion is unavailable; multiline paste is blocked.
+            delay Ctrl+C. Tab completion is unavailable; multiline paste is blocked. Repeated large
+            file reads can return incomplete data.
           </div>
         )}
 
@@ -490,8 +491,13 @@ function Workbench(handle: Handle) {
 
       <div class="below-terminal">
         <p class="keyboard-hint">
-          <kbd>Tab</kbd> complete <span>·</span> <kbd>↑</kbd> history <span>·</span>{" "}
-          <kbd>Ctrl C</kbd> interrupt <span>·</span> <kbd>Ctrl D</kbd> EOF
+          {engine !== "bashkit-terminal" && (
+            <span>
+              <kbd>Tab</kbd> complete <span>·</span>{" "}
+            </span>
+          )}
+          <kbd>↑</kbd> history <span>·</span> <kbd>Ctrl C</kbd> interrupt <span>·</span>{" "}
+          <kbd>Ctrl D</kbd> EOF
         </p>
         <details class="help">
           <summary>Try a few things</summary>
@@ -531,6 +537,14 @@ function Workbench(handle: Handle) {
                     <code>keydemo</code>
                   </dt>
                   <dd>Keys, terminal drawing, and live resize. Press q to exit.</dd>
+                </div>
+              )}
+              {engine === "bashkit-terminal" && (
+                <div>
+                  <dt>
+                    <code>vi /tmp/note</code>
+                  </dt>
+                  <dd>Press i to edit, then Escape and :wq Enter to save and exit.</dd>
                 </div>
               )}
             </dl>

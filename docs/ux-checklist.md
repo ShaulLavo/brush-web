@@ -21,3 +21,9 @@ The automated suite covers actual terminal keyboard input, Home/End, backspace, 
 - On `?test=1`, trigger `window.brushWeb.crash()` and use Restart. This deliberately terminates the worker to verify emergency recovery.
 
 `keydemo` proves only this byte, resize, and mode bridge. It does not establish compatibility with arbitrary native TUIs. The canonical command input driver provides basic line input; mode-dependent `read` flags fail explicitly. Cancellation of a single expensive parse or regular expression remains bounded by that operation's own completion.
+
+## Native Bashkit candidate
+
+Select **Bashkit native terminal** to exercise the source API. Check history, cursor keys, Home/End, deletion, `read -p 'Name? ' NAME`, Unicode input, and `vi /tmp/note` while resizing. Exports, functions, aliases, arrays, cwd and exit status should carry between submissions. Interrupt `sleep 30` and verify a usable prompt and status 130. EOF and Restart should close and recover the session.
+
+Tab completion is unavailable. The workbench rejects multiline clipboard paste; upstream raw bracketed paste can execute a line immediately. Tight CPU loops delay Ctrl+C delivery. Repeated large `mapfile` operations have a confirmed silent empty-array bug at the configured memory limit. These remain candidate limitations, not passing acceptance claims. `vi` coverage does not imply support for arbitrary native TUIs.

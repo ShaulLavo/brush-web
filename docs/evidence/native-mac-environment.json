@@ -1,0 +1,23 @@
+{
+  "hardware": "Apple M1, MacBookAir10,1",
+  "kernel": "Darwin 25.4.0, arm64",
+  "browser": "Chrome 154.0.8037.93",
+  "gpu": "Metal 3 hardware adapter, isFallbackAdapter=false",
+  "power": "AC Power",
+  "preparationCpuSamples": [
+    "CPU usage: 39.90% user, 23.15% sys, 36.94% idle ",
+    "CPU usage: 14.55% user, 8.88% sys, 76.55% idle "
+  ],
+  "preparationLoadSamples": [
+    "Load Avg: 1.85, 2.16, 2.20 ",
+    "Load Avg: 2.02, 2.19, 2.21 "
+  ],
+  "limitations": [
+    "These snapshots surround preparation, not every timed interval. Background applications remained running and CPUs were not reserved.",
+    "Eight live engine/mode sessions are open in each workbench matrix. The same-binary API control has only one worker and uses default terminal geometry.",
+    "All browser runs are headless. WebGPU uses hardware, but no physical display presentation is measured."
+  ],
+  "os": "macOS 26.4, build 25E246",
+  "logicalCpus": 8,
+  "physicalMemoryBytes": 17179869184
+}

@@ -43,3 +43,11 @@ Brush's patched edit buffer moves and deletes whole grapheme clusters. Ghostty m
 WASI preserves Brush's standard Rust filesystem and stdio code while binding them to browser memory. The alternative `wasm32-unknown-unknown` target would require a much broader filesystem retrofit because Brush calls `std::fs` directly. A second prompt editor would discard the native completion, history, and editing behavior, so this milestone patches the existing VT backend.
 
 The main page uses `createRoot`, `Handle`, `ref`, and `on` from `remix/component` in Remix 3.0.0. It uses neither Remix 2 nor React Router. The terminal comes from the inspected source revision rather than npm's older 0.1.2 release.
+
+## Native Bashkit comparison
+
+The `bashkit-terminal` worker owns Bashkit's source-tree `Terminal`. It sends raw bytes through `sendBytes`, keeps one `runUntilIdle` promise active, and drains `takeOutput` while the future yields. The byte bridge is shared with the other candidates; Comlink still controls initialization. Bashkit owns editing, echo, modes and newline conversion. Its internal vt100 model parses output before Ghostty parses it again. This is an API-level cost that the source experiment keeps rather than patching away.
+
+Input, resize and cancellation can be delivered during asynchronous waits. CPU-bound WASM prevents this worker loop from running, so the native candidate does not meet Brush's tight-loop interruption contract. An idle result can describe a prompt, command stdin or a full-screen program. See the [native comparison](bashkit-comparison.md#source-tree-terminal-api) for tested behavior and bounded-buffer limits.
+
+Ghostty `presentation=immediate` permits a synchronous frame callback during `write`. The session sets its pending-render flag before invoking the output callback so its latency sample is consumed by that frame. Normal frame presentation remains the default. This change affects every engine.

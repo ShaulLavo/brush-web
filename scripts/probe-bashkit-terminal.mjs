@@ -4,7 +4,7 @@ import { initBashkit, Terminal } from "../.sources/bashkit/pkg/index.js";
 const root = new URL("../", import.meta.url);
 const pins = JSON.parse(await readFile(new URL("sources.lock.json", root), "utf8"));
 await initBashkit(await readFile(new URL(".sources/bashkit/pkg/bashkit_wasm_bg.wasm", root)));
-const term = new Terminal({
+const options = {
   rows: 40,
   cols: 120,
   profile: "interactive",
@@ -12,16 +12,17 @@ const term = new Terminal({
   maxLoopIterations: 10000000,
   maxMemory: 33554432,
   timeoutMs: 60000,
-});
+};
+const term = new Terminal(options);
 const cases = [];
-async function run(id, input) {
-  term.send(input);
-  const status = await term.runUntilIdle();
+async function run(id, input, session = term) {
+  session.send(input);
+  const status = await session.runUntilIdle();
   cases.push({
     id,
     status,
-    output: new TextDecoder().decode(term.takeOutput()),
-    screen: term.screenText(),
+    output: new TextDecoder().decode(session.takeOutput()),
+    screen: session.screenText(),
   });
 }
 await run(
@@ -36,9 +37,14 @@ const inventory = {
 };
 await run(
   "repeat-files",
-  "for ((R=0;R<20;R++)); do seq 10000 > /tmp/source; cat /tmp/source | cat > /tmp/copy; mapfile -t rows < /tmp/copy; echo FILE:$R:${#rows[@]}; done\r",
+  "for ((R=0;R<20;R++)); do seq 10000 > /tmp/source; cat /tmp/source | cat > /tmp/copy; mapfile -t rows < /tmp/copy; mstatus=$?; echo FILE:$R:${#rows[@]}:$mstatus; done\r",
 );
 await run("bracketed-paste", "\x1b[200~echo PASTE_ONE\necho PASTE_TWO\x1b[201~");
+await run(
+  "file-counts",
+  "for ((R=0;R<15;R++)); do seq 10000 > /tmp/source; cat /tmp/source | cat > /tmp/copy; echo CHECK:$R:$(wc -l < /tmp/source):$(wc -l < /tmp/copy); mapfile -t rows < /tmp/copy; mstatus=$?; echo FILE:$R:${#rows[@]}:$mstatus; done\r",
+  new Terminal(options),
+);
 await writeFile(
   new URL("docs/evidence/bashkit-native-node-probe.json", root),
   JSON.stringify(

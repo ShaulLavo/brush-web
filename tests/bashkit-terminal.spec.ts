@@ -19,11 +19,18 @@ async function output(page: Page, text: string) {
 
 test("native Bashkit keeps state and reads live input through Ghostty", async ({ page }) => {
   await open(page);
-  await command(page, "export KEEP=kept; greet(){ echo hello; }; mkdir data; cd data; false");
+  await command(
+    page,
+    "shopt -s expand_aliases; export KEEP=kept; greet(){ echo hello; }; alias wave='echo alias'; values=(one two); mkdir data; cd data; false",
+  );
   await output(page, "$");
-  await command(page, 'printf "STATE:%s:%s:%s\\n" "$?" "$KEEP" "$PWD"; greet');
-  await output(page, "STATE:1:kept:/home/user/data");
+  await command(
+    page,
+    'printf "STATE:%s:%s:%s:%s\\n" "$?" "$KEEP" "$PWD" "${values[1]}"; greet; wave',
+  );
+  await output(page, "STATE:1:kept:/home/user/data:two");
   await output(page, "hello");
+  await output(page, "alias");
   await command(page, 'read -p "Name? " NAME; echo "READ:$NAME"');
   await expect
     .poll(() => page.evaluate(() => window.brushWeb?.visibleLines().join("\n")))
