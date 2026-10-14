@@ -314,6 +314,86 @@ async function stop() {
   if (!result.cleanup.temporaryBundlesRemoved)
     throw new Error("Could not remove every temporary bundle");
 }
+async function measureTrial(sessions, fixture, instrumented, trial) {
+  const [id, command, expected] = fixture;
+  const order = trial % 2 ? sessions.toReversed() : sessions;
+  for (const session of order) {
+    const data = await submit(session.page, command, expected, instrumented);
+    result.samples.push({
+      build: session.build,
+      engine: session.engine,
+      instrumented,
+      fixture: id,
+      trial: trial + 1,
+      ...data,
+    });
+  }
+}
+async function measureFixture(sessions, fixture, instrumented) {
+  const [id, command, expected] = fixture;
+  for (const session of sessions) await submit(session.page, command, expected, instrumented);
+  for (let trial = 0; trial < trials; trial++)
+    await measureTrial(sessions, fixture, instrumented, trial);
+  process.stdout.write(
+    `${instrumented ? "worker" : "visible"} ${id} verified ${trials} trials per build/engine\n`,
+  );
+}
+async function measureFunctional(sessions) {
+  for (const session of sessions.filter((session) => session.build === "optimized")) {
+    result.functional.push({
+      ...(await checkInteraction(session.page, session.engine)),
+      matchedTerminalReplay: await replay(session.page),
+    });
+  }
+}
+async function measureMode(bases, instrumented) {
+  const sessions = [];
+  try {
+    for (const [build, engine, base] of [
+      ["baseline", "brush", bases[instrumented ? 0 : 2]],
+      ["optimized", "brush", bases[instrumented ? 1 : 3]],
+      ["optimized", "just-bash", bases[instrumented ? 1 : 3]],
+      ["baseline", "just-bash", bases[instrumented ? 0 : 2]],
+    ])
+      sessions.push({ build, engine, ...(await open(base, engine, instrumented)) });
+    for (const fixture of fixtureDefinitions) await measureFixture(sessions, fixture, instrumented);
+    if (!instrumented) await measureFunctional(sessions);
+  } finally {
+    for (const session of sessions) await session.context.close();
+  }
+}
+function summarize(build, engine) {
+  for (const [id] of fixtureDefinitions) {
+    const worker = result.samples.filter(
+      (s) => s.build === build && s.engine === engine && s.fixture === id && s.instrumented,
+    );
+    const visible = result.samples.filter(
+      (s) => s.build === build && s.engine === engine && s.fixture === id && !s.instrumented,
+    );
+    result.summary.push({
+      build,
+      engine,
+      fixture: id,
+      workerMedianMs: q(
+        visible.map((s) => s.worker.external.elapsedMs),
+        0.5,
+      ),
+      workerP95Ms: q(
+        visible.map((s) => s.worker.external.elapsedMs),
+        0.95,
+      ),
+      visibleMedianMs: q(
+        visible.map((s) => s.visibleMs),
+        0.5,
+      ),
+      visibleP95Ms: q(
+        visible.map((s) => s.visibleMs),
+        0.95,
+      ),
+      io: worker.at(-1)?.worker,
+    });
+  }
+}
 function interrupt() {
   result.interrupted = true;
   process.exitCode = 130;
@@ -337,79 +417,9 @@ try {
   });
   checkInterrupted();
   result.browser = browser.version();
-  for (const instrumented of [true, false]) {
-    const sessions = [];
-    try {
-      for (const [build, engine, base] of [
-        ["baseline", "brush", bases[instrumented ? 0 : 2]],
-        ["optimized", "brush", bases[instrumented ? 1 : 3]],
-        ["optimized", "just-bash", bases[instrumented ? 1 : 3]],
-        ["baseline", "just-bash", bases[instrumented ? 0 : 2]],
-      ])
-        sessions.push({ build, engine, ...(await open(base, engine, instrumented)) });
-      for (const [id, command, expected] of fixtureDefinitions) {
-        for (const session of sessions) await submit(session.page, command, expected, instrumented);
-        for (let trial = 0; trial < trials; trial++) {
-          const order = trial % 2 ? sessions.toReversed() : sessions;
-          for (const session of order) {
-            const data = await submit(session.page, command, expected, instrumented);
-            result.samples.push({
-              build: session.build,
-              engine: session.engine,
-              instrumented,
-              fixture: id,
-              trial: trial + 1,
-              ...data,
-            });
-          }
-        }
-        process.stdout.write(
-          `${instrumented ? "worker" : "visible"} ${id} verified ${trials} trials per build/engine\n`,
-        );
-      }
-      if (!instrumented)
-        for (const session of sessions.filter((session) => session.build === "optimized")) {
-          result.functional.push({
-            ...(await checkInteraction(session.page, session.engine)),
-            matchedTerminalReplay: await replay(session.page),
-          });
-        }
-    } finally {
-      for (const session of sessions) await session.context.close();
-    }
-  }
+  for (const instrumented of [true, false]) await measureMode(bases, instrumented);
   for (const build of ["baseline", "optimized"])
-    for (const engine of ["brush", "just-bash"])
-      for (const [id] of fixtureDefinitions) {
-        const worker = result.samples.filter(
-          (s) => s.build === build && s.engine === engine && s.fixture === id && s.instrumented,
-        );
-        const visible = result.samples.filter(
-          (s) => s.build === build && s.engine === engine && s.fixture === id && !s.instrumented,
-        );
-        result.summary.push({
-          build,
-          engine,
-          fixture: id,
-          workerMedianMs: q(
-            visible.map((s) => s.worker.external.elapsedMs),
-            0.5,
-          ),
-          workerP95Ms: q(
-            visible.map((s) => s.worker.external.elapsedMs),
-            0.95,
-          ),
-          visibleMedianMs: q(
-            visible.map((s) => s.visibleMs),
-            0.5,
-          ),
-          visibleP95Ms: q(
-            visible.map((s) => s.visibleMs),
-            0.95,
-          ),
-          io: worker.at(-1)?.worker,
-        });
-      }
+    for (const engine of ["brush", "just-bash"]) summarize(build, engine);
 } catch (error) {
   result.error = String(error);
   process.exitCode = result.interrupted ? 130 : 1;

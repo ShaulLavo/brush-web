@@ -56,6 +56,7 @@ test("completed output matches UTF-8 and CRLF bytes across bounded chunk boundar
   const fixtures = [
     { stdout: "out\n", stderr: "err\n" },
     { stdout: "out\r", stderr: "\nerr\n" },
+    { stdout: "x\ud83d", stderr: "\ude00\n" },
     { stdout: "x".repeat(8191) + "\r\ny\n", stderr: "\n" },
     { stdout: "x".repeat(8191) + "😀\n", stderr: "\x1b[31m世界\x1b[0m\n" },
     { stdout: "\ud800x\udc00", stderr: "\n" },

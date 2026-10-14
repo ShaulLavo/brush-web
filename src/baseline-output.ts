@@ -9,6 +9,14 @@ export class BaselineOutput {
 
   result(stdout: string, stderr: string): void {
     this.previousCR = false;
+    const boundary = stdout.charCodeAt(stdout.length - 1);
+    const next = stderr.charCodeAt(0);
+    if (isHighSurrogate(boundary) && next >= 0xdc00 && next <= 0xdfff) {
+      if (!this.stream(stdout.slice(0, -1))) return;
+      if (!this.stream(stdout.slice(-1) + stderr.slice(0, 1))) return;
+      this.stream(stderr.slice(1));
+      return;
+    }
     if (!this.stream(stdout)) return;
     this.stream(stderr);
   }

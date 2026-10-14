@@ -2,6 +2,8 @@
 
 Brush already provides a substantial shell language and native builtin set. The browser host adds a small utility set. just-bash provides more ready-made text and file tools, but the browser adapter enables only part of its catalog. Neither demo runs native executables.
 
+The command inventory below remains applicable. The timing tables describe the original demo. Use the [completed performance proof](performance-proof.md) for the corrected engines, separate worker and visible timings, and 30-trial results.
+
 ## Name inventories are different from command support
 
 The inventory comes from commands typed into the browser terminal, plus the configured source lists and the installed package's public catalog API. The [raw evidence](evidence/command-benchmarks.json) includes the actual names, help output, statuses, source pins, and artifact hashes.
