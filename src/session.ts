@@ -2,7 +2,7 @@ import { wrap, releaseProxy } from "comlink";
 import { SharedBridge, control } from "./bridge";
 import { ExecutionProfile } from "./execution-profile";
 import type { WorkerControl } from "./shell.worker";
-export type Engine = "brush" | "just-bash" | "bashkit";
+export type Engine = "brush" | "just-bash" | "bashkit" | "bashkit-terminal";
 export type SessionOptions = {
   engine: Engine;
   cols: number;
@@ -249,8 +249,7 @@ export class BrowserSession {
   private deliver(bytes: Uint8Array) {
     this.metrics.outputBytes += bytes.length;
     this.metrics.outputFrames++;
+    if (this.pendingInputTime) this.renderPending = true;
     this.options.onOutput(bytes);
-    if (!this.pendingInputTime) return;
-    this.renderPending = true;
   }
 }

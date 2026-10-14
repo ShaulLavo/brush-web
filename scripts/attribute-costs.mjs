@@ -14,12 +14,15 @@ const engines = (process.env.BRUSH_COST_ENGINES ?? "brush,just-bash").split(",")
 if (
   !engines.length ||
   new Set(engines).size !== engines.length ||
-  engines.some((engine) => !["brush", "just-bash", "bashkit"].includes(engine))
+  engines.some((engine) => !["brush", "just-bash", "bashkit", "bashkit-terminal"].includes(engine))
 )
-  throw new Error("Use distinct brush, just-bash or bashkit engine names");
+  throw new Error("Use distinct brush, just-bash, bashkit or bashkit-terminal engine names");
 const headed = process.env.BRUSH_HEADED === "1";
 const replayOnly = process.env.BRUSH_COST_REPLAY_ONLY === "1";
 const renderer = process.env.BRUSH_RENDERER ?? "canvas";
+const presentation = process.env.BRUSH_PRESENTATION ?? "frame";
+if (!["frame", "immediate"].includes(presentation))
+  throw new Error("Use frame or immediate presentation");
 const port = Number(process.env.BRUSH_COST_PORT ?? 4204);
 const output = resolve(
   process.env.BRUSH_COST_OUTPUT ?? resolve(root, `docs/evidence/cost-attribution-${renderer}.json`),
@@ -61,6 +64,7 @@ const result = {
   headed,
   replayOnly,
   renderer,
+  presentation,
   trials,
   engines,
   gpu: null,
@@ -78,6 +82,8 @@ const result = {
     "Terminal submit measures synchronous Ghostty write, including VT parsing and terminal-state work. Last-drain-to-frame includes scheduling/drawing and is not isolated GPU time or physical presentation.",
     "Known-backlog gaps measure intervals between drains when bytes were already queued. They overlap other threads and may contain frame work; they are not extra CPU work.",
     "The just-bash execution span includes interpreter, virtual filesystem and output-string construction. It is not pure interpreter CPU time.",
+    "Bashkit Terminal spans include its native editor, interpreter and vt100 screen parser. takeOutput timing includes Rust draining, wasm-bindgen copying and JS allocation; it is not a pure transition cost. WASI counters do not apply to this API.",
+    "Immediate presentation can draw during terminal.write. Terminal submit time then includes that synchronous drawing, and lastDrainToFrameMs can be negative because onFrame fires before write returns. Neither value measures physical display presentation.",
   ],
 };
 function checkInterrupted() {
@@ -135,7 +141,7 @@ async function open(engine, mode) {
   page.on("pageerror", (error) => errors.push(error.message));
   try {
     await page.goto(
-      `http://127.0.0.1:${port}/?test=1&trace=1&profile=${mode === "cost" ? "1" : "phase"}&engine=${engine}${renderer === "canvas" ? "&renderer=canvas" : ""}`,
+      `http://127.0.0.1:${port}/?test=1&trace=1&profile=${mode === "cost" ? "1" : "phase"}&engine=${engine}&presentation=${presentation}${renderer === "canvas" ? "&renderer=canvas" : ""}`,
     );
     await page.waitForFunction(() => window.brushWeb?.snapshot().state === "ready");
     if (

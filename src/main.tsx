@@ -20,6 +20,8 @@ interface BrowserTestAccess {
     state: string;
     error: string | undefined;
     renderer: string | undefined;
+    presentation: "frame" | "immediate";
+    desynchronized: boolean;
     cols: number;
     rows: number;
     firstFrameMs: number | undefined;
@@ -67,6 +69,7 @@ async function openTerminal(host: HTMLElement): Promise<Terminal> {
       scrollbackByteLimit: 16 * 1024 * 1024,
     },
     padding: 16,
+    presentation: query.get("presentation") === "immediate" ? "immediate" : "frame",
     runtime: {
       kind: "owned",
       options: {
@@ -102,12 +105,13 @@ async function openTerminal(host: HTMLElement): Promise<Terminal> {
 }
 
 function Workbench(handle: Handle) {
+  const requestedEngine = query.get("engine");
   let engine: Engine =
-    query.get("engine") === "bashkit"
-      ? "bashkit"
-      : query.get("engine") === "just-bash"
-        ? "just-bash"
-        : "brush";
+    requestedEngine === "bashkit" ||
+    requestedEngine === "bashkit-terminal" ||
+    requestedEngine === "just-bash"
+      ? requestedEngine
+      : "brush";
   let state = "starting";
   let error: string | undefined;
   let warning: string | undefined;
@@ -165,6 +169,22 @@ function Workbench(handle: Handle) {
   }
 
   function wireTerminal(current: Terminal, expectedGeneration: number) {
+    current.textarea?.addEventListener(
+      "paste",
+      (event) => {
+        if (
+          engine !== "bashkit-terminal" ||
+          !/[\r\n]/.test(event.clipboardData?.getData("text/plain") ?? "")
+        )
+          return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        warning =
+          "Bashkit's native editor cannot safely paste multiple lines. Enter lines separately.";
+        render();
+      },
+      { capture: true },
+    );
     subscriptions = [
       current.onData((bytes) => session?.input(bytes)),
       current.onResize(({ cols, rows }) => {
@@ -285,6 +305,8 @@ function Workbench(handle: Handle) {
         state,
         error,
         renderer: terminal?.diagnostics.rendererBackend,
+        presentation: query.get("presentation") === "immediate" ? "immediate" : "frame",
+        desynchronized: terminal?.diagnostics.desynchronized ?? false,
         cols: terminal?.appearance.grid.columns ?? 0,
         rows: terminal?.appearance.grid.rows ?? 0,
         firstFrameMs,
@@ -357,7 +379,15 @@ function Workbench(handle: Handle) {
               disabled={busy}
               mix={on("click", () => selectEngine("bashkit"))}
             >
-              Bashkit <span class="engine-detail">evaluation</span>
+              Bashkit <span class="engine-detail">published scripts</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={engine === "bashkit-terminal"}
+              disabled={busy}
+              mix={on("click", () => selectEngine("bashkit-terminal"))}
+            >
+              Bashkit <span class="engine-detail">native terminal</span>
             </button>
           </div>
           <div class="session-actions">
@@ -396,6 +426,12 @@ function Workbench(handle: Handle) {
             unavailable.
           </div>
         )}
+        {engine === "bashkit-terminal" && (
+          <div class="baseline-note">
+            Experimental source API: native editing, live input and streaming output. CPU loops may
+            delay Ctrl+C. Tab completion is unavailable; multiline paste is blocked.
+          </div>
+        )}
 
         {error && (
           <div class="error-banner" role="alert">
@@ -429,7 +465,7 @@ function Workbench(handle: Handle) {
             <div class="loading-overlay" role="status">
               <span class="loading-dot" />
               Starting{" "}
-              {engine === "brush" ? "Brush" : engine === "bashkit" ? "Bashkit" : "just-bash"}…
+              {engine === "brush" ? "Brush" : engine === "just-bash" ? "just-bash" : "Bashkit"}…
             </div>
           )}
         </div>

@@ -43,4 +43,18 @@ BRUSH_COST_FIXTURES=arithmetic-20000,substitutions-1000,terminal-10000-settled \
 BRUSH_COST_TRIALS=30 npm run measure:costs
 ```
 
-The comparison is worth continuing. The next fair Bashkit step is to build and pin its source-tree `Terminal` API or get a released package that includes it, then compare native terminal session behavior before deciding among Brush, just-bash, and Bashkit.
+The published-package comparison does not settle the interactive-shell choice. The separately pinned source API is evaluated below.
+
+## Source-tree terminal API
+
+The workbench now has a separate `bashkit-terminal` engine at `491c3281f668b76d64b15210b8f5d7bf97244be0`. `npm run build:bashkit` downloads and checks the source archive, builds with upstream's Rust 1.95.0 release profile and `terminal` feature, and generates bindings with wasm-bindgen 0.2.128. This build deliberately skips optional wasm-opt, so binary size and performance must be compared as a separate build from the published package. The source is unpatched and reproducible without the local reference checkout.
+
+The worker owns one `Terminal`. Ghostty keyboard bytes go to `sendBytes`; one `runUntilIdle` promise runs at a time. While it awaits, an asynchronous worker loop can deliver input and resize events and drain `takeOutput`. The worker uses `resize(rows, cols)`. Output reaches Ghostty without text decoding or newline translation. Bashkit owns echo, native editing, terminal modes, and CRLF conversion. The same bounded shared bridge and main-thread output pump are retained for all engines. Bashkit itself needs no shared memory; this comparison adapter does.
+
+An idle result means waiting for input, including a command's live input or a full-screen program. It does not always mean the shell prompt. Profiling spans therefore describe one submitted turn through the API, rather than claiming every idle result is a completed command. Arithmetic, substitutions, and completed-output fixtures compare complete turns.
+
+The source uses both an internal vt100 screen parser and Ghostty's parser. `takeOutput` copies bytes out of WASM, the bridge copies them into a ring, and the page drains that ring before writing to Ghostty. The existing cost counters measure draining and ring copying; time inside the native interpreter, editor, and vt100 parser remains inside the worker span. This avoids calling every extra millisecond a WASM boundary penalty.
+
+Source inspection finds a 1 MiB input queue, 64 KiB editor line limit, 4 MiB retained raw output buffer, 1 MiB transcript buffer, and 1,000 rows of internal scrollback. The raw output buffer drops oldest bytes when full. A synchronous command cannot be drained until it yields, so that upstream bound is not backpressure. Our adapter adds no unbounded queue, but cannot promise lossless arbitrarily large native output.
+
+The native editor treats Tab as a tab and does not implement bracketed paste. The workbench rejects multiline clipboard paste in this mode to prevent accidental execution. It does not supply a replacement editor. A synchronous CPU loop still prevents the worker from delivering input to `sendBytes`; shared cancellation in Brush is a different implementation. Test results and timings for this source API are recorded separately from the published-package evidence above.

@@ -10,6 +10,16 @@ export default defineConfig({
   resolve: {
     alias: [
       {
+        find: /^bashkit-terminal-source\/(.+)$/,
+        replacement: fileURLToPath(new URL("./.sources/bashkit/pkg/$1", import.meta.url)),
+      },
+      {
+        find: "bashkit-terminal-source",
+        replacement: fileURLToPath(
+          new URL("./.sources/bashkit/pkg/bashkit_wasm.js", import.meta.url),
+        ),
+      },
+      {
         find: /^ghostty-webgpu\/(.+)$/,
         replacement: fileURLToPath(new URL("./.sources/ghostty-webgpu/$1", import.meta.url)),
       },

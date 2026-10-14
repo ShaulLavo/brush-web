@@ -2,8 +2,8 @@ import { execFileSync } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 const root = resolve(import.meta.dirname, "..");
-let output =
-  "# Third-party notices\n\nBrush source: 4cfba081f2f8bcda8150010a57203d020f14f0cc, patched locally. Terminal mirror: cf0d1a0e75f61e47732648d6fba32645a4fc8de7. Ghostty WASM provenance: 7b11f3dca034d8d24369ad3856afe57946d7902a. The original terminal notice below retains its historical revision text.\n";
+const pins = JSON.parse(await readFile(resolve(root, "sources.lock.json"), "utf8"));
+let output = `# Third-party notices\n\nBrush source: ${pins.brush.revision}, patched locally. Terminal mirror: ${pins.terminal.revision}. Ghostty WASM provenance: 7b11f3dca034d8d24369ad3856afe57946d7902a. The original terminal notice below retains its historical revision text.\n`;
 async function include(label, directory) {
   let names;
   try {
@@ -44,4 +44,6 @@ for (const name of await readdir(resolve(root, "third-party/bashkit")))
 output +=
   "\n\n" +
   (await readFile(resolve(root, ".sources/ghostty-webgpu/THIRD_PARTY_NOTICES.md"), "utf8"));
+output +=
+  "\n\n" + (await readFile(resolve(root, ".sources/bashkit/pkg/THIRD_PARTY_NOTICES.txt"), "utf8"));
 await writeFile(resolve(root, "public/THIRD_PARTY_NOTICES.txt"), output);
