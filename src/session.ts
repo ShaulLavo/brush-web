@@ -1,5 +1,6 @@
 import { wrap, releaseProxy } from "comlink";
 import { SharedBridge, control } from "./bridge";
+import { ExecutionProfile } from "./execution-profile";
 import type { WorkerControl } from "./shell.worker";
 export type Engine = "brush" | "just-bash";
 export type SessionOptions = {
@@ -8,10 +9,23 @@ export type SessionOptions = {
   rows: number;
   onOutput: (bytes: Uint8Array) => void;
   onState: (state: string) => void;
+  baselineState?: "isolated" | "carry";
+  profile?: boolean;
+};
+type SessionMetrics = {
+  startupMs: number;
+  outputBytes: number;
+  inputBytes: number;
+  inputLatenciesMs: number[];
+  outputFrames: number;
+  wasmBytes: number;
+  memoryBytes: number;
+  lastExecution: ReturnType<typeof ExecutionProfile.read>;
 };
 export class BrowserSession {
   private readonly bridge = new SharedBridge();
   private readonly worker: Worker;
+  private readonly profileBuffer;
   private readonly api;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private phase = -1;
@@ -22,7 +36,7 @@ export class BrowserSession {
   private pendingInputTime = 0;
   private renderPending = false;
   private startupReject: ((reason: unknown) => void) | undefined;
-  readonly metrics = {
+  readonly metrics: SessionMetrics = {
     startupMs: 0,
     outputBytes: 0,
     inputBytes: 0,
@@ -30,8 +44,10 @@ export class BrowserSession {
     outputFrames: 0,
     wasmBytes: 0,
     memoryBytes: 0,
+    lastExecution: undefined,
   };
   private constructor(private readonly options: SessionOptions) {
+    this.profileBuffer = options.profile ? ExecutionProfile.createBuffer() : undefined;
     this.worker = new Worker(new URL("./shell.worker.ts", import.meta.url), { type: "module" });
     this.api = wrap<WorkerControl>(this.worker);
     this.worker.addEventListener("error", (event) =>
@@ -69,6 +85,8 @@ export class BrowserSession {
             session.bridge.buffer,
             options.engine,
             new URL("brush/brush-browser.wasm", document.baseURI).href,
+            options.baselineState ?? "isolated",
+            session.profileBuffer,
           ),
           failure,
         ]);
@@ -166,6 +184,7 @@ export class BrowserSession {
     const output = this.bridge.drain();
     if (output.length) this.deliver(output);
     if (this.disposed || this.failed) return;
+    if (this.profileBuffer) this.metrics.lastExecution = ExecutionProfile.read(this.profileBuffer);
     this.metrics.memoryBytes = Atomics.load(this.bridge.state, control.memory);
     const phase = Atomics.load(this.bridge.state, control.phase);
     if (phase !== this.phase && !this.bridge.cancelled()) {

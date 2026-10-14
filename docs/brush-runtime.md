@@ -39,10 +39,13 @@ The module also exports `browser_scalar_width(codepoint) -> u32`. The host uses 
 - Replace WASM's unconditional readable, writable and executable answers with actual browser filesystem existence and file probes. Open `/dev/null` through the browser WASI host.
 - Enable Brush's existing `printf` on WASI, moving its portable formatting dependency out of the native-only dependency section. Native signal helpers stay target-specific.
 - Reject terminal `read -n`, `read -N`, `read -s` and `read -d`, since this host's canonical driver does not implement their byte-count, echo or delimiter modes. Reject `read -t` because upstream WASM polling is unsupported. Plain `read`, `read -r` and `read -p` continue to work; byte-count and delimiter reads from files and buffered pipelines retain upstream behavior.
+- Buffer unlimited regular-file `mapfile` reads at 8 KiB only when the single-worker browser host opts in. Restore unread bytes to the shared file position after early termination. Limited reads, terminal input and pipes retain their original reads. Check cancellation before each underlying refill.
 
 ## Command host and limitations
 
 Native Brush builtins remain the default Bash-mode builtin set. Browser utilities implemented in Rust are `cat`, `ls`, `mkdir`, `touch`, `rm`, `seq`, `sleep`, `clear`, `uname`, `keydemo` and `browser-help`. They are registered as shell builtins, so Brush still performs parsing, expansion, pipes and redirections. Unsupported utility options fail explicitly. These implementations are small demonstrations, not full coreutils replacements.
+
+The browser `seq` utility buffers at most 8 KiB of output and checks cancellation for every number. The WASI host grows file capacity geometrically within its logical-data and reserved-capacity budgets. The [performance proof](performance-proof.md) documents the measurements and remaining losses.
 
 `keydemo` enters the alternate screen, prints key bytes and the current size, redraws when resizing wakes its read, and leaves on `q`, EOF or Ctrl+C. Its cleanup restores the cursor, alternate screen and canonical input. This demonstrates the browser byte/mode bridge, not arbitrary native TUI compatibility.
 

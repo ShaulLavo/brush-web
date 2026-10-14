@@ -2,6 +2,8 @@
 
 Brush is a convincing interactive shell in this browser milestone. It retains native shell state, reuses its VT editor, accepts live stdin, and streams terminal output. just-bash offers a much wider bundled command catalog, but its public `exec` API is oriented toward isolated scripts. The baseline cannot provide equivalent state retention or output timing without a different upstream session API.
 
+Use the [completed performance proof](performance-proof.md) for the corrected engines and 30-trial timing results. The tables below retain the original startup and streaming observations. The optional just-bash [carry adapter](baseline.md) preserves scalar values and ordinary cwd, with the remaining state limitations disclosed.
+
 ## Behavior
 
 Both engines pass the same browser-driven fixture for directory creation, file redirection, `cat` pipelines, and command substitution within one submitted script. Both execute inside the worker and share Ghostty and the bounded byte rings.

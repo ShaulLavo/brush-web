@@ -4,9 +4,11 @@ The baseline uses the published `just-bash@3.6.0` browser entry in the dedicated
 
 ## Session differences
 
-The package's [agent instructions](https://github.com/vercel-labs/just-bash/blob/7537a260e38648e8998db7a95504102ad80b0194/packages/just-bash/AGENTS.npm.md) and README explicitly describe isolated execution. Every `exec()` gets fresh cwd, variables, functions, aliases, and exit status. The baseline preserves the in-memory filesystem and its adapter's command history. It displays that distinction before the first prompt.
+The package's [agent instructions](https://github.com/vercel-labs/just-bash/blob/7537a260e38648e8998db7a95504102ad80b0194/packages/just-bash/AGENTS.npm.md) and README explicitly describe isolated execution. By default, every `exec()` gets fresh cwd, variables, functions, aliases, and exit status. The baseline preserves the in-memory filesystem and its adapter's command history. It displays that distinction before the first prompt.
 
-The adapter does not reconstruct shell state by matching command text. A function or export works within one submitted script. A later submission starts at `/home/web` with the configured environment. `exit` ends that submitted script. Ctrl+D on an empty editing line ends the browser session.
+The adapter does not reconstruct shell state by matching command text. A function or export works within one submitted script. In default isolated mode, a later submission starts at `/home/web` with the configured environment. `exit` ends that submitted script. Ctrl+D on an empty editing line ends the browser session.
+
+The optional `?engine=just-bash&baselineState=carry` mode passes completed `result.env` and validated `PWD` through the public execution options. Scalar values, ordinary cwd and alias data carry forward. Functions, arrays, options and prior exit status still reset. Cancellation preserves the last completed state projection while filesystem writes already made remain. The performance matrix uses default isolated mode.
 
 Brush uses its existing `VtInputBackend`. just-bash supplies command execution but no matching interactive backend, so the baseline has a small adapter editor. It supports grapheme cursor movement and deletion, Home and End, 200 entries of history, basic command and file completion, and bracketed paste. Pasted newlines stay in the editing buffer until Enter. Its approximate wide-character widths and editing buffers taller than the viewport need separate acceptance checks. These are adapter limitations.
 
@@ -14,7 +16,7 @@ Brush uses its existing `VtInputBackend`. just-bash supplies command execution b
 
 The editor waits with `Atomics.waitAsync()` in the worker. The browser main thread reads output and supplies input through the same bounded bridge used by Brush.
 
-`Bash.exec()` returns completed stdout and stderr strings. The baseline sends stdout followed by stderr after the command completes. It cannot reproduce Brush's incremental output, output ordering between streams, or live terminal stdin. Pipelines and redirections still run through just-bash against its virtual filesystem.
+`Bash.exec()` returns completed stdout and stderr strings. The baseline sends stdout followed by stderr after the command completes. Its adapter encodes output in bounded 32 KiB chunks, preserving UTF-8 and CRLF boundaries. It cannot reproduce Brush's incremental output, output ordering between streams, or live terminal stdin. Pipelines and redirections still run through just-bash against its virtual filesystem.
 
 A proxy over a real `AbortSignal` reads the shared cancellation flag in its `aborted` getter. The interpreter's statement and execution-budget checks therefore observe Ctrl+C even while a tight sequence of microtasks prevents worker message or timer callbacks. A 10 ms worker timer also dispatches the real abort event for waiting commands, such as `sleep`. Interrupting a command sets adapter status 130 and returns to the prompt. It retains filesystem changes already made by the interrupted execution.
 

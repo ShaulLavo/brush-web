@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::PathBuf;
 
 use brush_core::builtins::{self, ContentOptions, ContentType, SimpleCommand};
@@ -244,17 +244,43 @@ fn seq(
     if step == 0 {
         return Err(failure("seq: step cannot be zero"));
     }
+    write_sequence(context.stdout(), start, step, end, || {
+        brush_core::sys::browser::check_cancelled()
+    })?;
+    Ok(ExecutionResult::success())
+}
+
+fn write_sequence(
+    output: impl Write,
+    start: i64,
+    step: i64,
+    end: i64,
+    mut check_cancelled: impl FnMut() -> Result<(), Error>,
+) -> Result<(), Error> {
+    let mut output = BufWriter::with_capacity(8192, output);
+    let result = produce_sequence(&mut output, start, step, end, &mut check_cancelled);
+    let flushed = output.flush();
+    result?;
+    flushed?;
+    Ok(())
+}
+
+fn produce_sequence(
+    output: &mut impl Write,
+    start: i64,
+    step: i64,
+    end: i64,
+    check_cancelled: &mut impl FnMut() -> Result<(), Error>,
+) -> Result<(), Error> {
     let mut current = start;
-    let mut output = context.stdout();
     while (step > 0 && current <= end) || (step < 0 && current >= end) {
-        brush_core::sys::browser::check_cancelled()?;
+        check_cancelled()?;
         writeln!(output, "{current}")?;
-        output.flush()?;
         current = current
             .checked_add(step)
             .ok_or_else(|| failure("seq: integer overflow"))?;
     }
-    Ok(ExecutionResult::success())
+    Ok(())
 }
 
 fn sleep(
@@ -337,6 +363,30 @@ fn draw_keydemo(output: &mut impl Write, last: &str) -> Result<(), Error> {
 mod tests {
     use super::*;
 
+    #[derive(Default)]
+    struct RecordingWriter {
+        bytes: Vec<u8>,
+        writes: usize,
+        largest_write: usize,
+        fail_flush: bool,
+    }
+
+    impl Write for RecordingWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.writes += 1;
+            self.largest_write = self.largest_write.max(bytes.len());
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            if self.fail_flush {
+                return Err(std::io::ErrorKind::BrokenPipe.into());
+            }
+            Ok(())
+        }
+    }
+
     #[test]
     fn rejects_unsupported_options() {
         assert!(reject_options(&["--recursive".into()]).is_err());
@@ -347,5 +397,71 @@ mod tests {
     fn rejects_invalid_integer() {
         assert!(parse_number("1.5").is_err());
         assert_eq!(parse_number("-12").unwrap(), -12);
+    }
+
+    #[test]
+    fn sequence_streams_in_bounded_batches() {
+        let mut output = RecordingWriter::default();
+        write_sequence(&mut output, 1, 1, 10000, || Ok(())).unwrap();
+        let text = std::str::from_utf8(&output.bytes).unwrap();
+        let values = text
+            .lines()
+            .map(|line| line.parse::<i64>().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(values.len(), 10000);
+        assert_eq!(values.first(), Some(&1));
+        assert_eq!(values.last(), Some(&10000));
+        assert_eq!(values.iter().sum::<i64>(), 50005000);
+        assert!(output.writes <= 7, "{} writes", output.writes);
+        assert!(output.largest_write <= 8192);
+    }
+
+    #[test]
+    fn sequence_flushes_produced_prefix_when_interrupted() {
+        let mut output = RecordingWriter::default();
+        let mut checks = 0;
+        let result = write_sequence(&mut output, 1, 1, 10000, || {
+            checks += 1;
+            if checks == 4 {
+                return Err(brush_core::ErrorKind::Interrupted.into());
+            }
+            Ok(())
+        });
+        assert!(matches!(
+            result.unwrap_err().kind(),
+            brush_core::ErrorKind::Interrupted
+        ));
+        assert_eq!(output.bytes, b"1\n2\n3\n");
+        assert_eq!(checks, 4);
+    }
+
+    #[test]
+    fn sequence_handles_descending_values_and_empty_ranges() {
+        let mut output = RecordingWriter::default();
+        write_sequence(&mut output, 5, -2, -1, || Ok(())).unwrap();
+        assert_eq!(output.bytes, b"5\n3\n1\n-1\n");
+        let mut output = RecordingWriter::default();
+        write_sequence(&mut output, 4, 1, 1, || Ok(())).unwrap();
+        assert!(output.bytes.is_empty());
+    }
+
+    #[test]
+    fn sequence_reports_flush_errors() {
+        let mut output = RecordingWriter {
+            fail_flush: true,
+            ..RecordingWriter::default()
+        };
+        let result = write_sequence(&mut output, 1, 1, 3, || Ok(()));
+        assert_eq!(
+            result.unwrap_err().as_io_error().unwrap().kind(),
+            std::io::ErrorKind::BrokenPipe
+        );
+    }
+
+    #[test]
+    fn sequence_flushes_before_reporting_integer_overflow() {
+        let mut output = RecordingWriter::default();
+        assert!(write_sequence(&mut output, i64::MAX, 1, i64::MAX, || Ok(())).is_err());
+        assert_eq!(output.bytes, b"9223372036854775807\n");
     }
 }

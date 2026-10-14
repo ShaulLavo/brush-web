@@ -210,6 +210,8 @@ function Workbench(handle: Handle) {
     const grid = current.appearance.grid;
     const created = await BrowserSession.create({
       engine,
+      baselineState: query.get("baselineState") === "carry" ? "carry" : "isolated",
+      profile: query.get("profile") === "1",
       cols: grid.columns,
       rows: grid.rows,
       onOutput(bytes) {
@@ -363,8 +365,10 @@ function Workbench(handle: Handle) {
 
         {engine === "just-bash" && (
           <div class="baseline-note">
-            Files persist. Cwd, variables, functions, aliases, and exit status reset after each
-            command. Output appears when the command finishes.
+            {query.get("baselineState") === "carry"
+              ? "Files, scalar values and ordinary cwd carry between commands. Functions, arrays, shell options and exit status reset."
+              : "Files persist. Cwd, variables, functions, aliases, and exit status reset after each command."}
+            {" Output appears when the command finishes."}
           </div>
         )}
 

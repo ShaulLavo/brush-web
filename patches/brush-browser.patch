@@ -60,6 +60,293 @@ index 0dd7fab..34d834e 100644
  mod printf;
  #[cfg(feature = "builtin.pushd")]
  mod pushd;
+diff --git i/brush-builtins/src/mapfile.rs w/brush-builtins/src/mapfile.rs
+index ba55053..102b2d1 100644
+--- i/brush-builtins/src/mapfile.rs
++++ w/brush-builtins/src/mapfile.rs
+@@ -1,4 +1,4 @@
+-use std::io::{Read, Write};
++use std::io::{BufReader, Read, Seek, SeekFrom, Write};
+ 
+ use clap::Parser;
+ 
+@@ -121,7 +121,37 @@ impl MapFileCommand {
+         mut input_file: brush_core::openfiles::OpenFile,
+     ) -> Result<variables::ArrayLiteral, brush_core::Error> {
+         let _term_mode = setup_terminal_settings(&input_file)?;
++        if brush_core::sys::browser::permits_file_read_ahead()
++            && self.max_count == 0
++            && let brush_core::openfiles::OpenFile::File(file) = &input_file
++            && file.metadata().is_ok_and(|metadata| metadata.is_file())
++        {
++            return self.read_buffered_file(file.as_ref());
++        }
++        self.read_entries_from(&mut input_file)
++    }
+ 
++    #[allow(
++        clippy::seek_from_current,
++        reason = "seek restores the shared offset; stream_position keeps unread data buffered"
++    )]
++    fn read_buffered_file(
++        &self,
++        input: impl Read + Seek,
++    ) -> Result<variables::ArrayLiteral, brush_core::Error> {
++        let mut input = BufReader::with_capacity(8192, CancellableReader(input));
++        let result = self.read_entries_from(&mut input);
++        // Restore bytes read ahead when a control byte or error ends the operation.
++        let restored = input.seek(SeekFrom::Current(0));
++        let entries = result?;
++        restored?;
++        Ok(entries)
++    }
++
++    fn read_entries_from(
++        &self,
++        input: &mut impl Read,
++    ) -> Result<variables::ArrayLiteral, brush_core::Error> {
+         let mut entries = vec![];
+         let mut read_count = 0;
+         let max_count = self.max_count.try_into()?;
+@@ -138,7 +168,7 @@ impl MapFileCommand {
+             let mut saw_delimiter = false;
+ 
+             loop {
+-                match input_file.read(&mut buf) {
++                match input.read(&mut buf) {
+                     Ok(0) => break,                                         // End of input
+                     Ok(1) if buf[0] == b'\x03' => break,                    // Ctrl+C
+                     Ok(1) if buf[0] == b'\x04' && line.is_empty() => break, // Ctrl+D
+@@ -177,6 +207,22 @@ impl MapFileCommand {
+     }
+ }
+ 
++struct CancellableReader<R>(R);
++
++impl<R: Read> Read for CancellableReader<R> {
++    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
++        brush_core::sys::browser::check_cancelled()
++            .map_err(|error| std::io::Error::new(std::io::ErrorKind::Interrupted, error))?;
++        self.0.read(buf)
++    }
++}
++
++impl<R: Seek> Seek for CancellableReader<R> {
++    fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
++        self.0.seek(position)
++    }
++}
++
+ fn setup_terminal_settings(
+     file: &brush_core::openfiles::OpenFile,
+ ) -> Result<Option<brush_core::terminal::AutoModeGuard>, brush_core::Error> {
+@@ -192,3 +238,206 @@ fn setup_terminal_settings(
+ 
+     Ok(mode)
+ }
++
++#[cfg(test)]
++mod tests {
++    use std::cell::Cell;
++    use std::io::Cursor;
++    use std::rc::Rc;
++    use std::sync::Arc;
++    use std::sync::atomic::{AtomicUsize, Ordering};
++
++    use super::*;
++
++    fn command(args: &[&str]) -> MapFileCommand {
++        MapFileCommand::try_parse_from(args).unwrap()
++    }
++
++    fn lines(entries: variables::ArrayLiteral) -> Vec<String> {
++        entries.0.into_iter().map(|(_, line)| line).collect()
++    }
++
++    struct CountedInput {
++        cursor: Cursor<Vec<u8>>,
++        reads: Rc<Cell<usize>>,
++    }
++
++    impl Read for CountedInput {
++        fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
++            self.reads.set(self.reads.get() + 1);
++            self.cursor.read(bytes)
++        }
++    }
++
++    impl Seek for CountedInput {
++        fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
++            self.cursor.seek(position)
++        }
++    }
++
++    #[test]
++    fn unlimited_file_reads_use_chunks_and_preserve_unicode_lines() {
++        let text = "界😀é\n".repeat(5000) + "final";
++        let reads = Rc::new(Cell::new(0));
++        let mut input = CountedInput {
++            cursor: Cursor::new(text.as_bytes().to_vec()),
++            reads: reads.clone(),
++        };
++        let entries = lines(
++            command(&["mapfile", "-t"])
++                .read_buffered_file(&mut input)
++                .unwrap(),
++        );
++        assert_eq!(entries.len(), 5001);
++        assert!(entries[..5000].iter().all(|line| line == "界😀é"));
++        assert_eq!(entries.last().unwrap(), "final");
++        assert!(reads.get() <= text.len().div_ceil(8192) + 2);
++        assert_eq!(input.cursor.position(), text.len() as u64);
++    }
++
++    #[test]
++    fn buffered_file_control_bytes_restore_the_shared_position() {
++        for contents in [
++            b"one\n\x03remaining\n".as_slice(),
++            b"one\n\x04remaining\n",
++            b"a\x03b\nremaining\n",
++        ] {
++            let options = command(&["mapfile", "-t"]);
++            let mut original = Cursor::new(contents);
++            let expected = lines(options.read_entries_from(&mut original).unwrap());
++            let mut buffered = Cursor::new(contents);
++            let observed = lines(options.read_buffered_file(&mut buffered).unwrap());
++            assert_eq!(observed, expected);
++            assert_eq!(buffered.position(), original.position());
++            let mut tail = vec![];
++            buffered.read_to_end(&mut tail).unwrap();
++            assert_eq!(
++                tail,
++                &contents[usize::try_from(original.position()).unwrap()..]
++            );
++        }
++    }
++
++    #[test]
++    fn buffered_file_preserves_custom_delimiters_and_skipped_lines() {
++        let mut input = Cursor::new(b"skip\0first\0second\0tail");
++        let entries = command(&["mapfile", "-d", "", "-t", "-s", "1"])
++            .read_buffered_file(&mut input)
++            .unwrap();
++        assert_eq!(lines(entries), ["first", "second", "tail"]);
++        let mut input = Cursor::new(b"first|second|tail");
++        let entries = command(&["mapfile", "-d", "|"])
++            .read_buffered_file(&mut input)
++            .unwrap();
++        assert_eq!(lines(entries), ["first|", "second|", "tail"]);
++    }
++
++    struct InterruptedInput {
++        cursor: Cursor<Vec<u8>>,
++        reads: usize,
++    }
++
++    impl Read for InterruptedInput {
++        fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
++            self.reads += 1;
++            if self.reads == 2 {
++                return Err(std::io::ErrorKind::Interrupted.into());
++            }
++            self.cursor.read(bytes)
++        }
++    }
++
++    impl Seek for InterruptedInput {
++        fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
++            self.cursor.seek(position)
++        }
++    }
++
++    #[test]
++    fn buffered_file_propagates_interrupt_between_chunks() {
++        let mut input = InterruptedInput {
++            cursor: Cursor::new(b"x\n".repeat(10000)),
++            reads: 0,
++        };
++        let result = command(&["mapfile", "-t"]).read_buffered_file(&mut input);
++        assert_eq!(
++            result.unwrap_err().as_io_error().unwrap().kind(),
++            std::io::ErrorKind::Interrupted
++        );
++        assert_eq!(input.cursor.position(), 8192);
++        assert_eq!(input.reads, 2);
++    }
++
++    struct Fixture {
++        directory: std::path::PathBuf,
++        remove_parent: bool,
++    }
++
++    impl Fixture {
++        fn new(contents: &[u8]) -> std::io::Result<Self> {
++            static NEXT: AtomicUsize = AtomicUsize::new(0);
++            let parent = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
++            let remove_parent = !parent.exists();
++            std::fs::create_dir_all(&parent)?;
++            let directory = parent.join(format!(
++                "mapfile-fixture-{}-{}",
++                std::process::id(),
++                NEXT.fetch_add(1, Ordering::Relaxed)
++            ));
++            std::fs::create_dir(&directory)?;
++            let fixture = Self {
++                directory,
++                remove_parent,
++            };
++            std::fs::write(fixture.directory.join("input"), contents)?;
++            Ok(fixture)
++        }
++
++        fn open(&self) -> std::io::Result<std::fs::File> {
++            std::fs::File::open(self.directory.join("input"))
++        }
++    }
++
++    impl Drop for Fixture {
++        fn drop(&mut self) {
++            let _ = std::fs::remove_dir_all(&self.directory);
++            if self.remove_parent {
++                let _ = std::fs::remove_dir(self.directory.parent().unwrap());
++            }
++        }
++    }
++
++    #[cfg(feature = "builtin.read")]
++    #[expect(
++        clippy::panic_in_result_fn,
++        reason = "test assertions verify the shared descriptor contract"
++    )]
++    #[tokio::test]
++    async fn limited_mapfile_then_read_share_file_position() -> Result<(), brush_core::Error> {
++        let fixture = Fixture::new(b"first\nsecond\nthird\n")?;
++        let input = Arc::new(fixture.open()?);
++        let mut shell: brush_core::Shell = brush_core::Shell::builder()
++            .profile(brush_core::ProfileLoadBehavior::Skip)
++            .rc(brush_core::RcLoadBehavior::Skip)
++            .builtins(crate::default_builtins(crate::BuiltinSet::BashMode))
++            .fds(std::collections::HashMap::from([(
++                0,
++                brush_core::openfiles::OpenFile::File(input.clone()),
++            )]))
++            .build()
++            .await?;
++        let params = shell.default_exec_params();
++        let result = shell
++            .run_string(
++                "mapfile -n 1 -t rows; read -r next; [[ ${rows[0]} == first && $next == second ]]",
++                &brush_core::SourceInfo::from("test"),
++                &params,
++            )
++            .await?;
++        assert!(result.is_success());
++        let mut remaining = String::new();
++        input.as_ref().read_to_string(&mut remaining)?;
++        assert_eq!(remaining, "third\n");
++        Ok(())
++    }
++}
 diff --git i/brush-builtins/src/read.rs w/brush-builtins/src/read.rs
 index 08f32c8..4d5ee01 100644
 --- i/brush-builtins/src/read.rs
@@ -858,9 +1145,10 @@ index 27716b4..72e537d 100644
      ///
 diff --git a/brush-core/src/sys/browser.rs b/brush-core/src/sys/browser.rs
 new file mode 100644
+index 0000000..85cee8b
 --- /dev/null
 +++ b/brush-core/src/sys/browser.rs
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,67 @@
 +//! Cooperative execution controls for a single browser-hosted shell.
 +
 +#[cfg(all(target_os = "wasi", feature = "browser-host"))]
@@ -895,6 +1183,11 @@ new file mode 100644
 +    unsafe {
 +        event(2, 0);
 +    }
++}
++
++/// Whether commands run serially, allowing regular-file read-ahead to restore shared offsets.
++pub const fn permits_file_read_ahead() -> bool {
++    cfg!(all(target_os = "wasi", feature = "browser-host"))
 +}
 +
 +/// Rejects jobs that need concurrent execution while a synchronous reader blocks.

@@ -1,6 +1,6 @@
 {
   "name": "brush-web",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,11 +13,14 @@
     "format": "oxfmt --write src scripts tests vite.config.ts playwright.config.ts tsconfig.json package.json",
     "format:check": "oxfmt --check src scripts tests vite.config.ts playwright.config.ts tsconfig.json package.json",
     "test": "playwright test",
-    "verify": "npm run build && npm run typecheck && npm run format:check && npm test",
+    "verify": "npm run build && npm run typecheck && npm run format:check && npm run test:host && npm test",
     "measure": "node scripts/measure.mjs",
-    "test:rust": "cargo test --locked --manifest-path vendor/brush/Cargo.toml -p brush-interactive --features vt --lib vt:: && cargo test --locked --manifest-path vendor/brush/Cargo.toml -p brush-builtins --lib printf:: && cargo test --locked --manifest-path rust/brush-browser/Cargo.toml",
+    "test:rust": "cargo test --locked --manifest-path vendor/brush/Cargo.toml -p brush-interactive --features vt --lib vt:: && cargo test --locked --manifest-path vendor/brush/Cargo.toml -p brush-builtins --lib && cargo test --locked --manifest-path rust/brush-browser/Cargo.toml",
     "serve": "node dist/serve.mjs",
-    "compare": "node scripts/compare-commands.mjs"
+    "compare": "node scripts/compare-commands.mjs",
+    "test:host": "node scripts/test-host.mjs",
+    "proof": "node scripts/prove-performance.mjs",
+    "proof:analyze": "node scripts/analyze-performance.mjs"
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "0.4.2",
@@ -30,6 +33,7 @@
     "@playwright/test": "1.64.0",
     "@types/node": "26.6.3",
     "@webgpu/types": "0.1.74",
+    "esbuild": "0.27.7",
     "oxfmt": "0.70.0",
     "typescript": "7.0.2",
     "vite": "8.3.1"

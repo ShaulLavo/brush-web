@@ -6,7 +6,8 @@ import { cpus, platform, release } from "node:os";
 const root = resolve(import.meta.dirname, "..");
 const headed = process.env.BRUSH_HEADED === "1";
 const renderer = process.env.BRUSH_RENDERER ?? "canvas";
-const output = resolve(root, "docs/evidence", `${headed ? "headed" : "headless"}-${renderer}.json`);
+const prefix = process.env.BRUSH_MEASURE_PREFIX ?? `${headed ? "headed" : "headless"}-${renderer}`;
+const output = resolve(root, "docs/evidence", `${prefix}.json`);
 const port = 4197;
 // This script owns this server and its browser; finally stops both on success and failure.
 const server = spawn(process.execPath, ["dist/serve.mjs"], {
@@ -128,11 +129,7 @@ try {
         window.brushWeb.readLines().some((line) => line.trim() === "Browser worker"),
       );
       await page.screenshot({
-        path: resolve(
-          root,
-          "docs/evidence",
-          `${headed ? "headed" : "headless"}-${renderer}-${engine}.png`,
-        ),
+        path: resolve(root, "docs/evidence", `${prefix}-${engine}.png`),
       });
       result.samples.push({
         engine,
