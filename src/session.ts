@@ -2,7 +2,7 @@ import { wrap, releaseProxy } from "comlink";
 import { SharedBridge, control } from "./bridge";
 import { ExecutionProfile } from "./execution-profile";
 import type { WorkerControl } from "./shell.worker";
-export type Engine = "brush" | "just-bash";
+export type Engine = "brush" | "just-bash" | "bashkit";
 export type SessionOptions = {
   engine: Engine;
   cols: number;

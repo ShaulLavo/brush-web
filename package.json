@@ -1,6 +1,6 @@
 {
   "name": "brush-web",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "type": "module",
   "scripts": {
@@ -22,10 +22,12 @@
     "proof": "node scripts/prove-performance.mjs",
     "proof:analyze": "node scripts/analyze-performance.mjs",
     "measure:costs": "node scripts/attribute-costs.mjs",
-    "costs:analyze": "node scripts/analyze-costs.mjs"
+    "costs:analyze": "node scripts/analyze-costs.mjs",
+    "bashkit:probe": "node scripts/probe-bashkit.mjs"
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "0.4.2",
+    "@everruns/bashkit-wasm": "0.18.2",
     "@fregat/hotkeys": "https://github.com/ShaulLavo/fregat/releases/download/hotkeys-0.0.2-68d8aaf6f631-260650623e7e/fregat-hotkeys-0.0.2-68d8aaf6f631-260650623e7e.tgz",
     "comlink": "4.4.2",
     "just-bash": "3.6.0",

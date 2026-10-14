@@ -39,6 +39,8 @@ for (const [path, pkg] of Object.entries(lock.packages)) {
   await include(`${path.split("node_modules/").at(-1)} ${pkg.version}`, resolve(root, path));
 }
 await include("ghostty-webgpu 0.3.24", resolve(root, ".sources/ghostty-webgpu"));
+for (const name of await readdir(resolve(root, "third-party/bashkit")))
+  output += `\n\n## Bashkit 0.18.2 / ${name}\n\n${await readFile(resolve(root, "third-party/bashkit", name), "utf8")}\n`;
 output +=
   "\n\n" +
   (await readFile(resolve(root, ".sources/ghostty-webgpu/THIRD_PARTY_NOTICES.md"), "utf8"));
