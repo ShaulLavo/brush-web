@@ -78,3 +78,7 @@ Brush's WASM pipelines run stages sequentially with a bounded intermediate buffe
 The just-bash baseline uses the same terminal and byte bridge, but its public `exec` API isolates shell state and returns collected stdout and stderr. Its adapter preserves files and input history, supplies its own small editor, and discloses those differences. This comparison does not claim equivalent interactive sessions.
 
 The source revisions and archive checksum are in [sources.lock.json](sources.lock.json). Brush is a pinned Git submodule with a checked-in patch; terminal source is downloaded from the public mirror, whose `src/` matches the inspected canonical revision. No dependency requires an existing local checkout. The build generates `dist/THIRD_PARTY_NOTICES.txt` with dependency licenses and the terminal's notices.
+
+## Choose the next architecture change
+
+The [architecture research](reports/Browser%20shell%20architecture%20choices.md) separates avoidable host I/O costs from session, pipeline, and process requirements. It compares supported just-bash improvements and browser-runtime precedents, then defines one bounded experiment before considering a fork.
