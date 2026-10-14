@@ -6,12 +6,12 @@
   },
   "terminal": {
     "repository": "https://github.com/ShaulLavo/ghostty-webgpu",
-    "revision": "6ca8acfb8acea1300e206dac0ad4fc975518aaf3",
+    "revision": "40a0cb891f8b4f6aa0b8ed3d19669f56252b3fa9",
     "canonicalRepository": "https://github.com/ShaulLavo/fregat",
-    "canonicalRevision": "17f9403050cca39aee18b8845a58da3de7756f23",
+    "canonicalRevision": "96f080016aea1b84b06be28167de1507f33e1b3f",
     "canonicalDirectory": "ghostty-webgpu",
     "version": "0.3.24",
-    "archiveSha256": "b92426f441f8f1d4ebbe8b065f407e3fe2dce299f338550ecff0d95bfd69485b"
+    "archiveSha256": "85a663f5e02e28d925a0fd61332c977b73c6380012f4e873c4d04c41385ec8db"
   },
   "remix": {
     "version": "3.0.0",

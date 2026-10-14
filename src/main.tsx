@@ -4,6 +4,7 @@ import { Terminal, TERMINAL_READ_LINES_MAX_ROWS, WebGpuTerminalRenderer } from "
 import type {
   GhosttyWebGpuTerminalOptions,
   GhosttyWebGpuTerminalSubscription,
+  TerminalOutputTiming,
 } from "ghostty-webgpu";
 import terminalWasmUrl from "ghostty-webgpu/ghostty-vt.wasm?url";
 import terminalBridgeUrl from "ghostty-webgpu/bridge.wasm?url";
@@ -27,6 +28,7 @@ interface BrowserTestAccess {
     firstFrameMs: number | undefined;
   };
   metrics(): BrowserSession["metrics"] | undefined;
+  outputTimings(): readonly TerminalOutputTiming[];
   restart(engine?: Engine): Promise<void>;
   crash(): void;
 }
@@ -120,6 +122,7 @@ function Workbench(handle: Handle) {
   let terminal: Terminal | undefined;
   let session: BrowserSession | undefined;
   let subscriptions: GhosttyWebGpuTerminalSubscription[] = [];
+  let outputTimings: TerminalOutputTiming[] = [];
   let generation = 0;
   let firstFrameMs: number | undefined;
   let startedAt = 0;
@@ -133,6 +136,7 @@ function Workbench(handle: Handle) {
     generation++;
     subscriptions.forEach((subscription) => subscription.dispose());
     subscriptions = [];
+    outputTimings = [];
     session?.dispose();
     terminal?.dispose();
     session = undefined;
@@ -199,6 +203,13 @@ function Workbench(handle: Handle) {
         render();
       }),
     ];
+    if (query.get("trace") === "1")
+      subscriptions.push(
+        current.on("outputTiming", (timing) => {
+          if (outputTimings.length === 512) outputTimings.shift();
+          outputTimings.push(timing);
+        }),
+      );
   }
 
   async function start(nextEngine = engine) {
@@ -312,6 +323,7 @@ function Workbench(handle: Handle) {
         firstFrameMs,
       }),
       metrics: () => session?.metrics,
+      outputTimings: () => outputTimings,
       restart: start,
       crash: () => session?.crash(),
     };
