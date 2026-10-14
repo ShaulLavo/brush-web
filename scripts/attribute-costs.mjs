@@ -57,7 +57,10 @@ let browser, server, directory;
 let interrupted = false;
 const result = {
   recordedAt: new Date().toISOString(),
-  sourceHead: execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
+  sourceHead:
+    process.env.BRUSH_SOURCE_HEAD ??
+    execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(),
+  sourcePins: JSON.parse(await readFile(resolve(root, "sources.lock.json"), "utf8")),
   cpu: cpus()[0]?.model,
   kernel: release(),
   browser: "",
