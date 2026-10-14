@@ -1,0 +1,855 @@
+{
+  "recordedAt": "2026-10-14T10:58:58.327Z",
+  "sourceHead": "5f1cb514a0d1890a5ea45013d09713bc3feceada",
+  "cpu": "Intel(R) Core(TM) i7-14700K",
+  "kernel": "7.2.8-arch1-2",
+  "browser": "152.0.7977.82",
+  "headed": true,
+  "replayOnly": true,
+  "renderer": "webgpu",
+  "trials": 30,
+  "gpu": {
+    "vendor": "nvidia",
+    "architecture": "ampere",
+    "isFallbackAdapter": false
+  },
+  "artifacts": [
+    {
+      "name": "assets/baseline-Ds_lTAbq.js",
+      "bytes": 1282181,
+      "sha256": "76ff665c4b40be829d6a931117152b95ee636c2c1993c2aedf75f5e0f7f6378a"
+    },
+    {
+      "name": "assets/bridge-CXNVfTJ4.wasm",
+      "bytes": 20910,
+      "sha256": "74678d4ec589054a0dada75eaed431742c67e40d33abf4b6b50d8674f3a42679"
+    },
+    {
+      "name": "assets/ghostty-vt-B22UGnHM.wasm",
+      "bytes": 821390,
+      "sha256": "de411c7abb6af40aa9c077b79c373cf11952e7801133d0855cdf3723be5b1426"
+    },
+    {
+      "name": "assets/index-2UWR0xcI.css",
+      "bytes": 5351,
+      "sha256": "9a36c96964c2ec344edd298c58edeaeb09eefb6014408e28fe2b8569eff1066c"
+    },
+    {
+      "name": "assets/index-CWlZeARI.js",
+      "bytes": 504296,
+      "sha256": "0501f603f703240f8a2b28b2863c1d102d27483c2f3709bd7fe43d2ecc85d101"
+    },
+    {
+      "name": "assets/kernel-iMC75t23.js",
+      "bytes": 871,
+      "sha256": "750c6d059ae11509ef9b72740a25cf5a7c21b1629b76cc6109f1231fdfacc17d"
+    },
+    {
+      "name": "assets/shell.worker-BuQh1w3M.js",
+      "bytes": 42996,
+      "sha256": "25a5682a0a7c08d9f207e474d36ef5176bd3ab810338e91b9ed7e00776dcf967"
+    },
+    {
+      "name": "assets/stamp-target-BtNUVQdP.js",
+      "bytes": 14026,
+      "sha256": "a6757534445c9be31538a7e7279740cb7cb926fbae562dee5f8b987b217176e8"
+    },
+    {
+      "name": "brush/brush-browser.wasm",
+      "bytes": 5079308,
+      "sha256": "196c5b9f40b31975b4960009d51a64837efccc74ee4a4402d5af5a7b62a34085"
+    }
+  ],
+  "samples": [],
+  "summary": [],
+  "replay": [
+    {
+      "engine": "brush",
+      "samples": [
+        {
+          "trial": 1,
+          "bytes": 58907,
+          "submitMs": 1.0999999046325684,
+          "toFrameMs": 11.599999904632568,
+          "rafCpuMs": 0.41999995708465576,
+          "callbacks": [
+            {
+              "startedAt": 1774.570000052452,
+              "finishedAt": 1774.9900000095367
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1774.75,
+              "completedAt": 1777.4300000667572
+            }
+          ]
+        },
+        {
+          "trial": 2,
+          "bytes": 58907,
+          "submitMs": 1.024999976158142,
+          "toFrameMs": 14.114999890327454,
+          "rafCpuMs": 0.4100000858306885,
+          "callbacks": [
+            {
+              "startedAt": 1791.2300000190735,
+              "finishedAt": 1791.6400001049042
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1791.420000076294,
+              "completedAt": 1794.0650000572205
+            }
+          ]
+        },
+        {
+          "trial": 3,
+          "bytes": 58907,
+          "submitMs": 0.8799999952316284,
+          "toFrameMs": 14.070000052452087,
+          "rafCpuMs": 0.3450000286102295,
+          "callbacks": [
+            {
+              "startedAt": 1807.8600000143051,
+              "finishedAt": 1808.2050000429153
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1807.9850000143051,
+              "completedAt": 1810.5900000333786
+            }
+          ]
+        },
+        {
+          "trial": 4,
+          "bytes": 58907,
+          "submitMs": 0.8700000047683716,
+          "toFrameMs": 14.259999990463257,
+          "rafCpuMs": 0.3500000238418579,
+          "callbacks": [
+            {
+              "startedAt": 1824.570000052452,
+              "finishedAt": 1824.920000076294
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1824.6900000572205,
+              "completedAt": 1827.3600000143051
+            }
+          ]
+        },
+        {
+          "trial": 5,
+          "bytes": 58907,
+          "submitMs": 0.9149999618530273,
+          "toFrameMs": 14.084999918937683,
+          "rafCpuMs": 0.309999942779541,
+          "callbacks": [
+            {
+              "startedAt": 1841.1900000572205,
+              "finishedAt": 1841.5
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1841.3150000572205,
+              "completedAt": 1843.9000000953674
+            }
+          ]
+        },
+        {
+          "trial": 6,
+          "bytes": 58907,
+          "submitMs": 0.8600000143051147,
+          "toFrameMs": 14.230000019073486,
+          "rafCpuMs": 0.3250000476837158,
+          "callbacks": [
+            {
+              "startedAt": 1857.8700000047684,
+              "finishedAt": 1858.195000052452
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1857.9900000095367,
+              "completedAt": 1860.6200000047684
+            }
+          ]
+        },
+        {
+          "trial": 7,
+          "bytes": 58907,
+          "submitMs": 0.9049999713897705,
+          "toFrameMs": 14.485000014305115,
+          "rafCpuMs": 0.2900000810623169,
+          "callbacks": [
+            {
+              "startedAt": 1874.875,
+              "finishedAt": 1875.1650000810623
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1874.9900000095367,
+              "completedAt": 1877.7000000476837
+            }
+          ]
+        },
+        {
+          "trial": 8,
+          "bytes": 58907,
+          "submitMs": 0.9299999475479126,
+          "toFrameMs": 13.694999933242798,
+          "rafCpuMs": 0.26999998092651367,
+          "callbacks": [
+            {
+              "startedAt": 1891.2050000429153,
+              "finishedAt": 1891.4750000238419
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1891.3050000667572,
+              "completedAt": 1893.9250000715256
+            }
+          ]
+        },
+        {
+          "trial": 9,
+          "bytes": 58907,
+          "submitMs": 0.8700000047683716,
+          "toFrameMs": 14.144999980926514,
+          "rafCpuMs": 0.2749999761581421,
+          "callbacks": [
+            {
+              "startedAt": 1907.8550000190735,
+              "finishedAt": 1908.1299999952316
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1907.9650000333786,
+              "completedAt": 1910.6050000190735
+            }
+          ]
+        },
+        {
+          "trial": 10,
+          "bytes": 58907,
+          "submitMs": 0.8399999141693115,
+          "toFrameMs": 14.204999923706055,
+          "rafCpuMs": 0.32499992847442627,
+          "callbacks": [
+            {
+              "startedAt": 1924.545000076294,
+              "finishedAt": 1924.8700000047684
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1924.6850000619888,
+              "completedAt": 1927.6200000047684
+            }
+          ]
+        },
+        {
+          "trial": 11,
+          "bytes": 58907,
+          "submitMs": 0.9950000047683716,
+          "toFrameMs": 13.81499993801117,
+          "rafCpuMs": 0.2849999666213989,
+          "callbacks": [
+            {
+              "startedAt": 1941.2250000238419,
+              "finishedAt": 1941.5099999904633
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1941.335000038147,
+              "completedAt": 1944.280000090599
+            }
+          ]
+        },
+        {
+          "trial": 12,
+          "bytes": 58907,
+          "submitMs": 1.2350000143051147,
+          "toFrameMs": 14.014999985694885,
+          "rafCpuMs": 0.39499998092651367,
+          "callbacks": [
+            {
+              "startedAt": 1957.960000038147,
+              "finishedAt": 1958.3550000190735
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1958.1150000095367,
+              "completedAt": 1961.0600000619888
+            }
+          ]
+        },
+        {
+          "trial": 13,
+          "bytes": 58907,
+          "submitMs": 1.4249999523162842,
+          "toFrameMs": 13.819999933242798,
+          "rafCpuMs": 0.3999999761581421,
+          "callbacks": [
+            {
+              "startedAt": 1974.570000052452,
+              "finishedAt": 1974.9700000286102
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1974.7300000190735,
+              "completedAt": 1977.5400000810623
+            }
+          ]
+        },
+        {
+          "trial": 14,
+          "bytes": 58907,
+          "submitMs": 1.0850000381469727,
+          "toFrameMs": 14,
+          "rafCpuMs": 0.25,
+          "callbacks": [
+            {
+              "startedAt": 1991.3600000143051,
+              "finishedAt": 1991.6100000143051
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1991.4550000429153,
+              "completedAt": 1994.2599999904633
+            }
+          ]
+        },
+        {
+          "trial": 15,
+          "bytes": 58907,
+          "submitMs": 0.9450000524520874,
+          "toFrameMs": 13.875,
+          "rafCpuMs": 0.31499993801116943,
+          "callbacks": [
+            {
+              "startedAt": 2007.905000090599,
+              "finishedAt": 2008.2200000286102
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 2008.0350000858307,
+              "completedAt": 2011.0400000810623
+            }
+          ]
+        },
+        {
+          "trial": 16,
+          "bytes": 58907,
+          "submitMs": 0.9500000476837158,
+          "toFrameMs": 13.830000042915344,
+          "rafCpuMs": 0.36500000953674316,
+          "callbacks": [
+            {
+              "startedAt": 2024.5800000429153,
+              "finishedAt": 2024.945000052452
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 2024.7300000190735,
+              "completedAt": 2027.7250000238419
+            }
+          ]
+        },
+        {
+          "trial": 17,
+          "bytes": 58907,
+          "submitMs": 1.0149999856948853,
+          "toFrameMs": 13.639999985694885,
+          "rafCpuMs": 0.26499998569488525,
+          "callbacks": [
+            {
+              "startedAt": 2041.1600000858307,
+              "finishedAt": 2041.4250000715256
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 2041.2650001049042,
+              "completedAt": 2043.9000000953674
+            }
+          ]
+        },
+        {
+          "trial": 18,
+          "bytes": 58907,
+          "submitMs": 0.8200000524520874,
+          "toFrameMs": 14.284999966621399,
+          "rafCpuMs": 0.2549999952316284,
+          "callbacks": [
+            {
+              "startedAt": 2057.9700000286102,
+              "finishedAt": 2058.225000023842
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 2058.0750000476837,
+              "completedAt": 2060.7450000047684
+            }
+          ]
+        },
+        {
+          "trial": 19,
+          "bytes": 58907,
+          "submitMs": 0.8600000143051147,
+          "toFrameMs": 14.004999995231628,
+          "rafCpuMs": 0.23500001430511475,
+          "callbacks": [
+            {
+              "startedAt": 2074.5750000476837,
+              "finishedAt": 2074.810000061989
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 2074.6750000715256,
+              "completedAt": 2077.3150000572205
+            }
+          ]
+        },
+        {
+          "trial": 20,
+          "bytes": 58907,
+          "submitMs": 0.8100000619888306,
+          "toFrameMs": 14.175000071525574,
+          "rafCpuMs": 0.26499998569488525,
+          "callbacks": [
+            {
+              "startedAt": 2091.2750000953674,
+              "finishedAt": 2091.5400000810623
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 2091.3799999952316,
+              "completedAt": 2094.1200000047684
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "engine": "just-bash",
+      "samples": [
+        {
+          "trial": 1,
+          "bytes": 58907,
+          "submitMs": 1.0099999904632568,
+          "toFrameMs": 1.350000023841858,
+          "rafCpuMs": 0.28999996185302734,
+          "callbacks": [
+            {
+              "startedAt": 1491.789999961853,
+              "finishedAt": 1492.079999923706
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1491.9099999666214,
+              "completedAt": 1494.7599999904633
+            }
+          ]
+        },
+        {
+          "trial": 2,
+          "bytes": 58907,
+          "submitMs": 0.8400000333786011,
+          "toFrameMs": 12.440000057220459,
+          "rafCpuMs": 0.375,
+          "callbacks": [
+            {
+              "startedAt": 1506.9199999570847,
+              "finishedAt": 1507.2949999570847
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1507.0899999141693,
+              "completedAt": 1510.0299999713898
+            }
+          ]
+        },
+        {
+          "trial": 3,
+          "bytes": 58907,
+          "submitMs": 0.9750000238418579,
+          "toFrameMs": 13.75,
+          "rafCpuMs": 0.309999942779541,
+          "callbacks": [
+            {
+              "startedAt": 1523.5349999666214,
+              "finishedAt": 1523.844999909401
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1523.6549999713898,
+              "completedAt": 1526.429999947548
+            }
+          ]
+        },
+        {
+          "trial": 4,
+          "bytes": 58907,
+          "submitMs": 0.880000114440918,
+          "toFrameMs": 14.005000114440918,
+          "rafCpuMs": 0.2650001049041748,
+          "callbacks": [
+            {
+              "startedAt": 1540.2349998950958,
+              "finishedAt": 1540.5
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1540.329999923706,
+              "completedAt": 1542.9899998903275
+            }
+          ]
+        },
+        {
+          "trial": 5,
+          "bytes": 58907,
+          "submitMs": 0.7699999809265137,
+          "toFrameMs": 26.414999961853027,
+          "rafCpuMs": 0.26499998569488525,
+          "callbacks": [
+            {
+              "startedAt": 1569.1899999380112,
+              "finishedAt": 1569.454999923706
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1569.289999961853,
+              "completedAt": 1572.25
+            }
+          ]
+        },
+        {
+          "trial": 6,
+          "bytes": 58907,
+          "submitMs": 0.8600000143051147,
+          "toFrameMs": 1.5499999523162842,
+          "rafCpuMs": 0.24500000476837158,
+          "callbacks": [
+            {
+              "startedAt": 1573.619999885559,
+              "finishedAt": 1573.8649998903275
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1573.7099999189377,
+              "completedAt": 1576.5499999523163
+            }
+          ]
+        },
+        {
+          "trial": 7,
+          "bytes": 58907,
+          "submitMs": 0.7649999856948853,
+          "toFrameMs": 13.975000023841858,
+          "rafCpuMs": 0.2749999761581421,
+          "callbacks": [
+            {
+              "startedAt": 1590.3099999427795,
+              "finishedAt": 1590.5849999189377
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1590.4199999570847,
+              "completedAt": 1593.2849999666214
+            }
+          ]
+        },
+        {
+          "trial": 8,
+          "bytes": 58907,
+          "submitMs": 0.8999999761581421,
+          "toFrameMs": 14.225000023841858,
+          "rafCpuMs": 0.28999996185302734,
+          "callbacks": [
+            {
+              "startedAt": 1607.2799999713898,
+              "finishedAt": 1607.5699999332428
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1607.3949999809265,
+              "completedAt": 1610.1499999761581
+            }
+          ]
+        },
+        {
+          "trial": 9,
+          "bytes": 58907,
+          "submitMs": 0.8250000476837158,
+          "toFrameMs": 13.615000009536743,
+          "rafCpuMs": 0.25999999046325684,
+          "callbacks": [
+            {
+              "startedAt": 1623.5599999427795,
+              "finishedAt": 1623.8199999332428
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1623.6599999666214,
+              "completedAt": 1626.619999885559
+            }
+          ]
+        },
+        {
+          "trial": 10,
+          "bytes": 58907,
+          "submitMs": 0.8650000095367432,
+          "toFrameMs": 15.424999952316284,
+          "rafCpuMs": 0.5749999284744263,
+          "callbacks": [
+            {
+              "startedAt": 1641.5249999761581,
+              "finishedAt": 1642.0999999046326
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1641.8499999046326,
+              "completedAt": 1644.9399999380112
+            }
+          ]
+        },
+        {
+          "trial": 11,
+          "bytes": 58907,
+          "submitMs": 1.584999918937683,
+          "toFrameMs": 12.224999904632568,
+          "rafCpuMs": 0.29499995708465576,
+          "callbacks": [
+            {
+              "startedAt": 1656.9399999380112,
+              "finishedAt": 1657.2349998950958
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1657.0599999427795,
+              "completedAt": 1660.344999909401
+            }
+          ]
+        },
+        {
+          "trial": 12,
+          "bytes": 58907,
+          "submitMs": 0.9299999475479126,
+          "toFrameMs": 13.495000004768372,
+          "rafCpuMs": 0.25999999046325684,
+          "callbacks": [
+            {
+              "startedAt": 1673.6399999856949,
+              "finishedAt": 1673.8999999761581
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1673.7349998950958,
+              "completedAt": 1677.4749999046326
+            }
+          ]
+        },
+        {
+          "trial": 13,
+          "bytes": 58907,
+          "submitMs": 0.8349999189376831,
+          "toFrameMs": 12.944999933242798,
+          "rafCpuMs": 0.25,
+          "callbacks": [
+            {
+              "startedAt": 1690.2249999046326,
+              "finishedAt": 1690.4749999046326
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1690.3249999284744,
+              "completedAt": 1693.719999909401
+            }
+          ]
+        },
+        {
+          "trial": 14,
+          "bytes": 58907,
+          "submitMs": 0.8349999189376831,
+          "toFrameMs": 13.46999990940094,
+          "rafCpuMs": 0.26999998092651367,
+          "callbacks": [
+            {
+              "startedAt": 1706.9649999141693,
+              "finishedAt": 1707.2349998950958
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1707.0649999380112,
+              "completedAt": 1710.1549999713898
+            }
+          ]
+        },
+        {
+          "trial": 15,
+          "bytes": 58907,
+          "submitMs": 0.8400000333786011,
+          "toFrameMs": 13.955000042915344,
+          "rafCpuMs": 0.2849999666213989,
+          "callbacks": [
+            {
+              "startedAt": 1723.875,
+              "finishedAt": 1724.1599999666214
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1723.9899998903275,
+              "completedAt": 1727.4049999713898
+            }
+          ]
+        },
+        {
+          "trial": 16,
+          "bytes": 58907,
+          "submitMs": 0.8600000143051147,
+          "toFrameMs": 13.045000076293945,
+          "rafCpuMs": 0.24500000476837158,
+          "callbacks": [
+            {
+              "startedAt": 1740.2549999952316,
+              "finishedAt": 1740.5
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1740.3399999141693,
+              "completedAt": 1743.2349998950958
+            }
+          ]
+        },
+        {
+          "trial": 17,
+          "bytes": 58907,
+          "submitMs": 0.7949999570846558,
+          "toFrameMs": 13.964999914169312,
+          "rafCpuMs": 0.2999999523162842,
+          "callbacks": [
+            {
+              "startedAt": 1756.9449999332428,
+              "finishedAt": 1757.244999885559
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1757.0749999284744,
+              "completedAt": 1760.204999923706
+            }
+          ]
+        },
+        {
+          "trial": 18,
+          "bytes": 58907,
+          "submitMs": 1.0549999475479126,
+          "toFrameMs": 13.615000009536743,
+          "rafCpuMs": 0.315000057220459,
+          "callbacks": [
+            {
+              "startedAt": 1773.619999885559,
+              "finishedAt": 1773.9349999427795
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1773.7549999952316,
+              "completedAt": 1776.7099999189377
+            }
+          ]
+        },
+        {
+          "trial": 19,
+          "bytes": 58907,
+          "submitMs": 0.9900000095367432,
+          "toFrameMs": 13.735000014305115,
+          "rafCpuMs": 0.31000006198883057,
+          "callbacks": [
+            {
+              "startedAt": 1790.1999999284744,
+              "finishedAt": 1790.5099999904633
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1790.3249999284744,
+              "completedAt": 1793.2849999666214
+            }
+          ]
+        },
+        {
+          "trial": 20,
+          "bytes": 58907,
+          "submitMs": 0.8350000381469727,
+          "toFrameMs": 13.850000023841858,
+          "rafCpuMs": 0.26999998092651367,
+          "callbacks": [
+            {
+              "startedAt": 1806.914999961853,
+              "finishedAt": 1807.1849999427795
+            }
+          ],
+          "queues": [
+            {
+              "submittedAt": 1807.0149999856949,
+              "completedAt": 1810.4349999427795
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "probes": null,
+  "resources": {
+    "port": 4204,
+    "serverPid": 3170439
+  },
+  "cleanup": {
+    "browserClosed": true,
+    "serverStopped": true,
+    "snapshotRemoved": true
+  },
+  "limitations": [
+    "Cost mode times all WASI imports and custom browser imports except phase events. Import spans begin after entry into JavaScript; transitions and profiler overhead remain unattributed.",
+    "Host spans include normalization, copies and backpressure. Their nested children must not be added again. Worker blocked time overlaps main-thread processing.",
+    "Phase mode records only command boundaries in the worker. Both modes retain identical bounded main-thread delivery/frame tracing. Instrumentation overhead is reported separately.",
+    "Terminal submit measures synchronous Ghostty write, including VT parsing and terminal-state work. Last-drain-to-frame includes scheduling/drawing and is not isolated GPU time or physical presentation.",
+    "Known-backlog gaps measure intervals between drains when bytes were already queued. They overlap other threads and may contain frame work; they are not extra CPU work.",
+    "The just-bash execution span includes interpreter, virtual filesystem and output-string construction. It is not pure interpreter CPU time."
+  ]
+}

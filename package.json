@@ -1,6 +1,6 @@
 {
   "name": "brush-web",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "type": "module",
   "scripts": {
@@ -20,7 +20,9 @@
     "compare": "node scripts/compare-commands.mjs",
     "test:host": "node scripts/test-host.mjs",
     "proof": "node scripts/prove-performance.mjs",
-    "proof:analyze": "node scripts/analyze-performance.mjs"
+    "proof:analyze": "node scripts/analyze-performance.mjs",
+    "measure:costs": "node scripts/attribute-costs.mjs",
+    "costs:analyze": "node scripts/analyze-costs.mjs"
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "0.4.2",

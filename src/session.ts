@@ -10,8 +10,17 @@ export type SessionOptions = {
   onOutput: (bytes: Uint8Array) => void;
   onState: (state: string) => void;
   baselineState?: "isolated" | "carry";
-  profile?: boolean;
+  profile?: "phase" | "cost";
+  trace?: boolean;
 };
+type DeliverySpan = {
+  startedAt: number;
+  drainedAt: number;
+  finishedAt: number;
+  bytes: number;
+  queuedBytes: number;
+};
+type FramePoint = { at: number; outputBytes: number };
 type SessionMetrics = {
   startupMs: number;
   outputBytes: number;
@@ -21,6 +30,9 @@ type SessionMetrics = {
   wasmBytes: number;
   memoryBytes: number;
   lastExecution: ReturnType<typeof ExecutionProfile.read>;
+  deliveries: DeliverySpan[];
+  frames: FramePoint[];
+  traceDropped: number;
 };
 export class BrowserSession {
   private readonly bridge = new SharedBridge();
@@ -45,6 +57,9 @@ export class BrowserSession {
     wasmBytes: 0,
     memoryBytes: 0,
     lastExecution: undefined,
+    deliveries: [],
+    frames: [],
+    traceDropped: 0,
   };
   private constructor(private readonly options: SessionOptions) {
     this.profileBuffer = options.profile ? ExecutionProfile.createBuffer() : undefined;
@@ -87,6 +102,7 @@ export class BrowserSession {
             new URL("brush/brush-browser.wasm", document.baseURI).href,
             options.baselineState ?? "isolated",
             session.profileBuffer,
+            options.profile === "cost",
           ),
           failure,
         ]);
@@ -149,6 +165,14 @@ export class BrowserSession {
     this.queuedBytes = 0;
   }
   markRendered() {
+    if (this.options.trace && !this.disposed) {
+      if (this.metrics.frames.length < 512)
+        this.metrics.frames.push({
+          at: performance.timeOrigin + performance.now(),
+          outputBytes: this.metrics.outputBytes,
+        });
+      else this.metrics.traceDropped++;
+    }
     if (!this.renderPending || !this.pendingInputTime || this.disposed) return;
     const samples = this.metrics.inputLatenciesMs;
     if (samples.length === 256) samples.shift();
@@ -181,8 +205,26 @@ export class BrowserSession {
   private pump() {
     if (this.disposed || this.failed) return;
     this.flushInput();
+    const startedAt = this.options.trace ? performance.timeOrigin + performance.now() : 0;
+    const queuedBytes = this.options.trace
+      ? (Atomics.load(this.bridge.state, control.outputWrite) -
+          Atomics.load(this.bridge.state, control.outputRead)) >>>
+        0
+      : 0;
     const output = this.bridge.drain();
+    const drainedAt = this.options.trace ? performance.timeOrigin + performance.now() : 0;
     if (output.length) this.deliver(output);
+    if (this.options.trace && output.length) {
+      if (this.metrics.deliveries.length < 512)
+        this.metrics.deliveries.push({
+          startedAt,
+          drainedAt,
+          finishedAt: performance.timeOrigin + performance.now(),
+          bytes: output.length,
+          queuedBytes,
+        });
+      else this.metrics.traceDropped++;
+    }
     if (this.disposed || this.failed) return;
     if (this.profileBuffer) this.metrics.lastExecution = ExecutionProfile.read(this.profileBuffer);
     this.metrics.memoryBytes = Atomics.load(this.bridge.state, control.memory);

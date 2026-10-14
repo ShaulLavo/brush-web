@@ -1,0 +1,651 @@
+{
+  "recordedAt": "2026-10-14T11:01:41.852Z",
+  "sourceHead": "5f1cb514a0d1890a5ea45013d09713bc3feceada",
+  "cpu": "Intel(R) Core(TM) i7-14700K",
+  "kernel": "7.2.8-arch1-2",
+  "browser": "152.0.7977.82",
+  "headed": false,
+  "replayOnly": true,
+  "renderer": "canvas",
+  "trials": 30,
+  "gpu": null,
+  "artifacts": [
+    {
+      "name": "assets/baseline-Ds_lTAbq.js",
+      "bytes": 1282181,
+      "sha256": "76ff665c4b40be829d6a931117152b95ee636c2c1993c2aedf75f5e0f7f6378a"
+    },
+    {
+      "name": "assets/bridge-CXNVfTJ4.wasm",
+      "bytes": 20910,
+      "sha256": "74678d4ec589054a0dada75eaed431742c67e40d33abf4b6b50d8674f3a42679"
+    },
+    {
+      "name": "assets/ghostty-vt-B22UGnHM.wasm",
+      "bytes": 821390,
+      "sha256": "de411c7abb6af40aa9c077b79c373cf11952e7801133d0855cdf3723be5b1426"
+    },
+    {
+      "name": "assets/index-2UWR0xcI.css",
+      "bytes": 5351,
+      "sha256": "9a36c96964c2ec344edd298c58edeaeb09eefb6014408e28fe2b8569eff1066c"
+    },
+    {
+      "name": "assets/index-CWlZeARI.js",
+      "bytes": 504296,
+      "sha256": "0501f603f703240f8a2b28b2863c1d102d27483c2f3709bd7fe43d2ecc85d101"
+    },
+    {
+      "name": "assets/kernel-iMC75t23.js",
+      "bytes": 871,
+      "sha256": "750c6d059ae11509ef9b72740a25cf5a7c21b1629b76cc6109f1231fdfacc17d"
+    },
+    {
+      "name": "assets/shell.worker-BuQh1w3M.js",
+      "bytes": 42996,
+      "sha256": "25a5682a0a7c08d9f207e474d36ef5176bd3ab810338e91b9ed7e00776dcf967"
+    },
+    {
+      "name": "assets/stamp-target-BtNUVQdP.js",
+      "bytes": 14026,
+      "sha256": "a6757534445c9be31538a7e7279740cb7cb926fbae562dee5f8b987b217176e8"
+    },
+    {
+      "name": "brush/brush-browser.wasm",
+      "bytes": 5079308,
+      "sha256": "196c5b9f40b31975b4960009d51a64837efccc74ee4a4402d5af5a7b62a34085"
+    }
+  ],
+  "samples": [],
+  "summary": [],
+  "replay": [
+    {
+      "engine": "brush",
+      "samples": [
+        {
+          "trial": 1,
+          "bytes": 58907,
+          "submitMs": 1.1100000143051147,
+          "toFrameMs": 5.674999952316284,
+          "rafCpuMs": 0.5649999380111694,
+          "callbacks": [
+            {
+              "startedAt": 1380.5299999713898,
+              "finishedAt": 1381.094999909401
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 2,
+          "bytes": 58907,
+          "submitMs": 1.15500009059906,
+          "toFrameMs": 16.670000076293945,
+          "rafCpuMs": 0.5600000619888306,
+          "callbacks": [
+            {
+              "startedAt": 1397.3099999427795,
+              "finishedAt": 1397.8700000047684
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 3,
+          "bytes": 58907,
+          "submitMs": 1.190000057220459,
+          "toFrameMs": 16.41000008583069,
+          "rafCpuMs": 0.4700000286102295,
+          "callbacks": [
+            {
+              "startedAt": 1413.8999999761581,
+              "finishedAt": 1414.3700000047684
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 4,
+          "bytes": 58907,
+          "submitMs": 1.040000081062317,
+          "toFrameMs": 16.56500005722046,
+          "rafCpuMs": 0.4700000286102295,
+          "callbacks": [
+            {
+              "startedAt": 1430.5299999713898,
+              "finishedAt": 1431
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 5,
+          "bytes": 58907,
+          "submitMs": 1.090000033378601,
+          "toFrameMs": 16.56500005722046,
+          "rafCpuMs": 0.41499996185302734,
+          "callbacks": [
+            {
+              "startedAt": 1447.2450000047684,
+              "finishedAt": 1447.6599999666214
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 6,
+          "bytes": 58907,
+          "submitMs": 0.9850000143051147,
+          "toFrameMs": 16.66000008583069,
+          "rafCpuMs": 0.38499999046325684,
+          "callbacks": [
+            {
+              "startedAt": 1464,
+              "finishedAt": 1464.3849999904633
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 7,
+          "bytes": 58907,
+          "submitMs": 0.9550000429153442,
+          "toFrameMs": 16.8400000333786,
+          "rafCpuMs": 0.33500003814697266,
+          "callbacks": [
+            {
+              "startedAt": 1480.9499999284744,
+              "finishedAt": 1481.2849999666214
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 8,
+          "bytes": 58907,
+          "submitMs": 0.8400000333786011,
+          "toFrameMs": 16.290000081062317,
+          "rafCpuMs": 0.33000004291534424,
+          "callbacks": [
+            {
+              "startedAt": 1497.2949999570847,
+              "finishedAt": 1497.625
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 9,
+          "bytes": 58907,
+          "submitMs": 0.8550000190734863,
+          "toFrameMs": 16.68500006198883,
+          "rafCpuMs": 0.38499999046325684,
+          "callbacks": [
+            {
+              "startedAt": 1513.9750000238419,
+              "finishedAt": 1514.3600000143051
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 10,
+          "bytes": 58907,
+          "submitMs": 1.0199999809265137,
+          "toFrameMs": 16.585000038146973,
+          "rafCpuMs": 0.38499999046325684,
+          "callbacks": [
+            {
+              "startedAt": 1530.625,
+              "finishedAt": 1531.0099999904633
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 11,
+          "bytes": 58907,
+          "submitMs": 0.9600000381469727,
+          "toFrameMs": 16.47000002861023,
+          "rafCpuMs": 0.3299999237060547,
+          "callbacks": [
+            {
+              "startedAt": 1547.2250000238419,
+              "finishedAt": 1547.554999947548
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 12,
+          "bytes": 58907,
+          "submitMs": 0.8449999094009399,
+          "toFrameMs": 16.695000052452087,
+          "rafCpuMs": 0.309999942779541,
+          "callbacks": [
+            {
+              "startedAt": 1563.9850000143051,
+              "finishedAt": 1564.2949999570847
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 13,
+          "bytes": 58907,
+          "submitMs": 0.9000000953674316,
+          "toFrameMs": 16.625,
+          "rafCpuMs": 0.39499998092651367,
+          "callbacks": [
+            {
+              "startedAt": 1580.5699999332428,
+              "finishedAt": 1580.9649999141693
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 14,
+          "bytes": 58907,
+          "submitMs": 1.1950000524520874,
+          "toFrameMs": 16.730000019073486,
+          "rafCpuMs": 0.3700000047683716,
+          "callbacks": [
+            {
+              "startedAt": 1597.4099999666214,
+              "finishedAt": 1597.7799999713898
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 15,
+          "bytes": 58907,
+          "submitMs": 1.1349999904632568,
+          "toFrameMs": 16.47499990463257,
+          "rafCpuMs": 0.4299999475479126,
+          "callbacks": [
+            {
+              "startedAt": 1613.914999961853,
+              "finishedAt": 1614.344999909401
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 16,
+          "bytes": 58907,
+          "submitMs": 1.0499999523162842,
+          "toFrameMs": 16.519999980926514,
+          "rafCpuMs": 0.36500000953674316,
+          "callbacks": [
+            {
+              "startedAt": 1630.5649999380112,
+              "finishedAt": 1630.929999947548
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 17,
+          "bytes": 58907,
+          "submitMs": 1.034999966621399,
+          "toFrameMs": 16.549999952316284,
+          "rafCpuMs": 0.36500000953674316,
+          "callbacks": [
+            {
+              "startedAt": 1647.1849999427795,
+              "finishedAt": 1647.5499999523163
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 18,
+          "bytes": 58907,
+          "submitMs": 0.9950000047683716,
+          "toFrameMs": 16.56499993801117,
+          "rafCpuMs": 0.34499990940093994,
+          "callbacks": [
+            {
+              "startedAt": 1663.8550000190735,
+              "finishedAt": 1664.1999999284744
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 19,
+          "bytes": 58907,
+          "submitMs": 1.0749999284744263,
+          "toFrameMs": 16.649999976158142,
+          "rafCpuMs": 0.3450000286102295,
+          "callbacks": [
+            {
+              "startedAt": 1680.5749999284744,
+              "finishedAt": 1680.9199999570847
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 20,
+          "bytes": 58907,
+          "submitMs": 1.0699999332427979,
+          "toFrameMs": 16.55999994277954,
+          "rafCpuMs": 0.3500000238418579,
+          "callbacks": [
+            {
+              "startedAt": 1697.2149999141693,
+              "finishedAt": 1697.5649999380112
+            }
+          ],
+          "queues": []
+        }
+      ]
+    },
+    {
+      "engine": "just-bash",
+      "samples": [
+        {
+          "trial": 1,
+          "bytes": 58907,
+          "submitMs": 1.2000000476837158,
+          "toFrameMs": 8.81000006198883,
+          "rafCpuMs": 0.48500001430511475,
+          "callbacks": [
+            {
+              "startedAt": 1336.7050000429153,
+              "finishedAt": 1337.1900000572205
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 2,
+          "bytes": 58907,
+          "submitMs": 1.1050000190734863,
+          "toFrameMs": 16.570000052452087,
+          "rafCpuMs": 0.4450000524520874,
+          "callbacks": [
+            {
+              "startedAt": 1353.4199999570847,
+              "finishedAt": 1353.8650000095367
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 3,
+          "bytes": 58907,
+          "submitMs": 1.0549999475479126,
+          "toFrameMs": 16.574999928474426,
+          "rafCpuMs": 0.48000001907348633,
+          "callbacks": [
+            {
+              "startedAt": 1370.0349999666214,
+              "finishedAt": 1370.5149999856949
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 4,
+          "bytes": 58907,
+          "submitMs": 1.0399999618530273,
+          "toFrameMs": 16.49500000476837,
+          "rafCpuMs": 0.41499996185302734,
+          "callbacks": [
+            {
+              "startedAt": 1386.6750000715256,
+              "finishedAt": 1387.0900000333786
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 5,
+          "bytes": 58907,
+          "submitMs": 1.0200001001358032,
+          "toFrameMs": 16.580000042915344,
+          "rafCpuMs": 0.375,
+          "callbacks": [
+            {
+              "startedAt": 1403.3600000143051,
+              "finishedAt": 1403.7350000143051
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 6,
+          "bytes": 58907,
+          "submitMs": 0.9800000190734863,
+          "toFrameMs": 16.47000002861023,
+          "rafCpuMs": 0.3299999237060547,
+          "callbacks": [
+            {
+              "startedAt": 1419.9350000619888,
+              "finishedAt": 1420.2649999856949
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 7,
+          "bytes": 58907,
+          "submitMs": 0.8799999952316284,
+          "toFrameMs": 17.259999990463257,
+          "rafCpuMs": 0.42500007152557373,
+          "callbacks": [
+            {
+              "startedAt": 1437.164999961853,
+              "finishedAt": 1437.5900000333786
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 8,
+          "bytes": 58907,
+          "submitMs": 1.0950000286102295,
+          "toFrameMs": 16.18500006198883,
+          "rafCpuMs": 0.4049999713897705,
+          "callbacks": [
+            {
+              "startedAt": 1453.4300000667572,
+              "finishedAt": 1453.835000038147
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 9,
+          "bytes": 58907,
+          "submitMs": 1.1200000047683716,
+          "toFrameMs": 16.69000005722046,
+          "rafCpuMs": 0.5349999666213989,
+          "callbacks": [
+            {
+              "startedAt": 1470.085000038147,
+              "finishedAt": 1470.6200000047684
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 10,
+          "bytes": 58907,
+          "submitMs": 1.3249999284744263,
+          "toFrameMs": 16.585000038146973,
+          "rafCpuMs": 0.5400000810623169,
+          "callbacks": [
+            {
+              "startedAt": 1486.7699999809265,
+              "finishedAt": 1487.3100000619888
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 11,
+          "bytes": 58907,
+          "submitMs": 1.3849999904632568,
+          "toFrameMs": 16.37999999523163,
+          "rafCpuMs": 0.36500000953674316,
+          "callbacks": [
+            {
+              "startedAt": 1503.4049999713898,
+              "finishedAt": 1503.7699999809265
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 12,
+          "bytes": 58907,
+          "submitMs": 1.2599999904632568,
+          "toFrameMs": 16.519999980926514,
+          "rafCpuMs": 0.36500000953674316,
+          "callbacks": [
+            {
+              "startedAt": 1519.9950000047684,
+              "finishedAt": 1520.3600000143051
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 13,
+          "bytes": 58907,
+          "submitMs": 1.100000023841858,
+          "toFrameMs": 16.625,
+          "rafCpuMs": 0.3349999189376831,
+          "callbacks": [
+            {
+              "startedAt": 1536.710000038147,
+              "finishedAt": 1537.0449999570847
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 14,
+          "bytes": 58907,
+          "submitMs": 1.0850000381469727,
+          "toFrameMs": 17.2849999666214,
+          "rafCpuMs": 0.6649999618530273,
+          "callbacks": [
+            {
+              "startedAt": 1553.7300000190735,
+              "finishedAt": 1554.3949999809265
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 15,
+          "bytes": 58907,
+          "submitMs": 1.9250000715255737,
+          "toFrameMs": 16.1599999666214,
+          "rafCpuMs": 0.559999942779541,
+          "callbacks": [
+            {
+              "startedAt": 1570.1100000143051,
+              "finishedAt": 1570.6699999570847
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 16,
+          "bytes": 58907,
+          "submitMs": 1.0449999570846558,
+          "toFrameMs": 16.4099999666214,
+          "rafCpuMs": 0.4500000476837158,
+          "callbacks": [
+            {
+              "startedAt": 1586.7649999856949,
+              "finishedAt": 1587.2150000333786
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 17,
+          "bytes": 58907,
+          "submitMs": 1.0550000667572021,
+          "toFrameMs": 16.520000100135803,
+          "rafCpuMs": 0.4100000858306885,
+          "callbacks": [
+            {
+              "startedAt": 1603.3999999761581,
+              "finishedAt": 1603.8100000619888
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 18,
+          "bytes": 58907,
+          "submitMs": 1.0800000429153442,
+          "toFrameMs": 16.514999985694885,
+          "rafCpuMs": 0.3349999189376831,
+          "callbacks": [
+            {
+              "startedAt": 1620.0650000572205,
+              "finishedAt": 1620.3999999761581
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 19,
+          "bytes": 58907,
+          "submitMs": 1.0699999332427979,
+          "toFrameMs": 16.59500002861023,
+          "rafCpuMs": 0.35500001907348633,
+          "callbacks": [
+            {
+              "startedAt": 1636.7000000476837,
+              "finishedAt": 1637.0550000667572
+            }
+          ],
+          "queues": []
+        },
+        {
+          "trial": 20,
+          "bytes": 58907,
+          "submitMs": 1.0600000619888306,
+          "toFrameMs": 16.634999990463257,
+          "rafCpuMs": 0.34999990463256836,
+          "callbacks": [
+            {
+              "startedAt": 1653.4250000715256,
+              "finishedAt": 1653.7749999761581
+            }
+          ],
+          "queues": []
+        }
+      ]
+    }
+  ],
+  "probes": null,
+  "resources": {
+    "port": 4204,
+    "serverPid": 3180169
+  },
+  "cleanup": {
+    "browserClosed": true,
+    "serverStopped": true,
+    "snapshotRemoved": true
+  },
+  "limitations": [
+    "Cost mode times all WASI imports and custom browser imports except phase events. Import spans begin after entry into JavaScript; transitions and profiler overhead remain unattributed.",
+    "Host spans include normalization, copies and backpressure. Their nested children must not be added again. Worker blocked time overlaps main-thread processing.",
+    "Phase mode records only command boundaries in the worker. Both modes retain identical bounded main-thread delivery/frame tracing. Instrumentation overhead is reported separately.",
+    "Terminal submit measures synchronous Ghostty write, including VT parsing and terminal-state work. Last-drain-to-frame includes scheduling/drawing and is not isolated GPU time or physical presentation.",
+    "Known-backlog gaps measure intervals between drains when bytes were already queued. They overlap other threads and may contain frame work; they are not extra CPU work.",
+    "The just-bash execution span includes interpreter, virtual filesystem and output-string construction. It is not pure interpreter CPU time."
+  ]
+}

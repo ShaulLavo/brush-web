@@ -1,0 +1,809 @@
+{
+  "runs": [
+    {
+      "source": "cost-attribution-canvas.json",
+      "sha256": "3a0923ea1a6ff47c5da22b598212a22f6e8bae704a2d930768b74ebcc809099a",
+      "renderer": "canvas",
+      "trials": 30,
+      "gpu": null,
+      "summaries": [
+        {
+          "fixture": "arithmetic-20000",
+          "engine": "brush",
+          "criticalPath": {
+            "trial": 5,
+            "elapsedMs": 64.280029296875,
+            "workerElapsedMs": 56.28999996185303,
+            "bytes": 422,
+            "drains": 2,
+            "beforeFirstDrainMs": 6.669921875,
+            "ringDrainMs": 0.01513671875,
+            "terminalSubmitMs": 0.195068359375,
+            "betweenDrainsMs": 56.389892578125,
+            "lastDrainToFrameMs": 1.010009765625
+          },
+          "phaseWorkerMedianMs": 56.875,
+          "phaseVisibleMedianMs": 64.280029296875,
+          "mainTerminalSubmitMedianMs": 0.159912109375,
+          "costWorkerMedianMs": 76.88499999046326,
+          "normalizedOutputMedianMs": 0,
+          "ringCopyMedianMs": 0.004999995231628418,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 6,
+          "browserCallMedian": 60016,
+          "baselineExecutionMedianMs": null,
+          "workerOutsideImportsMedianMs": 68.02500128746033
+        },
+        {
+          "fixture": "arithmetic-20000",
+          "engine": "just-bash",
+          "criticalPath": {
+            "trial": 28,
+            "elapsedMs": 64.699951171875,
+            "workerElapsedMs": 57.485000014305115,
+            "bytes": 279,
+            "drains": 2,
+            "beforeFirstDrainMs": 7.1650390625,
+            "ringDrainMs": 0.014892578125,
+            "terminalSubmitMs": 0.17529296875,
+            "betweenDrainsMs": 56.46484375,
+            "lastDrainToFrameMs": 0.8798828125
+          },
+          "phaseWorkerMedianMs": 58.88499999046326,
+          "phaseVisibleMedianMs": 64.699951171875,
+          "mainTerminalSubmitMedianMs": 0.155029296875,
+          "costWorkerMedianMs": 58.35000002384186,
+          "normalizedOutputMedianMs": 0.009999990463256836,
+          "ringCopyMedianMs": 0,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 0,
+          "browserCallMedian": 0,
+          "baselineExecutionMedianMs": 58.330000042915344,
+          "workerOutsideImportsMedianMs": null
+        },
+        {
+          "fixture": "substitutions-1000",
+          "engine": "brush",
+          "criticalPath": {
+            "trial": 17,
+            "elapsedMs": 25.080078125,
+            "workerElapsedMs": 19.694999933242798,
+            "bytes": 446,
+            "drains": 2,
+            "beforeFirstDrainMs": 7.52001953125,
+            "ringDrainMs": 0.010009765625,
+            "terminalSubmitMs": 0.16015625,
+            "betweenDrainsMs": 16.159912109375,
+            "lastDrainToFrameMs": 1.22998046875
+          },
+          "phaseWorkerMedianMs": 18.399999976158142,
+          "phaseVisibleMedianMs": 25.080078125,
+          "mainTerminalSubmitMedianMs": 0.125244140625,
+          "costWorkerMedianMs": 22.22000002861023,
+          "normalizedOutputMedianMs": 0,
+          "ringCopyMedianMs": 0.004999995231628418,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 2006,
+          "browserCallMedian": 10016,
+          "baselineExecutionMedianMs": null,
+          "workerOutsideImportsMedianMs": 19.9099999666214
+        },
+        {
+          "fixture": "substitutions-1000",
+          "engine": "just-bash",
+          "criticalPath": {
+            "trial": 28,
+            "elapsedMs": 36.43505859375,
+            "workerElapsedMs": 30.664999961853027,
+            "bytes": 299,
+            "drains": 2,
+            "beforeFirstDrainMs": 3.275146484375,
+            "ringDrainMs": 0.010009765625,
+            "terminalSubmitMs": 0.110107421875,
+            "betweenDrainsMs": 32.27490234375,
+            "lastDrainToFrameMs": 0.764892578125
+          },
+          "phaseWorkerMedianMs": 30.1599999666214,
+          "phaseVisibleMedianMs": 36.43505859375,
+          "mainTerminalSubmitMedianMs": 0.130126953125,
+          "costWorkerMedianMs": 28.819999933242798,
+          "normalizedOutputMedianMs": 0.009999990463256836,
+          "ringCopyMedianMs": 0,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 0,
+          "browserCallMedian": 0,
+          "baselineExecutionMedianMs": 28.794999957084656,
+          "workerOutsideImportsMedianMs": null
+        },
+        {
+          "fixture": "files-10000",
+          "engine": "brush",
+          "criticalPath": {
+            "trial": 8,
+            "elapsedMs": 6.56005859375,
+            "workerElapsedMs": 3.4950000047683716,
+            "bytes": 476,
+            "drains": 1,
+            "beforeFirstDrainMs": 5.93994140625,
+            "ringDrainMs": 0,
+            "terminalSubmitMs": 0.070068359375,
+            "betweenDrainsMs": 0,
+            "lastDrainToFrameMs": 0.550048828125
+          },
+          "phaseWorkerMedianMs": 2.975000023841858,
+          "phaseVisibleMedianMs": 6.56005859375,
+          "mainTerminalSubmitMedianMs": 0.06494140625,
+          "costWorkerMedianMs": 5.5299999713897705,
+          "normalizedOutputMedianMs": 0,
+          "ringCopyMedianMs": 0.004999995231628418,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 50,
+          "browserCallMedian": 10047,
+          "baselineExecutionMedianMs": null,
+          "workerOutsideImportsMedianMs": 3.980000138282776
+        },
+        {
+          "fixture": "files-10000",
+          "engine": "just-bash",
+          "criticalPath": {
+            "trial": 16,
+            "elapsedMs": 21.780029296875,
+            "workerElapsedMs": 9.304999947547913,
+            "bytes": 329,
+            "drains": 2,
+            "beforeFirstDrainMs": 0.39990234375,
+            "ringDrainMs": 0.01513671875,
+            "terminalSubmitMs": 0.114990234375,
+            "betweenDrainsMs": 16.14501953125,
+            "lastDrainToFrameMs": 5.10498046875
+          },
+          "phaseWorkerMedianMs": 8,
+          "phaseVisibleMedianMs": 21.780029296875,
+          "mainTerminalSubmitMedianMs": 0.114990234375,
+          "costWorkerMedianMs": 7.300000071525574,
+          "normalizedOutputMedianMs": 0.004999995231628418,
+          "ringCopyMedianMs": 0.004999995231628418,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 0,
+          "browserCallMedian": 0,
+          "baselineExecutionMedianMs": 7.28000009059906,
+          "workerOutsideImportsMedianMs": null
+        },
+        {
+          "fixture": "terminal-10000-settled",
+          "engine": "brush",
+          "criticalPath": {
+            "trial": 30,
+            "elapsedMs": 24.06005859375,
+            "workerElapsedMs": 0.625,
+            "bytes": 59241,
+            "drains": 2,
+            "beforeFirstDrainMs": 1.18505859375,
+            "ringDrainMs": 0.059814453125,
+            "terminalSubmitMs": 2.35498046875,
+            "betweenDrainsMs": 8.080078125,
+            "lastDrainToFrameMs": 12.380126953125
+          },
+          "phaseWorkerMedianMs": 0.6200000047683716,
+          "phaseVisibleMedianMs": 24.06005859375,
+          "mainTerminalSubmitMedianMs": 1.260009765625,
+          "costWorkerMedianMs": 3.174999952316284,
+          "normalizedOutputMedianMs": 0.1500004529953003,
+          "ringCopyMedianMs": 0.014999985694885254,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 12,
+          "browserCallMedian": 10012,
+          "baselineExecutionMedianMs": null,
+          "workerOutsideImportsMedianMs": 1.6649997234344482
+        },
+        {
+          "fixture": "terminal-10000-settled",
+          "engine": "just-bash",
+          "criticalPath": {
+            "trial": 7,
+            "elapsedMs": 28.224853515625,
+            "workerElapsedMs": 1.84499990940094,
+            "bytes": 59094,
+            "drains": 2,
+            "beforeFirstDrainMs": 4.52490234375,
+            "ringDrainMs": 0.0400390625,
+            "terminalSubmitMs": 1.125,
+            "betweenDrainsMs": 8.070068359375,
+            "lastDrainToFrameMs": 14.46484375
+          },
+          "phaseWorkerMedianMs": 1.6949999332427979,
+          "phaseVisibleMedianMs": 28.224853515625,
+          "mainTerminalSubmitMedianMs": 1.22998046875,
+          "costWorkerMedianMs": 2.005000114440918,
+          "normalizedOutputMedianMs": 0.27500009536743164,
+          "ringCopyMedianMs": 0.009999990463256836,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 0,
+          "browserCallMedian": 0,
+          "baselineExecutionMedianMs": 1.6700000762939453,
+          "workerOutsideImportsMedianMs": null
+        },
+        {
+          "fixture": "terminal-10000-immediate",
+          "engine": "brush",
+          "criticalPath": {
+            "trial": 26,
+            "elapsedMs": 43.614990234375,
+            "workerElapsedMs": 0.6800000667572021,
+            "bytes": 67598,
+            "drains": 3,
+            "beforeFirstDrainMs": 9.5,
+            "ringDrainMs": 0.044921875,
+            "terminalSubmitMs": 1.864990234375,
+            "betweenDrainsMs": 16.1650390625,
+            "lastDrainToFrameMs": 16.0400390625
+          },
+          "phaseWorkerMedianMs": 0.7200000286102295,
+          "phaseVisibleMedianMs": 43.614990234375,
+          "mainTerminalSubmitMedianMs": 1.550048828125,
+          "costWorkerMedianMs": 3.6449999809265137,
+          "normalizedOutputMedianMs": 0.16000032424926758,
+          "ringCopyMedianMs": 0.014999985694885254,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 12,
+          "browserCallMedian": 10012,
+          "baselineExecutionMedianMs": null,
+          "workerOutsideImportsMedianMs": 1.8400003910064697
+        },
+        {
+          "fixture": "terminal-10000-immediate",
+          "engine": "just-bash",
+          "criticalPath": {
+            "trial": 17,
+            "elapsedMs": 28.840087890625,
+            "workerElapsedMs": 1.5250000953674316,
+            "bytes": 59230,
+            "drains": 2,
+            "beforeFirstDrainMs": 11.91015625,
+            "ringDrainMs": 0.034912109375,
+            "terminalSubmitMs": 1.8701171875,
+            "betweenDrainsMs": 8.0849609375,
+            "lastDrainToFrameMs": 6.93994140625
+          },
+          "phaseWorkerMedianMs": 1.959999918937683,
+          "phaseVisibleMedianMs": 28.840087890625,
+          "mainTerminalSubmitMedianMs": 1.525146484375,
+          "costWorkerMedianMs": 2.475000023841858,
+          "normalizedOutputMedianMs": 0.40499985218048096,
+          "ringCopyMedianMs": 0.009999990463256836,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 0,
+          "browserCallMedian": 0,
+          "baselineExecutionMedianMs": 2.0450000762939453,
+          "workerOutsideImportsMedianMs": null
+        },
+        {
+          "fixture": "terminal-100000",
+          "engine": "brush",
+          "criticalPath": {
+            "trial": 14,
+            "elapsedMs": 196.409912109375,
+            "workerElapsedMs": 118.44000005722046,
+            "bytes": 689243,
+            "drains": 22,
+            "beforeFirstDrainMs": 1.81494140625,
+            "ringDrainMs": 0.920166015625,
+            "terminalSubmitMs": 16.969970703125,
+            "betweenDrainsMs": 173.159912109375,
+            "lastDrainToFrameMs": 3.544921875
+          },
+          "phaseWorkerMedianMs": 121.04499995708466,
+          "phaseVisibleMedianMs": 196.409912109375,
+          "mainTerminalSubmitMedianMs": 15.769775390625,
+          "costWorkerMedianMs": 119.49500000476837,
+          "normalizedOutputMedianMs": 1.8849999904632568,
+          "ringCopyMedianMs": 0.14499986171722412,
+          "backpressureMedianMs": 83.69500005245209,
+          "wasiCallMedian": 79,
+          "browserCallMedian": 100012,
+          "baselineExecutionMedianMs": null,
+          "workerOutsideImportsMedianMs": 17.019999742507935
+        },
+        {
+          "fixture": "terminal-100000",
+          "engine": "just-bash",
+          "criticalPath": {
+            "trial": 16,
+            "elapsedMs": 211.885009765625,
+            "workerElapsedMs": 131.93999993801117,
+            "bytes": 689096,
+            "drains": 23,
+            "beforeFirstDrainMs": 2.22998046875,
+            "ringDrainMs": 0.52978515625,
+            "terminalSubmitMs": 12.8505859375,
+            "betweenDrainsMs": 186.214599609375,
+            "lastDrainToFrameMs": 10.06005859375
+          },
+          "phaseWorkerMedianMs": 132.9649999141693,
+          "phaseVisibleMedianMs": 211.885009765625,
+          "mainTerminalSubmitMedianMs": 14.316162109375,
+          "costWorkerMedianMs": 133.80999994277954,
+          "normalizedOutputMedianMs": 4.095000267028809,
+          "ringCopyMedianMs": 0.1700000762939453,
+          "backpressureMedianMs": 115.55000007152557,
+          "wasiCallMedian": 0,
+          "browserCallMedian": 0,
+          "baselineExecutionMedianMs": 12.920000076293945,
+          "workerOutsideImportsMedianMs": null
+        }
+      ],
+      "importCallbackEstimatedMedianNs": 2.7799999713897705,
+      "memory": [
+        {
+          "size": 8192,
+          "operation": "view",
+          "wasmMedianNsPerOperation": 13.799999952316284,
+          "ordinaryMedianNsPerOperation": 13.799999952316284
+        },
+        {
+          "size": 8192,
+          "operation": "slice",
+          "wasmMedianNsPerOperation": 2245.0000047683716,
+          "ordinaryMedianNsPerOperation": 2164.9999618530273
+        },
+        {
+          "size": 8192,
+          "operation": "set",
+          "wasmMedianNsPerOperation": 39.999961853027344,
+          "ordinaryMedianNsPerOperation": 39.999961853027344
+        },
+        {
+          "size": 65536,
+          "operation": "view",
+          "wasmMedianNsPerOperation": 10.799999237060547,
+          "ordinaryMedianNsPerOperation": 11.100000143051147
+        },
+        {
+          "size": 65536,
+          "operation": "slice",
+          "wasmMedianNsPerOperation": 17379.99999523163,
+          "ordinaryMedianNsPerOperation": 17090.0000333786
+        },
+        {
+          "size": 65536,
+          "operation": "set",
+          "wasmMedianNsPerOperation": 889.9999856948853,
+          "ordinaryMedianNsPerOperation": 889.9999856948853
+        }
+      ]
+    },
+    {
+      "source": "cost-attribution-webgpu.json",
+      "sha256": "70252f4ebeb23d455118a4b8ddc09ebc2d47e9174d335c78534488f6c211ac1f",
+      "renderer": "webgpu",
+      "trials": 10,
+      "gpu": {
+        "vendor": "nvidia",
+        "architecture": "ampere",
+        "isFallbackAdapter": false
+      },
+      "summaries": [
+        {
+          "fixture": "arithmetic-20000",
+          "engine": "brush",
+          "criticalPath": {
+            "trial": 3,
+            "elapsedMs": 70.06005859375,
+            "workerElapsedMs": 63.72000002861023,
+            "bytes": 422,
+            "drains": 2,
+            "beforeFirstDrainMs": 4.280029296875,
+            "ringDrainMs": 0.014892578125,
+            "terminalSubmitMs": 0.205078125,
+            "betweenDrainsMs": 64.800048828125,
+            "lastDrainToFrameMs": 0.760009765625
+          },
+          "phaseWorkerMedianMs": 60.230000019073486,
+          "phaseVisibleMedianMs": 70.06005859375,
+          "mainTerminalSubmitMedianMs": 0.159912109375,
+          "costWorkerMedianMs": 75.90000009536743,
+          "normalizedOutputMedianMs": 0,
+          "ringCopyMedianMs": 0.004999995231628418,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 6,
+          "browserCallMedian": 60016,
+          "baselineExecutionMedianMs": null,
+          "workerOutsideImportsMedianMs": 66.93999946117401
+        },
+        {
+          "fixture": "arithmetic-20000",
+          "engine": "just-bash",
+          "criticalPath": {
+            "trial": 8,
+            "elapsedMs": 70.800048828125,
+            "workerElapsedMs": 59.105000019073486,
+            "bytes": 275,
+            "drains": 2,
+            "beforeFirstDrainMs": 1.405029296875,
+            "ringDrainMs": 0.0048828125,
+            "terminalSubmitMs": 0.135009765625,
+            "betweenDrainsMs": 64.53515625,
+            "lastDrainToFrameMs": 4.719970703125
+          },
+          "phaseWorkerMedianMs": 59.83499991893768,
+          "phaseVisibleMedianMs": 70.800048828125,
+          "mainTerminalSubmitMedianMs": 0.159912109375,
+          "costWorkerMedianMs": 60.55999994277954,
+          "normalizedOutputMedianMs": 0.009999990463256836,
+          "ringCopyMedianMs": 0,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 0,
+          "browserCallMedian": 0,
+          "baselineExecutionMedianMs": 60.52499997615814,
+          "workerOutsideImportsMedianMs": null
+        },
+        {
+          "fixture": "substitutions-1000",
+          "engine": "brush",
+          "criticalPath": {
+            "trial": 7,
+            "elapsedMs": 23.080078125,
+            "workerElapsedMs": 19.639999985694885,
+            "bytes": 442,
+            "drains": 2,
+            "beforeFirstDrainMs": 6.155029296875,
+            "ringDrainMs": 0.010009765625,
+            "terminalSubmitMs": 0.155029296875,
+            "betweenDrainsMs": 16.135009765625,
+            "lastDrainToFrameMs": 0.625
+          },
+          "phaseWorkerMedianMs": 19.639999985694885,
+          "phaseVisibleMedianMs": 23.080078125,
+          "mainTerminalSubmitMedianMs": 0.14013671875,
+          "costWorkerMedianMs": 23.324999928474426,
+          "normalizedOutputMedianMs": 0,
+          "ringCopyMedianMs": 0.004999995231628418,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 2006,
+          "browserCallMedian": 10016,
+          "baselineExecutionMedianMs": null,
+          "workerOutsideImportsMedianMs": 20.854999780654907
+        },
+        {
+          "fixture": "substitutions-1000",
+          "engine": "just-bash",
+          "criticalPath": {
+            "trial": 4,
+            "elapsedMs": 43.044921875,
+            "workerElapsedMs": 39.03500008583069,
+            "bytes": 295,
+            "drains": 2,
+            "beforeFirstDrainMs": 1.945068359375,
+            "ringDrainMs": 0.010009765625,
+            "terminalSubmitMs": 0.14501953125,
+            "betweenDrainsMs": 40.324951171875,
+            "lastDrainToFrameMs": 0.619873046875
+          },
+          "phaseWorkerMedianMs": 37.15000009536743,
+          "phaseVisibleMedianMs": 43.044921875,
+          "mainTerminalSubmitMedianMs": 0.16015625,
+          "costWorkerMedianMs": 34.264999985694885,
+          "normalizedOutputMedianMs": 0.009999990463256836,
+          "ringCopyMedianMs": 0,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 0,
+          "browserCallMedian": 0,
+          "baselineExecutionMedianMs": 34.24500000476837,
+          "workerOutsideImportsMedianMs": null
+        },
+        {
+          "fixture": "files-10000",
+          "engine": "brush",
+          "criticalPath": {
+            "trial": 5,
+            "elapsedMs": 7.114990234375,
+            "workerElapsedMs": 3.034999966621399,
+            "bytes": 476,
+            "drains": 1,
+            "beforeFirstDrainMs": 5.794921875,
+            "ringDrainMs": 0.005126953125,
+            "terminalSubmitMs": 0.114990234375,
+            "betweenDrainsMs": 0,
+            "lastDrainToFrameMs": 1.199951171875
+          },
+          "phaseWorkerMedianMs": 3.165000081062317,
+          "phaseVisibleMedianMs": 7.114990234375,
+          "mainTerminalSubmitMedianMs": 0.10498046875,
+          "costWorkerMedianMs": 5.549999952316284,
+          "normalizedOutputMedianMs": 0,
+          "ringCopyMedianMs": 0.004999995231628418,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 50,
+          "browserCallMedian": 10047,
+          "baselineExecutionMedianMs": null,
+          "workerOutsideImportsMedianMs": 4.090000033378601
+        },
+        {
+          "fixture": "files-10000",
+          "engine": "just-bash",
+          "criticalPath": {
+            "trial": 10,
+            "elapsedMs": 21.955078125,
+            "workerElapsedMs": 7.360000014305115,
+            "bytes": 329,
+            "drains": 2,
+            "beforeFirstDrainMs": 6.280029296875,
+            "ringDrainMs": 0.005126953125,
+            "terminalSubmitMs": 0.125,
+            "betweenDrainsMs": 8.074951171875,
+            "lastDrainToFrameMs": 7.469970703125
+          },
+          "phaseWorkerMedianMs": 8.274999976158142,
+          "phaseVisibleMedianMs": 21.955078125,
+          "mainTerminalSubmitMedianMs": 0.125,
+          "costWorkerMedianMs": 8.210000038146973,
+          "normalizedOutputMedianMs": 0.009999990463256836,
+          "ringCopyMedianMs": 0,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 0,
+          "browserCallMedian": 0,
+          "baselineExecutionMedianMs": 8.195000052452087,
+          "workerOutsideImportsMedianMs": null
+        },
+        {
+          "fixture": "terminal-10000-settled",
+          "engine": "brush",
+          "criticalPath": {
+            "trial": 9,
+            "elapsedMs": 28.090087890625,
+            "workerElapsedMs": 0.5899999141693115,
+            "bytes": 59241,
+            "drains": 2,
+            "beforeFirstDrainMs": 6.81005859375,
+            "ringDrainMs": 0.02978515625,
+            "terminalSubmitMs": 1.119873046875,
+            "betweenDrainsMs": 8.065185546875,
+            "lastDrainToFrameMs": 12.065185546875
+          },
+          "phaseWorkerMedianMs": 0.6649999618530273,
+          "phaseVisibleMedianMs": 28.090087890625,
+          "mainTerminalSubmitMedianMs": 1.244873046875,
+          "costWorkerMedianMs": 3.0399999618530273,
+          "normalizedOutputMedianMs": 0.1549999713897705,
+          "ringCopyMedianMs": 0.014999985694885254,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 12,
+          "browserCallMedian": 10012,
+          "baselineExecutionMedianMs": null,
+          "workerOutsideImportsMedianMs": 1.5749998092651367
+        },
+        {
+          "fixture": "terminal-10000-settled",
+          "engine": "just-bash",
+          "criticalPath": {
+            "trial": 6,
+            "elapsedMs": 26.2548828125,
+            "workerElapsedMs": 1.725000023841858,
+            "bytes": 59094,
+            "drains": 2,
+            "beforeFirstDrainMs": 5.704833984375,
+            "ringDrainMs": 0.01513671875,
+            "terminalSubmitMs": 1.16015625,
+            "betweenDrainsMs": 8.059814453125,
+            "lastDrainToFrameMs": 11.31494140625
+          },
+          "phaseWorkerMedianMs": 2.125,
+          "phaseVisibleMedianMs": 26.2548828125,
+          "mainTerminalSubmitMedianMs": 1.280029296875,
+          "costWorkerMedianMs": 2.5500000715255737,
+          "normalizedOutputMedianMs": 0.2850000858306885,
+          "ringCopyMedianMs": 0.009999990463256836,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 0,
+          "browserCallMedian": 0,
+          "baselineExecutionMedianMs": 2.1100000143051147,
+          "workerOutsideImportsMedianMs": null
+        },
+        {
+          "fixture": "terminal-10000-immediate",
+          "engine": "brush",
+          "criticalPath": {
+            "trial": 10,
+            "elapsedMs": 44.75,
+            "workerElapsedMs": 0.7150000333786011,
+            "bytes": 67598,
+            "drains": 3,
+            "beforeFirstDrainMs": 11.210205078125,
+            "ringDrainMs": 0.02978515625,
+            "terminalSubmitMs": 1.475341796875,
+            "betweenDrainsMs": 16.144775390625,
+            "lastDrainToFrameMs": 15.889892578125
+          },
+          "phaseWorkerMedianMs": 0.6100000143051147,
+          "phaseVisibleMedianMs": 44.75,
+          "mainTerminalSubmitMedianMs": 1.31494140625,
+          "costWorkerMedianMs": 3.024999976158142,
+          "normalizedOutputMedianMs": 0.14499998092651367,
+          "ringCopyMedianMs": 0.004999995231628418,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 12,
+          "browserCallMedian": 10012,
+          "baselineExecutionMedianMs": null,
+          "workerOutsideImportsMedianMs": 1.5650001764297485
+        },
+        {
+          "fixture": "terminal-10000-immediate",
+          "engine": "just-bash",
+          "criticalPath": {
+            "trial": 6,
+            "elapsedMs": 24.264892578125,
+            "workerElapsedMs": 2.475000023841858,
+            "bytes": 59230,
+            "drains": 2,
+            "beforeFirstDrainMs": 7.47998046875,
+            "ringDrainMs": 0.034912109375,
+            "terminalSubmitMs": 1.39501953125,
+            "betweenDrainsMs": 8.074951171875,
+            "lastDrainToFrameMs": 7.280029296875
+          },
+          "phaseWorkerMedianMs": 1.8100000619888306,
+          "phaseVisibleMedianMs": 24.264892578125,
+          "mainTerminalSubmitMedianMs": 1.18017578125,
+          "costWorkerMedianMs": 1.6449999809265137,
+          "normalizedOutputMedianMs": 0.2549999952316284,
+          "ringCopyMedianMs": 0.014999985694885254,
+          "backpressureMedianMs": 0,
+          "wasiCallMedian": 0,
+          "browserCallMedian": 0,
+          "baselineExecutionMedianMs": 1.3399999141693115,
+          "workerOutsideImportsMedianMs": null
+        },
+        {
+          "fixture": "terminal-100000",
+          "engine": "brush",
+          "criticalPath": {
+            "trial": 10,
+            "elapsedMs": 193.4150390625,
+            "workerElapsedMs": 113.91500008106232,
+            "bytes": 689243,
+            "drains": 22,
+            "beforeFirstDrainMs": 2.43017578125,
+            "ringDrainMs": 0.324462890625,
+            "terminalSubmitMs": 10.6005859375,
+            "betweenDrainsMs": 169.449951171875,
+            "lastDrainToFrameMs": 10.60986328125
+          },
+          "phaseWorkerMedianMs": 117.32500004768372,
+          "phaseVisibleMedianMs": 193.4150390625,
+          "mainTerminalSubmitMedianMs": 11.09423828125,
+          "costWorkerMedianMs": 117.54499995708466,
+          "normalizedOutputMedianMs": 1.8349992036819458,
+          "ringCopyMedianMs": 0.12999999523162842,
+          "backpressureMedianMs": 84.29499983787537,
+          "wasiCallMedian": 79,
+          "browserCallMedian": 100012,
+          "baselineExecutionMedianMs": null,
+          "workerOutsideImportsMedianMs": 15.885000109672546
+        },
+        {
+          "fixture": "terminal-100000",
+          "engine": "just-bash",
+          "criticalPath": {
+            "trial": 3,
+            "elapsedMs": 207.994873046875,
+            "workerElapsedMs": 128.87000000476837,
+            "bytes": 689096,
+            "drains": 23,
+            "beforeFirstDrainMs": 8.0400390625,
+            "ringDrainMs": 0.41015625,
+            "terminalSubmitMs": 11.67041015625,
+            "betweenDrainsMs": 177.889404296875,
+            "lastDrainToFrameMs": 9.98486328125
+          },
+          "phaseWorkerMedianMs": 129.98499989509583,
+          "phaseVisibleMedianMs": 207.994873046875,
+          "mainTerminalSubmitMedianMs": 12.565185546875,
+          "costWorkerMedianMs": 127.5,
+          "normalizedOutputMedianMs": 3.1799999475479126,
+          "ringCopyMedianMs": 0.11500012874603271,
+          "backpressureMedianMs": 111.53500008583069,
+          "wasiCallMedian": 0,
+          "browserCallMedian": 0,
+          "baselineExecutionMedianMs": 12.02999997138977,
+          "workerOutsideImportsMedianMs": null
+        }
+      ],
+      "importCallbackEstimatedMedianNs": 2.7699999809265137,
+      "memory": [
+        {
+          "size": 8192,
+          "operation": "view",
+          "wasmMedianNsPerOperation": 13.149999380111694,
+          "ordinaryMedianNsPerOperation": 13.050000667572021
+        },
+        {
+          "size": 8192,
+          "operation": "slice",
+          "wasmMedianNsPerOperation": 2509.999990463257,
+          "ordinaryMedianNsPerOperation": 2495.0000047683716
+        },
+        {
+          "size": 8192,
+          "operation": "set",
+          "wasmMedianNsPerOperation": 39.999961853027344,
+          "ordinaryMedianNsPerOperation": 39.999961853027344
+        },
+        {
+          "size": 65536,
+          "operation": "view",
+          "wasmMedianNsPerOperation": 11.000000238418579,
+          "ordinaryMedianNsPerOperation": 11.050000190734863
+        },
+        {
+          "size": 65536,
+          "operation": "slice",
+          "wasmMedianNsPerOperation": 16300.000071525574,
+          "ordinaryMedianNsPerOperation": 16205.000042915344
+        },
+        {
+          "size": 65536,
+          "operation": "set",
+          "wasmMedianNsPerOperation": 889.9999856948853,
+          "ordinaryMedianNsPerOperation": 890.0001049041748
+        }
+      ]
+    }
+  ],
+  "renderReplay": [
+    {
+      "source": "cost-render-replay-canvas.json",
+      "sha256": "fa4f01f9b51a6e2ba2ed96666d98d4cea23e07e4489d39da45ce5dcddd239318",
+      "renderer": "canvas",
+      "trials": 20,
+      "gpu": null,
+      "summaries": [
+        {
+          "engine": "brush",
+          "terminalSubmitMedianMs": 1.034999966621399,
+          "rafCpuMedianMs": 0.3700000047683716,
+          "frameMedianMs": 16.56500005722046,
+          "gpuCompletionMedianMs": null
+        },
+        {
+          "engine": "just-bash",
+          "terminalSubmitMedianMs": 1.0800000429153442,
+          "rafCpuMedianMs": 0.4100000858306885,
+          "frameMedianMs": 16.520000100135803,
+          "gpuCompletionMedianMs": null
+        }
+      ]
+    },
+    {
+      "source": "cost-render-replay-webgpu.json",
+      "sha256": "75c0348bf83ecee182081f32d6793035b94172d621ed618016cb1ff3fa7316a4",
+      "renderer": "webgpu",
+      "trials": 20,
+      "gpu": {
+        "vendor": "nvidia",
+        "architecture": "ampere",
+        "isFallbackAdapter": false
+      },
+      "summaries": [
+        {
+          "engine": "brush",
+          "terminalSubmitMedianMs": 0.9149999618530273,
+          "rafCpuMedianMs": 0.309999942779541,
+          "frameMedianMs": 14.014999985694885,
+          "gpuCompletionMedianMs": 2.6699999570846558
+        },
+        {
+          "engine": "just-bash",
+          "terminalSubmitMedianMs": 0.8600000143051147,
+          "rafCpuMedianMs": 0.2749999761581421,
+          "frameMedianMs": 13.615000009536743,
+          "gpuCompletionMedianMs": 2.959999918937683
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Representative critical paths use the phase trial nearest the median visible completion. Their main-thread intervals are disjoint and add to elapsed time. Worker spans overlap that timeline.",
+    "Detailed timer values come from cost trials and include observer overhead. Worker outside imports is unattributed wall time, not pure Rust CPU or pure boundary time.",
+    "RAF callback timing includes all observed page callbacks and instrumentation. GPU completion latency includes callback scheduling and an extra completion fence, not isolated shader time."
+  ]
+}

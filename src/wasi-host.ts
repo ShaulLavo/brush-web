@@ -66,7 +66,7 @@ export class BrowserHost {
     this.scalarWidth = scalarWidth;
   }
   get imports() {
-    return {
+    const callbacks = {
       read: (ptr: number, length: number) => {
         const memory = this.memory;
         if (!memory) throw new Error("WASM memory is unavailable");
@@ -95,12 +95,29 @@ export class BrowserHost {
       },
       sleep: (ms: number) => this.sleep(ms),
       event: (kind: number, value: number) => {
-        if (kind === 2) this.profile?.start();
+        if (kind === 2)
+          this.profile?.start(
+            (Atomics.load(this.bridge.state, control.outputWrite) -
+              Atomics.load(this.bridge.state, control.outputRead)) >>>
+              0,
+          );
         if (kind === 1 || kind === 3) this.profile?.finish();
         Atomics.store(this.bridge.state, control.status, value);
         Atomics.store(this.bridge.state, control.phase, kind);
         Atomics.store(this.bridge.state, control.memory, this.memory?.buffer.byteLength ?? 0);
       },
+    };
+    if (!this.profile?.costs) return callbacks;
+    return {
+      ...callbacks,
+      read: this.profile.browser(callbacks.read),
+      wait: this.profile.browser(callbacks.wait),
+      columns: this.profile.browser(callbacks.columns),
+      rows: this.profile.browser(callbacks.rows),
+      raw_mode: this.profile.browser(callbacks.raw_mode),
+      cancelled: this.profile.browser(callbacks.cancelled),
+      clear_cancel: this.profile.browser(callbacks.clear_cancel),
+      sleep: this.profile.browser(callbacks.sleep),
     };
   }
   wait(timeout: number): number {
@@ -213,6 +230,7 @@ export class BrowserHost {
     return 0;
   }
   write(bytes: Uint8Array): number {
+    const started = this.profile?.collecting ? performance.now() : undefined;
     const output = new Uint8Array(bytes.length * 2);
     let length = 0;
     for (const byte of bytes) {
@@ -220,6 +238,8 @@ export class BrowserHost {
       output[length++] = byte;
       this.previousCR = byte === 13;
     }
+    if (started !== undefined)
+      this.profile?.add(profileFields.normalizeMs, performance.now() - started);
     const written = this.bridge.write(output.subarray(0, length));
     this.profile?.maximum(
       profileFields.bufferedBytes,
@@ -295,11 +315,16 @@ export class BrowserHost {
     if (result !== 0) return result;
     const view = new DataView(this.memory.buffer);
     let position = Number(offset);
+    const started = this.profile?.collecting ? performance.now() : undefined;
     for (let index = 0; index < count; index++) {
       const address = view.getUint32(ptr + index * 8, true);
       const bytes = view.getUint32(ptr + index * 8 + 4, true);
       file.file.data.set(new Uint8Array(this.memory.buffer, address, bytes), position);
       position += bytes;
+    }
+    if (started !== undefined) {
+      this.profile?.add(profileFields.hostCopyMs, performance.now() - started);
+      this.profile?.add(profileFields.hostCopyBytes, length);
     }
     view.setUint32(out, length, true);
     return 0;
@@ -328,12 +353,13 @@ export class BrowserHost {
     return 0;
   }
   private profileImports() {
-    if (!this.profile) return;
-    for (const name of ["fd_read", "fd_write", "fd_pread", "fd_pwrite", "path_open", "fd_close"]) {
+    if (!this.profile?.costs) return;
+    for (const name of Object.keys(this.wasi.wasiImport)) {
       const operation = this.wasi.wasiImport[name];
       this.wasi.wasiImport[name] = (...args: Parameters<typeof operation>) => {
-        if (!this.profile?.active) return operation(...args);
+        if (!this.profile?.collecting) return operation(...args);
         const start = performance.now();
+        this.profile.add(profileFields.wasiCalls);
         const result = operation(...args);
         this.profile.add(profileFields.hostMs, performance.now() - start);
         this.recordIo(name, args, result);

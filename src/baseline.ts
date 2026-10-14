@@ -3,7 +3,7 @@ import { control, SharedBridge } from "./bridge";
 import { BaselineOutput } from "./baseline-output";
 import { createBaselineShell } from "./baseline-session";
 import type { BaselineOptions, BaselineShell } from "./baseline-session";
-import type { ExecutionProfile } from "./execution-profile";
+import { ExecutionProfile, profileFields } from "./execution-profile";
 
 const encoder = new TextEncoder();
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -381,9 +381,16 @@ async function execute(
 ) {
   Atomics.store(bridge.state, control.phase, 2);
   const cancel = cancellation(bridge);
-  profile?.start();
+  profile?.start(
+    (Atomics.load(bridge.state, control.outputWrite) -
+      Atomics.load(bridge.state, control.outputRead)) >>>
+      0,
+  );
   try {
+    const started = profile?.collecting ? performance.now() : undefined;
     const result = await shell.exec(command, cancel.signal);
+    if (started !== undefined)
+      profile?.add(profileFields.baselineExecMs, performance.now() - started);
     const interrupted = bridge.cancelled();
     if (!interrupted) output.result(result.stdout, result.stderr);
     Atomics.store(bridge.state, control.status, interrupted ? 130 : result.exitCode);
@@ -409,7 +416,7 @@ export async function startBaseline(
 ): Promise<void> {
   const shell = createBaselineShell({ ...options, commands });
   const editor = new BaselineEditor(bridge, shell);
-  const output = new BaselineOutput((bytes) => bridge.write(bytes));
+  const output = new BaselineOutput((bytes) => bridge.write(bytes), profile);
   const stateNotice =
     options.state === "carry"
       ? "Scalar values, ordinary PWD-based cwd, and alias data carry between commands. Functions, arrays, options, and $? reset."
