@@ -1,17 +1,21 @@
 import { expose } from "comlink";
 import { SharedBridge, control } from "./bridge";
 import { BrowserHost } from "./wasi-host";
+import { ExecutionProfile } from "./execution-profile";
 import type { Engine } from "./session";
 export type WorkerControl = {
   initialize(
     buffer: SharedArrayBuffer,
     engine: Engine,
     wasmUrl: string,
+    baselineState: "isolated" | "carry",
+    profileBuffer?: SharedArrayBuffer,
   ): Promise<{ wasmBytes: number }>;
 };
 const api: WorkerControl = {
-  async initialize(buffer, engine, wasmUrl) {
+  async initialize(buffer, engine, wasmUrl, baselineState, profileBuffer) {
     const bridge = new SharedBridge(buffer);
+    const profile = profileBuffer ? new ExecutionProfile(profileBuffer) : undefined;
     if (engine === "just-bash") {
       if (typeof Atomics.waitAsync !== "function")
         throw new Error(
@@ -19,7 +23,7 @@ const api: WorkerControl = {
         );
       const { startBaseline } = await import("./baseline");
       setTimeout(() => {
-        void startBaseline(bridge).catch((error) => {
+        void startBaseline(bridge, { state: baselineState }, profile).catch((error) => {
           Atomics.store(bridge.state, control.phase, 4);
           setTimeout(() => {
             throw error;
@@ -28,7 +32,7 @@ const api: WorkerControl = {
       }, 0);
       return { wasmBytes: 0 };
     }
-    const host = new BrowserHost(bridge);
+    const host = new BrowserHost(bridge, profile);
     const response = await fetch(wasmUrl);
     if (!response.ok)
       throw new Error(`Brush WASM fetch failed (${response.status}). Run npm run build:wasm.`);

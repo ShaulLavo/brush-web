@@ -1,0 +1,128 @@
+{
+  "sourceSha256": "591c7adad58562728256a5730244c26a5b6e729ddf0630b0b89caa9788179fbe",
+  "method": "Paired worker-time ratios by trial; 2,000 seeded bootstrap median resamples. Ratios below 1 favor Brush. These exploratory intervals do not establish independence, universal performance, or physical display latency.",
+  "comparisons": [
+    {
+      "fixture": "arithmetic-2000",
+      "pairedWorkerRatioMedian": 0.8476488990913771,
+      "bootstrap95Interval": [
+        0.7440127752770261,
+        0.9665629990788255
+      ],
+      "brushWorkerMedianMs": 6.75,
+      "justBashWorkerMedianMs": 7.975000023841858,
+      "brushVisibleMedianMs": 29.739495000001625,
+      "justBashVisibleMedianMs": 29.42276100000163
+    },
+    {
+      "fixture": "arithmetic-20000",
+      "pairedWorkerRatioMedian": 1.026385637134717,
+      "bootstrap95Interval": [
+        0.9895679206199769,
+        1.0756911688098274
+      ],
+      "brushWorkerMedianMs": 63.300000071525574,
+      "justBashWorkerMedianMs": 59.3199999332428,
+      "brushVisibleMedianMs": 78.3143809999965,
+      "justBashVisibleMedianMs": 76.81002999999328
+    },
+    {
+      "fixture": "substitutions-100",
+      "pairedWorkerRatioMedian": 0.615199026308872,
+      "bootstrap95Interval": [
+        0.5961768312740462,
+        0.6283871127713111
+      ],
+      "brushWorkerMedianMs": 2.5299999713897705,
+      "justBashWorkerMedianMs": 4.144999980926514,
+      "brushVisibleMedianMs": 27.649153999998816,
+      "justBashVisibleMedianMs": 28.22671500001161
+    },
+    {
+      "fixture": "substitutions-1000",
+      "pairedWorkerRatioMedian": 0.6045848682833211,
+      "bootstrap95Interval": [
+        0.5554445562119199,
+        0.6388472417609551
+      ],
+      "brushWorkerMedianMs": 19.850000023841858,
+      "justBashWorkerMedianMs": 35.394999980926514,
+      "brushVisibleMedianMs": 42.534866000001784,
+      "justBashVisibleMedianMs": 45.485067000001436
+    },
+    {
+      "fixture": "files-5000",
+      "pairedWorkerRatioMedian": 0.43535619861890845,
+      "bootstrap95Interval": [
+        0.40034365457752,
+        0.46857142448425293
+      ],
+      "brushWorkerMedianMs": 1.6899999380111694,
+      "justBashWorkerMedianMs": 3.865000009536743,
+      "brushVisibleMedianMs": 25.99916399999347,
+      "justBashVisibleMedianMs": 27.039236000011442
+    },
+    {
+      "fixture": "files-10000",
+      "pairedWorkerRatioMedian": 0.388888899517975,
+      "bootstrap95Interval": [
+        0.3449908929748554,
+        0.4030045786645364
+      ],
+      "brushWorkerMedianMs": 3.115000009536743,
+      "justBashWorkerMedianMs": 8.365000009536743,
+      "brushVisibleMedianMs": 25.178217000007862,
+      "justBashVisibleMedianMs": 26.74545400000352
+    },
+    {
+      "fixture": "terminal-10000",
+      "pairedWorkerRatioMedian": 0.4305084611519561,
+      "bootstrap95Interval": [
+        0.3886792379836248,
+        0.4775510422540968
+      ],
+      "brushWorkerMedianMs": 0.6549999713897705,
+      "justBashWorkerMedianMs": 1.5500000715255737,
+      "brushVisibleMedianMs": 48.251370999991195,
+      "justBashVisibleMedianMs": 32.266130999996676
+    }
+  ],
+  "functional": [
+    {
+      "engine": "brush",
+      "inputFrameP95Ms": 18.335000038146973,
+      "interruptions": [
+        {
+          "command": "while :; do :; done",
+          "recoveryMs": 18.39950100000715
+        },
+        {
+          "command": "sleep 30",
+          "recoveryMs": 13.767470000006142
+        },
+        {
+          "command": "cat",
+          "recoveryMs": 17.278612999987672
+        }
+      ],
+      "matchedReplayMedianMs": 16.445000052452087,
+      "memoryBytes": 4063232
+    },
+    {
+      "engine": "just-bash",
+      "inputFrameP95Ms": 24.705000042915344,
+      "interruptions": [
+        {
+          "command": "while :; do :; done",
+          "recoveryMs": 22.739795000001322
+        },
+        {
+          "command": "sleep 30",
+          "recoveryMs": 16.35734699999739
+        }
+      ],
+      "matchedReplayMedianMs": 16.550000071525574,
+      "memoryBytes": 0
+    }
+  ]
+}

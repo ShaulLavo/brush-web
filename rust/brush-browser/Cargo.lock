@@ -196,7 +196,7 @@ dependencies = [
 
 [[package]]
 name = "brush-browser"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "brush-builtins",
  "brush-core",

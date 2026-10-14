@@ -322,3 +322,22 @@ test("canonical deletion of text presentation symbols preserves preceding ASCII"
   await page.keyboard.press("Enter");
   await output(page, "symbol:abx");
 });
+
+test("bulk file reads retain shared descriptor positions and decode Unicode", async ({ page }) => {
+  await open(page);
+  await command(
+    page,
+    `printf 'first\\nsecond\\n' > partial; { mapfile -n 1 -t rows; read -r next; echo limited:$next; } < partial`,
+  );
+  await output(page, "limited:second");
+  await command(
+    page,
+    `printf 'first\\n\\003tail\\n' > control-file; { mapfile -t rows; read -r next; echo after-control:$next; } < control-file`,
+  );
+  await output(page, "after-control:tail");
+  await command(
+    page,
+    "printf 'שלום\\n世界\\n' > unicode-file; mapfile -t rows < unicode-file; echo unicode:${rows[0]}:${rows[1]}",
+  );
+  await output(page, "unicode:שלום:世界");
+});

@@ -1,11 +1,13 @@
-import { Bash, InMemoryFs } from "just-bash/browser";
 import type { CommandName } from "just-bash/browser";
 import { control, SharedBridge } from "./bridge";
+import { BaselineOutput } from "./baseline-output";
+import { createBaselineShell } from "./baseline-session";
+import type { BaselineOptions, BaselineShell } from "./baseline-session";
+import type { ExecutionProfile } from "./execution-profile";
 
 const encoder = new TextEncoder();
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const LINE_LIMIT = 256 * 1024;
-const HOME_DIRECTORY = "/home/web";
 const commands: CommandName[] = [
   "echo",
   "printf",
@@ -93,12 +95,14 @@ function point(text: string, columns: number) {
       column = 0;
     }
     column += width;
-    if (column === columns) {
-      row++;
-      column = 0;
-    }
   }
   return { row, column };
+}
+
+function caret(text: string, columns: number) {
+  const position = point(text, columns);
+  if (position.column === columns) return { row: position.row + 1, column: 0 };
+  return position;
 }
 
 function terminalText(text: string): string {
@@ -155,18 +159,21 @@ class BaselineEditor {
   private inputLimitReported = false;
   private resize = -1;
   private readonly decoder = new TextDecoder();
-  private readonly prompt = `just-bash:${HOME_DIRECTORY}$ `;
+
+  private get prompt() {
+    return `just-bash:${this.shell.cwd}$ `;
+  }
 
   constructor(
     private readonly bridge: SharedBridge,
-    private readonly fs: InMemoryFs,
+    private readonly shell: BaselineShell,
   ) {}
 
   private redraw() {
     const columns = Math.max(2, Atomics.load(this.bridge.state, control.cols));
     const text = this.parts.join("");
     const end = point(this.prompt + text + " ", columns);
-    const cursor = point(this.prompt + this.parts.slice(0, this.cursor).join(""), columns);
+    const cursor = caret(this.prompt + this.parts.slice(0, this.cursor).join(""), columns);
     const rewind = this.cursorRow ? `\x1b[${this.cursorRow}A` : "";
     const up = end.row > cursor.row ? `\x1b[${end.row - cursor.row}A` : "";
     const right = cursor.column ? `\x1b[${cursor.column}C` : "";
@@ -213,10 +220,10 @@ class BaselineEditor {
     const directory = slash < 0 ? "" : token.slice(0, slash + 1);
     const prefix = token.slice(slash + 1);
     const atCommand = before.trim() === token;
-    const entries = await this.fs
-      .readdirWithFileTypes(
-        directory ? this.fs.resolvePath(HOME_DIRECTORY, directory) : HOME_DIRECTORY,
-      )
+    const fs = this.shell.fs;
+    const cwd = this.shell.cwd;
+    const entries = await fs
+      .readdirWithFileTypes(directory ? fs.resolvePath(cwd, directory) : cwd)
       .catch(() => []);
     const files = entries
       .filter((entry) => entry.name.startsWith(prefix))
@@ -348,6 +355,11 @@ class BaselineEditor {
       const resized = Atomics.load(this.bridge.state, control.resize);
       if (resized !== this.resize) {
         this.resize = resized;
+        const columns = Math.max(2, Atomics.load(this.bridge.state, control.cols));
+        this.cursorRow = caret(
+          this.prompt + this.parts.slice(0, this.cursor).join(""),
+          columns,
+        ).row;
         this.redraw();
       }
       const bytes = this.bridge.receive(65536);
@@ -360,13 +372,20 @@ class BaselineEditor {
   }
 }
 
-async function execute(bash: Bash, bridge: SharedBridge, command: string) {
+async function execute(
+  shell: BaselineShell,
+  bridge: SharedBridge,
+  output: BaselineOutput,
+  command: string,
+  profile?: ExecutionProfile,
+) {
   Atomics.store(bridge.state, control.phase, 2);
   const cancel = cancellation(bridge);
+  profile?.start();
   try {
-    const result = await bash.exec(command, { signal: cancel.signal, rawScript: true });
+    const result = await shell.exec(command, cancel.signal);
     const interrupted = bridge.cancelled();
-    if (!interrupted) write(bridge, terminalText(result.stdout + result.stderr));
+    if (!interrupted) output.result(result.stdout, result.stderr);
     Atomics.store(bridge.state, control.status, interrupted ? 130 : result.exitCode);
   } catch (cause) {
     if (!bridge.cancelled() && !bridge.closed()) {
@@ -380,38 +399,24 @@ async function execute(bash: Bash, bridge: SharedBridge, command: string) {
     acknowledgeInterrupt(bridge);
     write(bridge, "^C\r\n");
   }
+  profile?.finish();
 }
 
-export async function startBaseline(bridge: SharedBridge): Promise<void> {
-  const fs = new InMemoryFs(
-    {
-      "/home/web/welcome.txt":
-        "Files persist between commands. Shell state resets after each command.\n",
-    },
-    { maxTotalBytes: 16 * 1024 * 1024 },
-  );
-  const bash = new Bash({
-    fs,
-    cwd: HOME_DIRECTORY,
-    env: { HOME: HOME_DIRECTORY, TERM: "xterm-256color" },
-    python: false,
-    javascript: false,
-    defenseInDepth: false,
-    commands,
-    executionLimits: {
-      maxOutputSize: 4 * 1024 * 1024,
-      maxStringLength: 4 * 1024 * 1024,
-      maxLiveBytes: 32 * 1024 * 1024,
-      maxCommandCount: 10000000,
-      maxLoopIterations: 10000000,
-      maxWorkUnits: 100000000,
-      maxExecutionTimeMs: 60000,
-    },
-  });
-  const editor = new BaselineEditor(bridge, fs);
+export async function startBaseline(
+  bridge: SharedBridge,
+  options: BaselineOptions = { state: "isolated" },
+  profile?: ExecutionProfile,
+): Promise<void> {
+  const shell = createBaselineShell({ ...options, commands });
+  const editor = new BaselineEditor(bridge, shell);
+  const output = new BaselineOutput((bytes) => bridge.write(bytes));
+  const stateNotice =
+    options.state === "carry"
+      ? "Scalar values, ordinary PWD-based cwd, and alias data carry between commands. Functions, arrays, options, and $? reset."
+      : "Files persist; cwd, variables, functions, aliases, and $? reset per command.";
   write(
     bridge,
-    "\x1b[?2004h\x1b[?2027hjust-bash baseline. Files persist; cwd, variables, functions, aliases, and $? reset per command.\r\nOutput is returned after each command completes.\r\n\r\n",
+    `\x1b[?2004h\x1b[?2027hjust-bash ${options.state} baseline. ${stateNotice}\r\nOutput is returned after each command completes.\r\n\r\n`,
   );
   while (!bridge.closed()) {
     Atomics.store(bridge.state, control.phase, 1);
@@ -422,7 +427,7 @@ export async function startBaseline(bridge: SharedBridge): Promise<void> {
       write(bridge, "^C\r\n");
       continue;
     }
-    await execute(bash, bridge, input.command);
+    await execute(shell, bridge, output, input.command, profile);
   }
   write(bridge, "\x1b[?2004l\x1b[?2027l\r\nSession ended.\r\n");
   Atomics.store(bridge.state, control.phase, 3);

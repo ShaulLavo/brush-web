@@ -82,3 +82,5 @@ The source revisions and archive checksum are in [sources.lock.json](sources.loc
 ## Choose the next architecture change
 
 The [architecture research](reports/Browser%20shell%20architecture%20choices.md) separates avoidable host I/O costs from session, pipeline, and process requirements. It compares supported just-bash improvements and browser-runtime precedents, then defines one bounded experiment before considering a fork.
+
+The [completed performance proof](docs/performance-proof.md) separates worker execution from visible output and records both improvements and remaining losses. OPFS remains deferred.

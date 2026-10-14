@@ -1,0 +1,360 @@
+{
+  "recordedAt": "2026-10-14T06:00:12.099Z",
+  "platform": "linux",
+  "kernel": "7.2.8-arch1-2",
+  "cpu": "Intel(R) Core(TM) i7-14700K",
+  "browser": "152.0.7977.82",
+  "headless": true,
+  "renderer": "none",
+  "source": {
+    "path": "src/baseline-output.ts",
+    "sha256": "fd3d0a97892d2ecf56f33bb9b2fafdf809b5d0474c052fa4f2bc5016ace2289a"
+  },
+  "warmups": 5,
+  "trials": 30,
+  "samples": [
+    {
+      "fixture": "numeric-lines",
+      "sourceUnits": 588909,
+      "expectedBytes": 688910,
+      "trials": [
+        {
+          "trial": 1,
+          "stockMs": 9,
+          "candidateMs": 2.600000023841858
+        },
+        {
+          "trial": 2,
+          "candidateMs": 2.399999976158142,
+          "stockMs": 3.200000047683716
+        },
+        {
+          "trial": 3,
+          "stockMs": 3.100000023841858,
+          "candidateMs": 2.5
+        },
+        {
+          "trial": 4,
+          "candidateMs": 2.399999976158142,
+          "stockMs": 3
+        },
+        {
+          "trial": 5,
+          "stockMs": 4.600000023841858,
+          "candidateMs": 2.1999999284744263
+        },
+        {
+          "trial": 6,
+          "candidateMs": 2.3000000715255737,
+          "stockMs": 3
+        },
+        {
+          "trial": 7,
+          "stockMs": 3,
+          "candidateMs": 3
+        },
+        {
+          "trial": 8,
+          "candidateMs": 2.299999952316284,
+          "stockMs": 3.799999952316284
+        },
+        {
+          "trial": 9,
+          "stockMs": 5.200000047683716,
+          "candidateMs": 2.6999999284744263
+        },
+        {
+          "trial": 10,
+          "candidateMs": 2.5,
+          "stockMs": 4.5
+        },
+        {
+          "trial": 11,
+          "stockMs": 4.300000071525574,
+          "candidateMs": 3.1999999284744263
+        },
+        {
+          "trial": 12,
+          "candidateMs": 2.4000000953674316,
+          "stockMs": 6.099999904632568
+        },
+        {
+          "trial": 13,
+          "stockMs": 7.5,
+          "candidateMs": 6.800000071525574
+        },
+        {
+          "trial": 14,
+          "candidateMs": 6.299999952316284,
+          "stockMs": 5.300000071525574
+        },
+        {
+          "trial": 15,
+          "stockMs": 3.0999999046325684,
+          "candidateMs": 2.3000000715255737
+        },
+        {
+          "trial": 16,
+          "candidateMs": 2.100000023841858,
+          "stockMs": 3
+        },
+        {
+          "trial": 17,
+          "stockMs": 5.199999928474426,
+          "candidateMs": 2.600000023841858
+        },
+        {
+          "trial": 18,
+          "candidateMs": 2.399999976158142,
+          "stockMs": 3.100000023841858
+        },
+        {
+          "trial": 19,
+          "stockMs": 3,
+          "candidateMs": 2.399999976158142
+        },
+        {
+          "trial": 20,
+          "candidateMs": 2.3000000715255737,
+          "stockMs": 3.0999999046325684
+        },
+        {
+          "trial": 21,
+          "stockMs": 3,
+          "candidateMs": 2.100000023841858
+        },
+        {
+          "trial": 22,
+          "candidateMs": 2.200000047683716,
+          "stockMs": 4
+        },
+        {
+          "trial": 23,
+          "stockMs": 3.100000023841858,
+          "candidateMs": 2.299999952316284
+        },
+        {
+          "trial": 24,
+          "candidateMs": 2.200000047683716,
+          "stockMs": 3.0999999046325684
+        },
+        {
+          "trial": 25,
+          "stockMs": 5.300000071525574,
+          "candidateMs": 2.1999999284744263
+        },
+        {
+          "trial": 26,
+          "candidateMs": 2.200000047683716,
+          "stockMs": 2.899999976158142
+        },
+        {
+          "trial": 27,
+          "stockMs": 3.100000023841858,
+          "candidateMs": 2.399999976158142
+        },
+        {
+          "trial": 28,
+          "candidateMs": 2.100000023841858,
+          "stockMs": 3.100000023841858
+        },
+        {
+          "trial": 29,
+          "stockMs": 3.1999999284744263,
+          "candidateMs": 2.4000000953674316
+        },
+        {
+          "trial": 30,
+          "candidateMs": 2.1999999284744263,
+          "stockMs": 4
+        }
+      ]
+    },
+    {
+      "fixture": "unicode-lines",
+      "sourceUnits": 900014,
+      "expectedBytes": 1550015,
+      "trials": [
+        {
+          "trial": 1,
+          "stockMs": 4.5,
+          "candidateMs": 2.600000023841858
+        },
+        {
+          "trial": 2,
+          "candidateMs": 2.600000023841858,
+          "stockMs": 4.199999928474426
+        },
+        {
+          "trial": 3,
+          "stockMs": 4.200000047683716,
+          "candidateMs": 2.700000047683716
+        },
+        {
+          "trial": 4,
+          "candidateMs": 2.5999999046325684,
+          "stockMs": 4.200000047683716
+        },
+        {
+          "trial": 5,
+          "stockMs": 4.399999976158142,
+          "candidateMs": 3
+        },
+        {
+          "trial": 6,
+          "candidateMs": 2.700000047683716,
+          "stockMs": 4.600000023841858
+        },
+        {
+          "trial": 7,
+          "stockMs": 4,
+          "candidateMs": 2.5999999046325684
+        },
+        {
+          "trial": 8,
+          "candidateMs": 2.5,
+          "stockMs": 4.200000047683716
+        },
+        {
+          "trial": 9,
+          "stockMs": 4.199999928474426,
+          "candidateMs": 2.600000023841858
+        },
+        {
+          "trial": 10,
+          "candidateMs": 2.700000047683716,
+          "stockMs": 4.5
+        },
+        {
+          "trial": 11,
+          "stockMs": 10.399999976158142,
+          "candidateMs": 2.899999976158142
+        },
+        {
+          "trial": 12,
+          "candidateMs": 2.700000047683716,
+          "stockMs": 5.699999928474426
+        },
+        {
+          "trial": 13,
+          "stockMs": 4.300000071525574,
+          "candidateMs": 2.6999999284744263
+        },
+        {
+          "trial": 14,
+          "candidateMs": 2.9000000953674316,
+          "stockMs": 4.299999952316284
+        },
+        {
+          "trial": 15,
+          "stockMs": 4.299999952316284,
+          "candidateMs": 2.600000023841858
+        },
+        {
+          "trial": 16,
+          "candidateMs": 3,
+          "stockMs": 4.700000047683716
+        },
+        {
+          "trial": 17,
+          "stockMs": 4.799999952316284,
+          "candidateMs": 2.600000023841858
+        },
+        {
+          "trial": 18,
+          "candidateMs": 2.700000047683716,
+          "stockMs": 4.299999952316284
+        },
+        {
+          "trial": 19,
+          "stockMs": 4.200000047683716,
+          "candidateMs": 2.5999999046325684
+        },
+        {
+          "trial": 20,
+          "candidateMs": 2.600000023841858,
+          "stockMs": 4
+        },
+        {
+          "trial": 21,
+          "stockMs": 4.300000071525574,
+          "candidateMs": 2.5999999046325684
+        },
+        {
+          "trial": 22,
+          "candidateMs": 2.600000023841858,
+          "stockMs": 5.100000023841858
+        },
+        {
+          "trial": 23,
+          "stockMs": 4.299999952316284,
+          "candidateMs": 2.600000023841858
+        },
+        {
+          "trial": 24,
+          "candidateMs": 2.5,
+          "stockMs": 4
+        },
+        {
+          "trial": 25,
+          "stockMs": 4.399999976158142,
+          "candidateMs": 2.600000023841858
+        },
+        {
+          "trial": 26,
+          "candidateMs": 2.700000047683716,
+          "stockMs": 4.099999904632568
+        },
+        {
+          "trial": 27,
+          "stockMs": 4.5,
+          "candidateMs": 2.5
+        },
+        {
+          "trial": 28,
+          "candidateMs": 2.700000047683716,
+          "stockMs": 4.299999952316284
+        },
+        {
+          "trial": 29,
+          "stockMs": 4,
+          "candidateMs": 2.5
+        },
+        {
+          "trial": 30,
+          "candidateMs": 2.600000023841858,
+          "stockMs": 4.200000047683716
+        }
+      ]
+    }
+  ],
+  "summary": [
+    {
+      "fixture": "numeric-lines",
+      "stockMedianMs": 3.100000023841858,
+      "candidateMedianMs": 2.399999976158142,
+      "stockP95Ms": 7.5,
+      "candidateP95Ms": 6.299999952316284
+    },
+    {
+      "fixture": "unicode-lines",
+      "stockMedianMs": 4.299999952316284,
+      "candidateMedianMs": 2.600000023841858,
+      "stockP95Ms": 5.699999928474426,
+      "candidateP95Ms": 3
+    }
+  ],
+  "cleanup": {
+    "browserClosed": true,
+    "workerTerminated": true,
+    "objectUrlRevoked": true,
+    "serverStopped": true
+  },
+  "limitations": [
+    "This measures completed-string CRLF normalization and UTF-8 encoding in a dedicated browser worker. It excludes shell execution, SharedArrayBuffer copying/waits, terminal rendering, and physical display.",
+    "The candidate is the actual BaselineOutput module transpiled from the reviewed source. Stock reproduces the previous merged-string normalization and TextEncoder.encode path.",
+    "The sink observes total encoded bytes and does not retain output. Correct byte content is checked separately by the scoped output tests.",
+    "Samples alternate which method runs first. Both reuse their TextEncoder; candidate also reuses one 32 KiB output buffer. Native allocation counts and garbage-collector work were not measured.",
+    "This is a single headless Chromium run on one host. CPU load, caches, and timer resolution affect these small timings."
+  ]
+}

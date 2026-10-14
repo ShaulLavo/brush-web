@@ -10,6 +10,7 @@ import {
   wasi,
 } from "@bjorn3/browser_wasi_shim";
 import { SharedBridge, control } from "./bridge";
+import { ExecutionProfile, profileFields } from "./execution-profile";
 const encoder = new TextEncoder();
 const RESIZE = encoder.encode("\x1b[997~");
 export class BrowserHost {
@@ -19,6 +20,10 @@ export class BrowserHost {
   private canonical: number[] = [];
   private pendingLine: Uint8Array = new Uint8Array();
   private memory: WebAssembly.Memory | undefined;
+  private readonly capacities = new WeakMap<File, Uint8Array>();
+  private readonly appendFiles = new WeakSet<OpenFile>();
+  private usage: { bytes: number } | undefined;
+  private allocatedBytes = 0;
   private scalarWidth: ((codepoint: number) => number) | undefined;
   readonly root = new PreopenDirectory(
     "/",
@@ -42,14 +47,19 @@ export class BrowserHost {
     ]),
   );
   readonly wasi: WASI;
-  constructor(readonly bridge: SharedBridge) {
+  constructor(
+    readonly bridge: SharedBridge,
+    private readonly profile?: ExecutionProfile,
+  ) {
     this.epoch = Atomics.load(bridge.state, control.resize);
     this.wasi = new WASI(
       ["brush-browser"],
       ["HOME=/home/guest", "TERM=xterm-256color", "USER=guest", "PATH=/bin", "LANG=C.UTF-8"],
       [new TerminalInput(this), new TerminalOutput(this), new TerminalOutput(this), this.root],
+      { debug: false },
     );
     this.limitFilesystem();
+    this.profileImports();
   }
   attach(memory: WebAssembly.Memory, scalarWidth: (codepoint: number) => number) {
     this.memory = memory;
@@ -85,6 +95,8 @@ export class BrowserHost {
       },
       sleep: (ms: number) => this.sleep(ms),
       event: (kind: number, value: number) => {
+        if (kind === 2) this.profile?.start();
+        if (kind === 1 || kind === 3) this.profile?.finish();
         Atomics.store(this.bridge.state, control.status, value);
         Atomics.store(this.bridge.state, control.phase, kind);
         Atomics.store(this.bridge.state, control.memory, this.memory?.buffer.byteLength ?? 0);
@@ -209,6 +221,12 @@ export class BrowserHost {
       this.previousCR = byte === 13;
     }
     const written = this.bridge.write(output.subarray(0, length));
+    this.profile?.maximum(
+      profileFields.bufferedBytes,
+      (Atomics.load(this.bridge.state, control.outputWrite) -
+        Atomics.load(this.bridge.state, control.outputRead)) >>>
+        0,
+    );
     return written === length ? bytes.length : 0;
   }
   private resized() {
@@ -219,35 +237,125 @@ export class BrowserHost {
     const write = imports.fd_write;
     imports.fd_write = (fd: number, ptr: number, count: number, out: number) => {
       const file = this.fileForFd(fd);
-      if (file && !this.fits(file, file.file_pos + BigInt(this.iovecBytes(ptr, count))))
-        return wasi.ERRNO_NOSPC;
-      return write(fd, ptr, count, out);
+      if (!file) return write(fd, ptr, count, out);
+      const position = this.appendFiles.has(file) ? file.file.size : file.file_pos;
+      const result = this.writeFile(file, ptr, count, position, out);
+      if (result === 0 && this.memory)
+        file.file_pos = position + BigInt(new DataView(this.memory.buffer).getUint32(out, true));
+      return result;
     };
     const pwrite = imports.fd_pwrite;
     imports.fd_pwrite = (fd: number, ptr: number, count: number, offset: bigint, out: number) => {
       const file = this.fileForFd(fd);
-      if (file && !this.fits(file, offset + BigInt(this.iovecBytes(ptr, count))))
-        return wasi.ERRNO_NOSPC;
-      return pwrite(fd, ptr, count, offset, out);
+      return file
+        ? this.writeFile(file, ptr, count, offset, out)
+        : pwrite(fd, ptr, count, offset, out);
     };
     const resize = imports.fd_filestat_set_size;
     imports.fd_filestat_set_size = (fd: number, size: bigint) => {
       const file = this.fileForFd(fd);
-      if (file && !this.fits(file, size)) return wasi.ERRNO_NOSPC;
-      return resize(fd, size);
+      return file ? this.resizeFile(file, size) : resize(fd, size);
     };
     const allocate = imports.fd_allocate;
     imports.fd_allocate = (fd: number, offset: bigint, length: bigint) => {
       const file = this.fileForFd(fd);
-      if (file && !this.fits(file, offset + length)) return wasi.ERRNO_NOSPC;
-      return allocate(fd, offset, length);
+      if (!file) return allocate(fd, offset, length);
+      return this.resizeFile(
+        file,
+        file.file.size > offset + length ? file.file.size : offset + length,
+      );
     };
     const mkdir = imports.path_create_directory;
     imports.path_create_directory = (fd: number, ptr: number, length: number) => {
       if (this.inodes().length >= 1024) return wasi.ERRNO_NOSPC;
+      this.usage = undefined;
       return mkdir(fd, ptr, length);
     };
+    for (const name of ["path_unlink_file", "path_remove_directory", "path_rename", "path_link"]) {
+      const operation = imports[name];
+      imports[name] = (...args: Parameters<typeof operation>) => {
+        this.usage = undefined;
+        return operation(...args);
+      };
+    }
     this.limitDescriptors();
+  }
+  private writeFile(file: OpenFile, ptr: number, count: number, offset: bigint, out: number) {
+    if (!this.memory) return wasi.ERRNO_FAULT;
+    if (file.file.readonly) return wasi.ERRNO_BADF;
+    const length = this.iovecBytes(ptr, count);
+    if (length === 0) {
+      new DataView(this.memory.buffer).setUint32(out, 0, true);
+      return 0;
+    }
+    const end = offset + BigInt(length);
+    if (!this.fits(file, end)) return wasi.ERRNO_NOSPC;
+    const size = file.file.size > end ? file.file.size : end;
+    const result = this.resizeFile(file, size);
+    if (result !== 0) return result;
+    const view = new DataView(this.memory.buffer);
+    let position = Number(offset);
+    for (let index = 0; index < count; index++) {
+      const address = view.getUint32(ptr + index * 8, true);
+      const bytes = view.getUint32(ptr + index * 8 + 4, true);
+      file.file.data.set(new Uint8Array(this.memory.buffer, address, bytes), position);
+      position += bytes;
+    }
+    view.setUint32(out, length, true);
+    return 0;
+  }
+  private resizeFile(open: OpenFile, size: bigint) {
+    if (open.file.readonly) return wasi.ERRNO_BADF;
+    if (!this.fits(open, size)) return wasi.ERRNO_NOSPC;
+    const file = open.file;
+    const oldSize = file.data.length;
+    const length = Number(size);
+    let storage = this.capacities.get(file) ?? file.data;
+    if (storage.length < length) {
+      const capacity = Math.min(8388608, Math.max(length, storage.length * 2, 4096));
+      if (this.allocatedBytes + capacity - storage.length > 16777216) return wasi.ERRNO_NOSPC;
+      const enlarged = new Uint8Array(capacity);
+      enlarged.set(file.data);
+      this.allocatedBytes += capacity - storage.length;
+      this.profile?.add(profileFields.fileAllocatedBytes, capacity);
+      this.profile?.add(profileFields.fileCopiedBytes, oldSize);
+      storage = enlarged;
+    }
+    if (length > oldSize) storage.fill(0, oldSize, length);
+    this.capacities.set(file, storage);
+    file.data = storage.subarray(0, length);
+    if (this.usage) this.usage.bytes += length - oldSize;
+    return 0;
+  }
+  private profileImports() {
+    if (!this.profile) return;
+    for (const name of ["fd_read", "fd_write", "fd_pread", "fd_pwrite", "path_open", "fd_close"]) {
+      const operation = this.wasi.wasiImport[name];
+      this.wasi.wasiImport[name] = (...args: Parameters<typeof operation>) => {
+        if (!this.profile?.active) return operation(...args);
+        const start = performance.now();
+        const result = operation(...args);
+        this.profile.add(profileFields.hostMs, performance.now() - start);
+        this.recordIo(name, args, result);
+        return result;
+      };
+    }
+  }
+  private recordIo(name: string, args: unknown[], result: unknown) {
+    if (!this.profile || !this.memory || result !== 0) return;
+    const [fd, ptr, count, out] = args;
+    if (typeof fd !== "number" || typeof ptr !== "number" || typeof count !== "number") return;
+    const read = name === "fd_read";
+    const write = name === "fd_write";
+    if ((!read && !write) || typeof out !== "number") return;
+    const view = new DataView(this.memory.buffer);
+    this.profile.add(read ? profileFields.reads : profileFields.writes);
+    this.profile.add(
+      read ? profileFields.readBytes : profileFields.writeBytes,
+      view.getUint32(out, true),
+    );
+    if (read && count === 1 && view.getUint32(ptr + 4, true) === 1)
+      this.profile.add(profileFields.oneByteReads);
   }
   private limitDescriptors() {
     const open = this.wasi.wasiImport.path_open;
@@ -264,9 +372,20 @@ export class BrowserHost {
     ) => {
       const fds = this.wasi.fds;
       if (fds.filter(Boolean).length >= 128) return wasi.ERRNO_MFILE;
-      if (oflags & wasi.OFLAGS_CREAT && this.inodes().length >= 1024) return wasi.ERRNO_NOSPC;
+      if (
+        oflags & wasi.OFLAGS_CREAT &&
+        this.inodes().length >= 1024 &&
+        !this.pathExists(fd, flags, ptr, length)
+      )
+        return wasi.ERRNO_NOSPC;
       const hole = fds.findIndex((entry, index) => index >= 4 && !entry);
+      this.usage = undefined;
       const result = open(fd, flags, ptr, length, oflags, rights, inherited, fdflags, out);
+      if (result === 0 && this.memory) {
+        const opened = fds[new DataView(this.memory.buffer).getUint32(out, true)];
+        if (opened instanceof OpenFile && fdflags & wasi.FDFLAGS_APPEND)
+          this.appendFiles.add(opened);
+      }
       if (result !== 0 || hole < 4 || !this.memory) return result;
       const opened = fds.pop();
       if (!opened) throw new Error("WASI open succeeded without a descriptor");
@@ -276,11 +395,18 @@ export class BrowserHost {
     };
     const close = this.wasi.wasiImport.fd_close;
     this.wasi.wasiImport.fd_close = (fd: number) => {
+      this.usage = undefined;
       const result = close(fd);
       const fds = this.wasi.fds;
       while (fds.length > 4 && !fds.at(-1)) fds.pop();
       return result;
     };
+  }
+  private pathExists(fd: number, flags: number, ptr: number, length: number) {
+    const directory = this.wasi.fds[fd];
+    if (!(directory instanceof OpenDirectory) || !this.memory) return false;
+    const path = new TextDecoder().decode(new Uint8Array(this.memory.buffer, ptr, length));
+    return directory.path_lookup(path, flags).ret === 0;
   }
   private fileForFd(fd: number) {
     const file = this.wasi.fds[fd];
@@ -288,7 +414,11 @@ export class BrowserHost {
   }
   private fits(open: OpenFile, end: bigint) {
     const growth = end - open.file.size;
-    return end <= 8388608n && this.filesystemBytes() + Number(growth > 0n ? growth : 0n) <= 8388608;
+    return (
+      end >= 0n &&
+      end <= 8388608n &&
+      this.filesystemBytes() + Number(growth > 0n ? growth : 0n) <= 8388608
+    );
   }
   private iovecBytes(ptr: number, count: number) {
     if (!this.memory) return 0;
@@ -298,10 +428,21 @@ export class BrowserHost {
     return total;
   }
   private filesystemBytes() {
-    return this.inodes().reduce(
-      (sum, inode) => sum + (inode instanceof File ? inode.data.byteLength : 0),
+    if (this.usage) return this.usage.bytes;
+    const inodes = this.inodes();
+    this.allocatedBytes = inodes.reduce(
+      (sum, inode) =>
+        sum +
+        (inode instanceof File ? (this.capacities.get(inode)?.length ?? inode.data.length) : 0),
       0,
     );
+    this.usage = {
+      bytes: inodes.reduce(
+        (sum, inode) => sum + (inode instanceof File ? inode.data.byteLength : 0),
+        0,
+      ),
+    };
+    return this.usage.bytes;
   }
   private inodes() {
     const found = new Set<Directory | File>();
@@ -349,6 +490,15 @@ class NullFile extends File {
   }
 }
 class NullFd extends OpenFile {
+  override fd_allocate() {
+    return 0;
+  }
+  override fd_filestat_set_size() {
+    return 0;
+  }
+  override fd_pwrite(bytes: Uint8Array) {
+    return { ret: 0, nwritten: bytes.length };
+  }
   override fd_read() {
     return { ret: 0, data: new Uint8Array() };
   }
