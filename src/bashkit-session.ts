@@ -21,7 +21,7 @@ export async function createBashkitSession(): Promise<{
     timeoutMs: 60000,
     files: { "/home/user/welcome.txt": "Files and commands run inside this browser.\n" },
   });
-  const inventory = await bash.execute("shopt -s expand_aliases; compgen -b");
+  const inventory = await bash.execute("shopt -s expand_aliases; compgen -c");
   const commands = inventory.stdout.split(/\s+/).filter(Boolean);
   const shell: ScriptSession = {
     cwd: "/home/user",

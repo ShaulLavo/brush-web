@@ -17,6 +17,19 @@ const api: WorkerControl = {
   async initialize(buffer, engine, wasmUrl, baselineState, profileBuffer, collectCosts) {
     const profile = profileBuffer ? new ExecutionProfile(profileBuffer, collectCosts) : undefined;
     const bridge = new SharedBridge(buffer, profile?.costs ? profile : undefined);
+    if (engine === "bashkit-terminal") {
+      const { createTerminalSession } = await import("./bashkit-terminal");
+      const candidate = await createTerminalSession(bridge, profile);
+      setTimeout(() => {
+        void candidate.run().catch((error) => {
+          Atomics.store(bridge.state, control.phase, 4);
+          setTimeout(() => {
+            throw error;
+          }, 0);
+        });
+      }, 0);
+      return { wasmBytes: candidate.wasmBytes };
+    }
     if (engine === "just-bash" || engine === "bashkit") {
       if (typeof Atomics.waitAsync !== "function")
         throw new Error(

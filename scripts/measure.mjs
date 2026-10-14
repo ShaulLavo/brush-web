@@ -6,6 +6,12 @@ import { cpus, platform, release } from "node:os";
 const root = resolve(import.meta.dirname, "..");
 const headed = process.env.BRUSH_HEADED === "1";
 const renderer = process.env.BRUSH_RENDERER ?? "canvas";
+const presentation = process.env.BRUSH_PRESENTATION ?? "frame";
+const engines = (process.env.BRUSH_MEASURE_ENGINES ?? "brush,just-bash").split(",");
+if (
+  engines.some((engine) => !["brush", "just-bash", "bashkit", "bashkit-terminal"].includes(engine))
+)
+  throw new Error("Invalid measurement engine");
 const prefix = process.env.BRUSH_MEASURE_PREFIX ?? `${headed ? "headed" : "headless"}-${renderer}`;
 const output = resolve(root, "docs/evidence", `${prefix}.json`);
 const port = 4197;
@@ -23,6 +29,7 @@ const result = {
   cpu: cpus()[0]?.model,
   headed,
   renderer,
+  presentation,
   browser: "",
   gpu: null,
   samples: [],
@@ -55,7 +62,7 @@ try {
       : ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--disable-vulkan-surface"],
   });
   result.browser = browser.version();
-  for (const engine of ["brush", "just-bash"]) {
+  for (const engine of engines) {
     const context = await browser.newContext({ viewport: { width: 1200, height: 800 } });
     try {
       const page = await context.newPage();
@@ -63,7 +70,7 @@ try {
       await cdp.send("Network.enable");
       await cdp.send("Network.setCacheDisabled", { cacheDisabled: true });
       await page.goto(
-        `http://127.0.0.1:${port}/?test=1&engine=${engine}${renderer === "canvas" ? "&renderer=canvas" : ""}`,
+        `http://127.0.0.1:${port}/?test=1&engine=${engine}&presentation=${presentation}${renderer === "canvas" ? "&renderer=canvas" : ""}`,
       );
       await page.waitForFunction(
         () =>

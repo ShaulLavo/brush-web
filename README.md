@@ -6,7 +6,7 @@ The demo includes completion, grapheme-aware editing, safe bracketed paste, resi
 
 ## Run the shell
 
-Prerequisites: Node 26.7 or newer, npm, Git, Rust through rustup, and `tar`. The repository pins Rust 1.98.1 and Remix 3.0.0. Use a current browser on localhost or HTTPS.
+Prerequisites: Node 26.7 or newer, npm, Git, Rust through rustup, and `tar`. The repository pins Rust 1.98.1 for Brush, Rust 1.95.0 for Bashkit's source API, and Remix 3.0.0. Use a current browser on localhost or HTTPS. The first build installs Bashkit's pinned Rust target and wasm-bindgen CLI, then compiles its source with the `terminal` feature. Later builds reuse that output.
 
 ```sh
 git clone --recurse-submodules https://github.com/ShaulLavo/brush-web.git
@@ -88,3 +88,7 @@ The [completed performance proof](docs/performance-proof.md) separates worker ex
 The [instrumented cost breakdown](docs/execution-costs.md) measures host calls, conversion, copying, queue gaps and submitted frames for both engines, with separate controls for profiler overhead and hardware WebGPU replay.
 
 The [Bashkit comparison](docs/bashkit-comparison.md) evaluates `@everruns/bashkit-wasm` through the same Ghostty adapter and records its session and cancellation limits.
+
+The separate **Bashkit native terminal** option uses its source-tree `Terminal` API at the revision in `sources.lock.json`. It forwards raw bytes to the native editor and drains raw output into Ghostty. Its own package tests run with `npm run test:bashkit`. No source patch is applied. OPFS remains deferred.
+
+Add `?presentation=immediate` to exercise Ghostty's new synchronous first paint, or `?presentation=frame` for its normal frame scheduling. Both paths retain the same terminal renderer. Set `BRUSH_PRESENTATION=immediate` when running `npm run measure:costs`; use `BRUSH_COST_ENGINES=brush,just-bash,bashkit,bashkit-terminal` to include both Bashkit APIs in the same fixture matrix.

@@ -4,6 +4,7 @@ import { Terminal, TERMINAL_READ_LINES_MAX_ROWS, WebGpuTerminalRenderer } from "
 import type {
   GhosttyWebGpuTerminalOptions,
   GhosttyWebGpuTerminalSubscription,
+  TerminalOutputTiming,
 } from "ghostty-webgpu";
 import terminalWasmUrl from "ghostty-webgpu/ghostty-vt.wasm?url";
 import terminalBridgeUrl from "ghostty-webgpu/bridge.wasm?url";
@@ -20,11 +21,14 @@ interface BrowserTestAccess {
     state: string;
     error: string | undefined;
     renderer: string | undefined;
+    presentation: "frame" | "immediate";
+    desynchronized: boolean;
     cols: number;
     rows: number;
     firstFrameMs: number | undefined;
   };
   metrics(): BrowserSession["metrics"] | undefined;
+  outputTimings(): readonly TerminalOutputTiming[];
   restart(engine?: Engine): Promise<void>;
   crash(): void;
 }
@@ -67,6 +71,7 @@ async function openTerminal(host: HTMLElement): Promise<Terminal> {
       scrollbackByteLimit: 16 * 1024 * 1024,
     },
     padding: 16,
+    presentation: query.get("presentation") === "immediate" ? "immediate" : "frame",
     runtime: {
       kind: "owned",
       options: {
@@ -102,12 +107,13 @@ async function openTerminal(host: HTMLElement): Promise<Terminal> {
 }
 
 function Workbench(handle: Handle) {
+  const requestedEngine = query.get("engine");
   let engine: Engine =
-    query.get("engine") === "bashkit"
-      ? "bashkit"
-      : query.get("engine") === "just-bash"
-        ? "just-bash"
-        : "brush";
+    requestedEngine === "bashkit" ||
+    requestedEngine === "bashkit-terminal" ||
+    requestedEngine === "just-bash"
+      ? requestedEngine
+      : "brush";
   let state = "starting";
   let error: string | undefined;
   let warning: string | undefined;
@@ -116,6 +122,7 @@ function Workbench(handle: Handle) {
   let terminal: Terminal | undefined;
   let session: BrowserSession | undefined;
   let subscriptions: GhosttyWebGpuTerminalSubscription[] = [];
+  let outputTimings: TerminalOutputTiming[] = [];
   let generation = 0;
   let firstFrameMs: number | undefined;
   let startedAt = 0;
@@ -129,6 +136,7 @@ function Workbench(handle: Handle) {
     generation++;
     subscriptions.forEach((subscription) => subscription.dispose());
     subscriptions = [];
+    outputTimings = [];
     session?.dispose();
     terminal?.dispose();
     session = undefined;
@@ -165,6 +173,22 @@ function Workbench(handle: Handle) {
   }
 
   function wireTerminal(current: Terminal, expectedGeneration: number) {
+    current.textarea?.addEventListener(
+      "paste",
+      (event) => {
+        if (
+          engine !== "bashkit-terminal" ||
+          !/[\r\n]/.test(event.clipboardData?.getData("text/plain") ?? "")
+        )
+          return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        warning =
+          "Bashkit's native editor cannot safely paste multiple lines. Enter lines separately.";
+        render();
+      },
+      { capture: true },
+    );
     subscriptions = [
       current.onData((bytes) => session?.input(bytes)),
       current.onResize(({ cols, rows }) => {
@@ -179,6 +203,13 @@ function Workbench(handle: Handle) {
         render();
       }),
     ];
+    if (query.get("trace") === "1")
+      subscriptions.push(
+        current.on("outputTiming", (timing) => {
+          if (outputTimings.length === 512) outputTimings.shift();
+          outputTimings.push(timing);
+        }),
+      );
   }
 
   async function start(nextEngine = engine) {
@@ -285,11 +316,14 @@ function Workbench(handle: Handle) {
         state,
         error,
         renderer: terminal?.diagnostics.rendererBackend,
+        presentation: query.get("presentation") === "immediate" ? "immediate" : "frame",
+        desynchronized: terminal?.diagnostics.desynchronized ?? false,
         cols: terminal?.appearance.grid.columns ?? 0,
         rows: terminal?.appearance.grid.rows ?? 0,
         firstFrameMs,
       }),
       metrics: () => session?.metrics,
+      outputTimings: () => outputTimings,
       restart: start,
       crash: () => session?.crash(),
     };
@@ -357,7 +391,15 @@ function Workbench(handle: Handle) {
               disabled={busy}
               mix={on("click", () => selectEngine("bashkit"))}
             >
-              Bashkit <span class="engine-detail">evaluation</span>
+              Bashkit <span class="engine-detail">published scripts</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={engine === "bashkit-terminal"}
+              disabled={busy}
+              mix={on("click", () => selectEngine("bashkit-terminal"))}
+            >
+              Bashkit <span class="engine-detail">native terminal</span>
             </button>
           </div>
           <div class="session-actions">
@@ -393,7 +435,14 @@ function Workbench(handle: Handle) {
           <div class="baseline-note">
             Experimental: variables, functions, arrays and cwd persist; prior exit status resets.
             Collected output. CPU loops may delay Ctrl+C. Command completion only; live stdin is
-            unavailable.
+            unavailable. Repeated large file reads can return incomplete data.
+          </div>
+        )}
+        {engine === "bashkit-terminal" && (
+          <div class="baseline-note">
+            Experimental source API: native editing, live input and streaming output. CPU loops may
+            delay Ctrl+C. Tab completion is unavailable; multiline paste is blocked. Repeated large
+            file reads can return incomplete data.
           </div>
         )}
 
@@ -429,7 +478,7 @@ function Workbench(handle: Handle) {
             <div class="loading-overlay" role="status">
               <span class="loading-dot" />
               Starting{" "}
-              {engine === "brush" ? "Brush" : engine === "bashkit" ? "Bashkit" : "just-bash"}…
+              {engine === "brush" ? "Brush" : engine === "just-bash" ? "just-bash" : "Bashkit"}…
             </div>
           )}
         </div>
@@ -454,8 +503,13 @@ function Workbench(handle: Handle) {
 
       <div class="below-terminal">
         <p class="keyboard-hint">
-          <kbd>Tab</kbd> complete <span>·</span> <kbd>↑</kbd> history <span>·</span>{" "}
-          <kbd>Ctrl C</kbd> interrupt <span>·</span> <kbd>Ctrl D</kbd> EOF
+          {engine !== "bashkit-terminal" && (
+            <span>
+              <kbd>Tab</kbd> complete <span>·</span>{" "}
+            </span>
+          )}
+          <kbd>↑</kbd> history <span>·</span> <kbd>Ctrl C</kbd> interrupt <span>·</span>{" "}
+          <kbd>Ctrl D</kbd> EOF
         </p>
         <details class="help">
           <summary>Try a few things</summary>
@@ -495,6 +549,14 @@ function Workbench(handle: Handle) {
                     <code>keydemo</code>
                   </dt>
                   <dd>Keys, terminal drawing, and live resize. Press q to exit.</dd>
+                </div>
+              )}
+              {engine === "bashkit-terminal" && (
+                <div>
+                  <dt>
+                    <code>vi /tmp/note</code>
+                  </dt>
+                  <dd>Press i to edit, then Escape and :wq Enter to save and exit.</dd>
                 </div>
               )}
             </dl>

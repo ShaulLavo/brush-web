@@ -6,12 +6,12 @@
   },
   "terminal": {
     "repository": "https://github.com/ShaulLavo/ghostty-webgpu",
-    "revision": "cf0d1a0e75f61e47732648d6fba32645a4fc8de7",
+    "revision": "40a0cb891f8b4f6aa0b8ed3d19669f56252b3fa9",
     "canonicalRepository": "https://github.com/ShaulLavo/fregat",
-    "canonicalRevision": "f03e65e7741646d6fe950b2b7405e4f5cd716aa1",
+    "canonicalRevision": "96f080016aea1b84b06be28167de1507f33e1b3f",
     "canonicalDirectory": "ghostty-webgpu",
     "version": "0.3.24",
-    "archiveSha256": "54945ace7f58a228686f907c472ba072f3aa49456c520a4f03981ff6191cf77c"
+    "archiveSha256": "85a663f5e02e28d925a0fd61332c977b73c6380012f4e873c4d04c41385ec8db"
   },
   "remix": {
     "version": "3.0.0",
@@ -32,5 +32,16 @@
     "revision": "567511386572d4c4b9f649ab1da97aad53b9f341",
     "inspectedHead": "491c3281f668b76d64b15210b8f5d7bf97244be0",
     "provenance": "https://registry.npmjs.org/-/npm/v1/attestations/@everruns%2fbashkit-wasm@0.18.2"
+  },
+  "bashkitTerminal": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "archiveSha256": "e0a1d49f86d79cbeac93ee1df845be46905e2776465a135c9775066055056420",
+    "rust": "1.95.0",
+    "wasmBindgen": "0.2.128",
+    "features": [
+      "terminal"
+    ],
+    "wasmOpt": false
   }
 }

@@ -1,0 +1,869 @@
+{
+  "source": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "archiveSha256": "e0a1d49f86d79cbeac93ee1df845be46905e2776465a135c9775066055056420",
+    "rust": "1.95.0",
+    "wasmBindgen": "0.2.128",
+    "features": [
+      "terminal"
+    ],
+    "wasmOpt": false
+  },
+  "browser": "154.0.8037.93",
+  "wasmSha256": "07d2edc753c6e568bd5989b40ab103f5224a070abc9139b19f7dc9b61cc217c9",
+  "data": {
+    "samples": [
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 1,
+        "elapsedMs": 63.58500003814697,
+        "bytes": 14
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 1,
+        "elapsedMs": 65.30000019073486,
+        "bytes": 89
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 2,
+        "elapsedMs": 64.25,
+        "bytes": 89
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 2,
+        "elapsedMs": 62.93499994277954,
+        "bytes": 14
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 3,
+        "elapsedMs": 63.8100004196167,
+        "bytes": 14
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 3,
+        "elapsedMs": 65.62999963760376,
+        "bytes": 89
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 4,
+        "elapsedMs": 62.63499975204468,
+        "bytes": 89
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 4,
+        "elapsedMs": 62.605000019073486,
+        "bytes": 14
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 5,
+        "elapsedMs": 63.394999980926514,
+        "bytes": 14
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 5,
+        "elapsedMs": 62.88499975204468,
+        "bytes": 89
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 6,
+        "elapsedMs": 63.510000228881836,
+        "bytes": 89
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 6,
+        "elapsedMs": 61.81500005722046,
+        "bytes": 14
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 7,
+        "elapsedMs": 62.47500038146973,
+        "bytes": 14
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 7,
+        "elapsedMs": 63.96999979019165,
+        "bytes": 89
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 8,
+        "elapsedMs": 64.34999990463257,
+        "bytes": 89
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 8,
+        "elapsedMs": 62.94499969482422,
+        "bytes": 14
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 9,
+        "elapsedMs": 62.144999980926514,
+        "bytes": 14
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 9,
+        "elapsedMs": 63.15999984741211,
+        "bytes": 89
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 10,
+        "elapsedMs": 64.52000045776367,
+        "bytes": 89
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 10,
+        "elapsedMs": 63.05999994277954,
+        "bytes": 14
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 11,
+        "elapsedMs": 62.27499961853027,
+        "bytes": 14
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 11,
+        "elapsedMs": 63.985000133514404,
+        "bytes": 89
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 12,
+        "elapsedMs": 63.61999988555908,
+        "bytes": 89
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 12,
+        "elapsedMs": 62.25,
+        "bytes": 14
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 13,
+        "elapsedMs": 62.33000040054321,
+        "bytes": 14
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 13,
+        "elapsedMs": 63.62999963760376,
+        "bytes": 89
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 14,
+        "elapsedMs": 64.15999984741211,
+        "bytes": 89
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 14,
+        "elapsedMs": 64.1399998664856,
+        "bytes": 14
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 15,
+        "elapsedMs": 64.90500020980835,
+        "bytes": 14
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 15,
+        "elapsedMs": 62.989999771118164,
+        "bytes": 89
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 16,
+        "elapsedMs": 63.44999980926514,
+        "bytes": 89
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 16,
+        "elapsedMs": 62.80999994277954,
+        "bytes": 14
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 17,
+        "elapsedMs": 62.954999923706055,
+        "bytes": 14
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 17,
+        "elapsedMs": 63.55999994277954,
+        "bytes": 89
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 18,
+        "elapsedMs": 63.03499984741211,
+        "bytes": 89
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 18,
+        "elapsedMs": 63,
+        "bytes": 14
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 19,
+        "elapsedMs": 62.97000026702881,
+        "bytes": 14
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 19,
+        "elapsedMs": 62.53999996185303,
+        "bytes": 89
+      },
+      {
+        "api": "Terminal",
+        "fixture": "arithmetic-20000",
+        "trial": 20,
+        "elapsedMs": 63.295000076293945,
+        "bytes": 89
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "arithmetic-20000",
+        "trial": 20,
+        "elapsedMs": 62.764999866485596,
+        "bytes": 14
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 1,
+        "elapsedMs": 10.805000305175781,
+        "bytes": 11
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 1,
+        "elapsedMs": 11.394999980926514,
+        "bytes": 109
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 2,
+        "elapsedMs": 11.21500015258789,
+        "bytes": 109
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 2,
+        "elapsedMs": 10.59499979019165,
+        "bytes": 11
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 3,
+        "elapsedMs": 10.330000400543213,
+        "bytes": 11
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 3,
+        "elapsedMs": 10.650000095367432,
+        "bytes": 109
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 4,
+        "elapsedMs": 10.815000057220459,
+        "bytes": 109
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 4,
+        "elapsedMs": 10.03000020980835,
+        "bytes": 11
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 5,
+        "elapsedMs": 9.904999732971191,
+        "bytes": 11
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 5,
+        "elapsedMs": 10.430000305175781,
+        "bytes": 109
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 6,
+        "elapsedMs": 10.605000019073486,
+        "bytes": 109
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 6,
+        "elapsedMs": 9.875,
+        "bytes": 11
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 7,
+        "elapsedMs": 9.800000190734863,
+        "bytes": 11
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 7,
+        "elapsedMs": 10.440000057220459,
+        "bytes": 109
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 8,
+        "elapsedMs": 10.304999828338623,
+        "bytes": 109
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 8,
+        "elapsedMs": 9.865000247955322,
+        "bytes": 11
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 9,
+        "elapsedMs": 9.835000038146973,
+        "bytes": 11
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 9,
+        "elapsedMs": 10.4399995803833,
+        "bytes": 109
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 10,
+        "elapsedMs": 10.320000171661377,
+        "bytes": 109
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 10,
+        "elapsedMs": 10.085000038146973,
+        "bytes": 11
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 11,
+        "elapsedMs": 10.09000015258789,
+        "bytes": 11
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 11,
+        "elapsedMs": 10.59499979019165,
+        "bytes": 109
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 12,
+        "elapsedMs": 10.550000190734863,
+        "bytes": 109
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 12,
+        "elapsedMs": 9.855000019073486,
+        "bytes": 11
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 13,
+        "elapsedMs": 9.819999694824219,
+        "bytes": 11
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 13,
+        "elapsedMs": 10.994999885559082,
+        "bytes": 109
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 14,
+        "elapsedMs": 10.34499979019165,
+        "bytes": 109
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 14,
+        "elapsedMs": 9.849999904632568,
+        "bytes": 11
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 15,
+        "elapsedMs": 9.665000438690186,
+        "bytes": 11
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 15,
+        "elapsedMs": 10.239999771118164,
+        "bytes": 109
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 16,
+        "elapsedMs": 10.320000171661377,
+        "bytes": 109
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 16,
+        "elapsedMs": 9.914999961853027,
+        "bytes": 11
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 17,
+        "elapsedMs": 10.230000019073486,
+        "bytes": 11
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 17,
+        "elapsedMs": 10.24500036239624,
+        "bytes": 109
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 18,
+        "elapsedMs": 10.324999809265137,
+        "bytes": 109
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 18,
+        "elapsedMs": 9.824999809265137,
+        "bytes": 11
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 19,
+        "elapsedMs": 9.915000438690186,
+        "bytes": 11
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 19,
+        "elapsedMs": 10.199999809265137,
+        "bytes": 109
+      },
+      {
+        "api": "Terminal",
+        "fixture": "substitutions-1000",
+        "trial": 20,
+        "elapsedMs": 10.34000015258789,
+        "bytes": 109
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "substitutions-1000",
+        "trial": 20,
+        "elapsedMs": 10.029999732971191,
+        "bytes": 11
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 1,
+        "elapsedMs": 2.8849997520446777,
+        "bytes": 48894
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 1,
+        "elapsedMs": 4.069999694824219,
+        "bytes": 58907
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 2,
+        "elapsedMs": 3.9600000381469727,
+        "bytes": 58907
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 2,
+        "elapsedMs": 2.6500000953674316,
+        "bytes": 48894
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 3,
+        "elapsedMs": 2.6150002479553223,
+        "bytes": 48894
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 3,
+        "elapsedMs": 3.8550000190734863,
+        "bytes": 58907
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 4,
+        "elapsedMs": 3.8550000190734863,
+        "bytes": 58907
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 4,
+        "elapsedMs": 2.5999999046325684,
+        "bytes": 48894
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 5,
+        "elapsedMs": 2.5950002670288086,
+        "bytes": 48894
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 5,
+        "elapsedMs": 3.8600001335144043,
+        "bytes": 58907
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 6,
+        "elapsedMs": 3.8700003623962402,
+        "bytes": 58907
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 6,
+        "elapsedMs": 2.6050000190734863,
+        "bytes": 48894
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 7,
+        "elapsedMs": 2.6000003814697266,
+        "bytes": 48894
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 7,
+        "elapsedMs": 3.895000457763672,
+        "bytes": 58907
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 8,
+        "elapsedMs": 3.875,
+        "bytes": 58907
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 8,
+        "elapsedMs": 2.6449999809265137,
+        "bytes": 48894
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 9,
+        "elapsedMs": 2.614999771118164,
+        "bytes": 48894
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 9,
+        "elapsedMs": 3.9050002098083496,
+        "bytes": 58907
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 10,
+        "elapsedMs": 3.8450002670288086,
+        "bytes": 58907
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 10,
+        "elapsedMs": 2.625,
+        "bytes": 48894
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 11,
+        "elapsedMs": 2.609999656677246,
+        "bytes": 48894
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 11,
+        "elapsedMs": 3.9149999618530273,
+        "bytes": 58907
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 12,
+        "elapsedMs": 3.8550000190734863,
+        "bytes": 58907
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 12,
+        "elapsedMs": 2.6050000190734863,
+        "bytes": 48894
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 13,
+        "elapsedMs": 2.625,
+        "bytes": 48894
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 13,
+        "elapsedMs": 3.9200000762939453,
+        "bytes": 58907
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 14,
+        "elapsedMs": 3.8299999237060547,
+        "bytes": 58907
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 14,
+        "elapsedMs": 2.5850000381469727,
+        "bytes": 48894
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 15,
+        "elapsedMs": 2.5900001525878906,
+        "bytes": 48894
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 15,
+        "elapsedMs": 3.9000000953674316,
+        "bytes": 58907
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 16,
+        "elapsedMs": 4.085000038146973,
+        "bytes": 58907
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 16,
+        "elapsedMs": 2.6150002479553223,
+        "bytes": 48894
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 17,
+        "elapsedMs": 2.5999999046325684,
+        "bytes": 48894
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 17,
+        "elapsedMs": 3.9200000762939453,
+        "bytes": 58907
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 18,
+        "elapsedMs": 3.875,
+        "bytes": 58907
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 18,
+        "elapsedMs": 2.6150002479553223,
+        "bytes": 48894
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 19,
+        "elapsedMs": 2.6050000190734863,
+        "bytes": 48894
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 19,
+        "elapsedMs": 3.875,
+        "bytes": 58907
+      },
+      {
+        "api": "Terminal",
+        "fixture": "terminal-10000",
+        "trial": 20,
+        "elapsedMs": 3.8650002479553223,
+        "bytes": 58907
+      },
+      {
+        "api": "Bash.execute",
+        "fixture": "terminal-10000",
+        "trial": 20,
+        "elapsedMs": 2.6050000190734863,
+        "bytes": 48894
+      }
+    ],
+    "limitations": [
+      "Same WASM module, feature set and options in one browser worker. Measures each API plus output extraction/conversion, without Ghostty, the shared bridge or frame scheduling.",
+      "Terminal also includes native input editing, echo, the vt100 parser and transcript capture. The differential is combined terminal machinery, not isolated vt100 time.",
+      "Bash.execute returns collected output. Terminal output includes input echo and a prompt; payload sizes differ. Each fixture initializes its own working variables."
+    ]
+  },
+  "cleanup": {
+    "browserClosed": true,
+    "serverStopped": true,
+    "snapshotRemoved": true
+  }
+}

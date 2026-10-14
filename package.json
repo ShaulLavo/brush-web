@@ -1,19 +1,19 @@
 {
   "name": "brush-web",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "private": true,
   "type": "module",
   "scripts": {
     "sources": "node scripts/sources.mjs",
     "build:wasm": "node scripts/build-wasm.mjs",
     "dev": "vite --host 0.0.0.0",
-    "build": "npm run sources && npm run build:wasm && vite build && node scripts/finish-build.mjs",
+    "build": "npm run sources && npm run build:wasm && npm run build:bashkit && node scripts/notices.mjs && vite build && node scripts/finish-build.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
     "format": "oxfmt --write src scripts tests vite.config.ts playwright.config.ts tsconfig.json package.json",
     "format:check": "oxfmt --check src scripts tests vite.config.ts playwright.config.ts tsconfig.json package.json",
     "test": "playwright test",
-    "verify": "npm run build && npm run typecheck && npm run format:check && npm run test:host && npm test",
+    "verify": "npm run build && npm run typecheck && npm run format:check && npm run test:host && npm run test:bashkit && npm test",
     "measure": "node scripts/measure.mjs",
     "test:rust": "cargo test --locked --manifest-path vendor/brush/Cargo.toml -p brush-interactive --features vt --lib vt:: && cargo test --locked --manifest-path vendor/brush/Cargo.toml -p brush-builtins --lib && cargo test --locked --manifest-path rust/brush-browser/Cargo.toml",
     "serve": "node dist/serve.mjs",
@@ -23,7 +23,9 @@
     "proof:analyze": "node scripts/analyze-performance.mjs",
     "measure:costs": "node scripts/attribute-costs.mjs",
     "costs:analyze": "node scripts/analyze-costs.mjs",
-    "bashkit:probe": "node scripts/probe-bashkit.mjs"
+    "bashkit:probe": "node scripts/probe-bashkit.mjs",
+    "build:bashkit": "node scripts/build-bashkit.mjs",
+    "test:bashkit": "node --test .sources/bashkit/__test__/terminal.test.mjs .sources/bashkit/__test__/bashkit-wasm.test.mjs"
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "0.4.2",

@@ -33,5 +33,3 @@ await copyFile(
   resolve(root, ".build/rust/wasm32-wasip1/release/brush-browser.wasm"),
   resolve(root, "public/brush/brush-browser.wasm"),
 );
-
-execFileSync(process.execPath, ["scripts/notices.mjs"], { cwd: root, env, stdio: "inherit" });
