@@ -1,3 +1,4 @@
+import { ExecutionProfile, profileFields } from "./execution-profile";
 const CHUNK_UNITS = 8192;
 
 export class BaselineOutput {
@@ -5,7 +6,10 @@ export class BaselineOutput {
   private readonly buffer = new Uint8Array(32768);
   private previousCR = false;
 
-  constructor(private readonly write: (bytes: Uint8Array) => number) {}
+  constructor(
+    private readonly write: (bytes: Uint8Array) => number,
+    private readonly profile?: ExecutionProfile,
+  ) {}
 
   result(stdout: string, stderr: string): void {
     this.previousCR = false;
@@ -24,6 +28,7 @@ export class BaselineOutput {
   private stream(text: string): boolean {
     let offset = 0;
     while (offset < text.length) {
+      const started = this.profile?.collecting ? performance.now() : undefined;
       let end = Math.min(text.length, offset + CHUNK_UNITS);
       if (end < text.length && isHighSurrogate(text.charCodeAt(end - 1))) end--;
       const chunk = text.slice(offset, end);
@@ -31,6 +36,8 @@ export class BaselineOutput {
       if (this.previousCR && chunk.startsWith("\n")) normalized = normalized.slice(1);
       const encoded = this.encoder.encodeInto(normalized, this.buffer);
       const bytes = this.buffer.subarray(0, encoded.written);
+      if (started !== undefined)
+        this.profile?.add(profileFields.normalizeMs, performance.now() - started);
       if (this.write(bytes) !== bytes.length) return false;
       this.previousCR = chunk.endsWith("\r");
       offset = end;

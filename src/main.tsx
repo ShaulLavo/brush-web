@@ -211,7 +211,13 @@ function Workbench(handle: Handle) {
     const created = await BrowserSession.create({
       engine,
       baselineState: query.get("baselineState") === "carry" ? "carry" : "isolated",
-      profile: query.get("profile") === "1",
+      profile:
+        query.get("profile") === "1"
+          ? "cost"
+          : query.get("profile") === "phase"
+            ? "phase"
+            : undefined,
+      trace: query.get("trace") === "1",
       cols: grid.columns,
       rows: grid.rows,
       onOutput(bytes) {

@@ -10,12 +10,13 @@ export type WorkerControl = {
     wasmUrl: string,
     baselineState: "isolated" | "carry",
     profileBuffer?: SharedArrayBuffer,
+    collectCosts?: boolean,
   ): Promise<{ wasmBytes: number }>;
 };
 const api: WorkerControl = {
-  async initialize(buffer, engine, wasmUrl, baselineState, profileBuffer) {
-    const bridge = new SharedBridge(buffer);
-    const profile = profileBuffer ? new ExecutionProfile(profileBuffer) : undefined;
+  async initialize(buffer, engine, wasmUrl, baselineState, profileBuffer, collectCosts) {
+    const profile = profileBuffer ? new ExecutionProfile(profileBuffer, collectCosts) : undefined;
+    const bridge = new SharedBridge(buffer, profile?.costs ? profile : undefined);
     if (engine === "just-bash") {
       if (typeof Atomics.waitAsync !== "function")
         throw new Error(

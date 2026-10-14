@@ -15,6 +15,53 @@ async function output(page: Page, text: string) {
   await expect.poll(() => lines(page)).toContain(text);
 }
 
+for (const engine of ["brush", "just-bash"]) {
+  test(`${engine} cost profiling preserves output and publishes a coherent timeline`, async ({
+    page,
+  }) => {
+    await page.goto(`/?test=1&renderer=canvas&engine=${engine}&profile=1&trace=1`);
+    await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("ready");
+    await page.locator("textarea").focus();
+    await command(page, "seq 10000 > cost-note; cat cost-note; echo COST_DONE");
+    await output(page, "COST_DONE");
+    await expect
+      .poll(() => page.evaluate(() => window.brushWeb?.metrics()?.lastExecution?.sequence))
+      .toBe(1);
+    const metrics = await page.evaluate(() => window.brushWeb?.metrics());
+    const profile = metrics?.lastExecution;
+    if (!metrics || !profile) throw new Error("Worker profile was not published");
+    expect(profile.finishedAt - profile.startedAt).toBeGreaterThanOrEqual(profile.elapsedMs - 0.1);
+    expect(profile.firstOutputAt).toBeGreaterThanOrEqual(profile.startedAt);
+    expect(profile.lastOutputAt).toBeLessThanOrEqual(profile.finishedAt);
+    expect(profile.ringCopyBytes).toBeGreaterThan(58900);
+    expect(profile.normalizeMs).toBeGreaterThanOrEqual(0);
+    expect(metrics.deliveries.length).toBeGreaterThan(1);
+    expect(metrics.frames.length).toBeGreaterThan(0);
+    expect(metrics.traceDropped).toBe(0);
+    if (engine === "brush") {
+      expect(profile.wasiCalls).toBeGreaterThan(0);
+      expect(profile.browserCalls).toBeGreaterThan(0);
+      expect(profile.hostCopyBytes).toBeGreaterThan(48000);
+    } else {
+      expect(profile.wasiCalls).toBe(0);
+      expect(profile.baselineExecMs).toBeGreaterThan(0);
+    }
+    await page.goto(`/?test=1&renderer=canvas&engine=${engine}&profile=phase`);
+    await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("ready");
+    await page.locator("textarea").focus();
+    await command(page, "echo PHASE_DONE");
+    await output(page, "PHASE_DONE");
+    await expect
+      .poll(() => page.evaluate(() => window.brushWeb?.metrics()?.lastExecution?.sequence))
+      .toBe(1);
+    const phase = await page.evaluate(() => window.brushWeb?.metrics()?.lastExecution);
+    expect(phase?.elapsedMs).toBeGreaterThan(0);
+    expect(phase?.browserCalls).toBe(0);
+    expect(phase?.wasiCalls).toBe(0);
+    expect(phase?.ringCopyBytes).toBe(0);
+  });
+}
+
 test("Brush executes real shell state, pipelines, files and command substitution", async ({
   page,
 }) => {

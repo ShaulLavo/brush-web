@@ -1,3 +1,4 @@
+import { ExecutionProfile, profileFields } from "./execution-profile";
 export const control = {
   inputWrite: 0,
   inputRead: 1,
@@ -23,6 +24,7 @@ export class SharedBridge {
   readonly output: Uint8Array;
   constructor(
     readonly buffer = new SharedArrayBuffer(HEADER_BYTES + INPUT_CAPACITY + OUTPUT_CAPACITY),
+    private readonly profile?: ExecutionProfile,
   ) {
     this.state = new Int32Array(buffer, 0, HEADER_BYTES / 4);
     this.input = new Uint8Array(buffer, HEADER_BYTES, INPUT_CAPACITY);
@@ -93,12 +95,18 @@ export class SharedBridge {
     const free = this.output.length - ((write - read) >>> 0);
     if (!free && this.cancelled()) return -1;
     if (!free) {
+      const started = this.profile?.collecting ? performance.now() : undefined;
       Atomics.wait(this.state, control.outputRead, read, 100);
+      if (started !== undefined)
+        this.profile?.add(profileFields.backpressureMs, performance.now() - started);
       return 0;
     }
     const length = Math.min(free, bytes.length);
+    const started = this.profile?.collecting ? performance.now() : undefined;
     copyIntoRing(this.output, write, bytes.subarray(0, length));
     Atomics.store(this.state, control.outputWrite, write + length);
+    if (started !== undefined) this.profile?.output(length, started);
+    this.profile?.maximum(profileFields.bufferedBytes, (write + length - read) >>> 0);
     return length;
   }
 }
