@@ -55,8 +55,9 @@ test("Bashkit adapter editing supports keyboard, safe paste and Unicode", async 
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");
   await output(page, "editing");
-  await page.keyboard.insertText("printf 'completion-ok\\n' | gre");
+  await page.keyboard.insertText("gre");
   await page.keyboard.press("Tab");
+  await page.keyboard.insertText("completion-ok <<< completion-ok");
   await page.keyboard.press("Enter");
   await output(page, "completion-ok");
   await command(page, 'echo "界😀é"');
