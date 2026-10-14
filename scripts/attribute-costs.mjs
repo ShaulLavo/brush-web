@@ -10,6 +10,13 @@ import { frameProbe } from "./frame-probe.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const trials = Number(process.env.BRUSH_COST_TRIALS ?? 30);
+const engines = (process.env.BRUSH_COST_ENGINES ?? "brush,just-bash").split(",");
+if (
+  !engines.length ||
+  new Set(engines).size !== engines.length ||
+  engines.some((engine) => !["brush", "just-bash", "bashkit"].includes(engine))
+)
+  throw new Error("Use distinct brush, just-bash or bashkit engine names");
 const headed = process.env.BRUSH_HEADED === "1";
 const replayOnly = process.env.BRUSH_COST_REPLAY_ONLY === "1";
 const renderer = process.env.BRUSH_RENDERER ?? "canvas";
@@ -39,6 +46,10 @@ const fixtures = [
   { id: "terminal-10000-immediate", command: "seq 10000", expected: "10000", immediate: true },
   { id: "terminal-100000", command: "seq 100000", expected: "100000" },
 ];
+const fixtureFilter = process.env.BRUSH_COST_FIXTURES?.split(",");
+const selectedFixtures = fixtureFilter
+  ? fixtures.filter((fixture) => fixtureFilter.includes(fixture.id))
+  : fixtures;
 let browser, server, directory;
 let interrupted = false;
 const result = {
@@ -51,6 +62,7 @@ const result = {
   replayOnly,
   renderer,
   trials,
+  engines,
   gpu: null,
   artifacts: [],
   samples: [],
@@ -205,7 +217,9 @@ async function submit(session, fixture) {
   const begin = data.lines.lastIndexOf(marker + "_BEGIN");
   const observed = data.lines.slice(begin >= 0 ? begin + 1 : Math.max(0, end - 4), end);
   if (end < 0 || !observed.includes(fixture.expected))
-    throw new Error(`Incorrect current-trial output: ${marker}`);
+    throw new Error(
+      `Incorrect current-trial output: ${marker}: ${data.lines.slice(-12).join(" | ")}`,
+    );
   return analyzeTrace(data, session.engine);
 }
 function analyzeTrace(data, engine) {
@@ -347,8 +361,8 @@ async function runProbes(page) {
 }
 function summarize() {
   const median = (values) => values.toSorted((a, b) => a - b)[Math.ceil(values.length / 2) - 1];
-  for (const fixture of fixtures)
-    for (const engine of ["brush", "just-bash"]) summarizeEngine(fixture.id, engine, median);
+  for (const fixture of selectedFixtures)
+    for (const engine of engines) summarizeEngine(fixture.id, engine, median);
 }
 function summarizeEngine(fixture, engine, median) {
   const modes = {};
@@ -408,12 +422,9 @@ try {
   checkInterrupted();
   const sessions = [];
   try {
-    for (const [engine, mode] of [
-      ["brush", "phase"],
-      ["just-bash", "phase"],
-      ["brush", "cost"],
-      ["just-bash", "cost"],
-    ])
+    for (const [engine, mode] of ["phase", "cost"].flatMap((mode) =>
+      engines.map((engine) => [engine, mode]),
+    ))
       sessions.push(await open(engine, mode));
     process.stdout.write(`Cost sessions ready: ${renderer}, ${headed ? "headed" : "headless"}\n`);
     if (renderer === "webgpu")
@@ -427,7 +438,8 @@ try {
             }
           : null;
       });
-    if (!replayOnly) for (const fixture of fixtures) await measureFixture(sessions, fixture);
+    if (!replayOnly)
+      for (const fixture of selectedFixtures) await measureFixture(sessions, fixture);
     if (headed && !replayOnly) {
       for (const session of sessions.filter((session) => session.mode === "phase"))
         await session.page.screenshot({

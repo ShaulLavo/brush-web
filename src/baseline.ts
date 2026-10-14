@@ -1,13 +1,24 @@
 import type { CommandName } from "just-bash/browser";
 import { control, SharedBridge } from "./bridge";
 import { BaselineOutput } from "./baseline-output";
-import { createBaselineShell } from "./baseline-session";
-import type { BaselineOptions, BaselineShell } from "./baseline-session";
+import type { BaselineOptions } from "./baseline-session";
 import { ExecutionProfile, profileFields } from "./execution-profile";
 
 const encoder = new TextEncoder();
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const LINE_LIMIT = 256 * 1024;
+export type ScriptSession = {
+  cwd: string;
+  fs: {
+    resolvePath(cwd: string, path: string): string;
+    readdirWithFileTypes(path: string): Promise<{ name: string; isDirectory: boolean }[]>;
+  };
+  exec(
+    command: string,
+    signal: AbortSignal,
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+};
+export type BaselineCandidate = { shell: ScriptSession; commands: readonly string[] };
 const commands: CommandName[] = [
   "echo",
   "printf",
@@ -161,12 +172,13 @@ class BaselineEditor {
   private readonly decoder = new TextDecoder();
 
   private get prompt() {
-    return `just-bash:${this.shell.cwd}$ `;
+    return this.candidate ? "bashkit$ " : `just-bash:${this.shell.cwd}$ `;
   }
 
   constructor(
     private readonly bridge: SharedBridge,
-    private readonly shell: BaselineShell,
+    private readonly shell: ScriptSession,
+    private readonly candidate?: BaselineCandidate,
   ) {}
 
   private redraw() {
@@ -229,7 +241,9 @@ class BaselineEditor {
       .filter((entry) => entry.name.startsWith(prefix))
       .map((entry) => `${directory}${entry.name}${entry.isDirectory ? "/" : ""}`);
     const commands =
-      atCommand && slash < 0 ? commandNames.filter((name) => name.startsWith(token)) : [];
+      atCommand && slash < 0
+        ? (this.candidate?.commands ?? commandNames).filter((name) => name.startsWith(token))
+        : [];
     const matches = Array.from(new Set(files.concat(commands)));
     matches.sort();
     if (matches.length === 1) {
@@ -373,7 +387,7 @@ class BaselineEditor {
 }
 
 async function execute(
-  shell: BaselineShell,
+  shell: ScriptSession,
   bridge: SharedBridge,
   output: BaselineOutput,
   command: string,
@@ -413,17 +427,21 @@ export async function startBaseline(
   bridge: SharedBridge,
   options: BaselineOptions = { state: "isolated" },
   profile?: ExecutionProfile,
+  candidate?: BaselineCandidate,
 ): Promise<void> {
-  const shell = createBaselineShell({ ...options, commands });
-  const editor = new BaselineEditor(bridge, shell);
+  const shell =
+    candidate?.shell ??
+    (await import("./baseline-session")).createBaselineShell({ ...options, commands });
+  const editor = new BaselineEditor(bridge, shell, candidate);
   const output = new BaselineOutput((bytes) => bridge.write(bytes), profile);
-  const stateNotice =
-    options.state === "carry"
+  const stateNotice = candidate
+    ? "Bashkit evaluation: variables, functions, arrays and cwd persist; prior exit status resets. Collected output and command completion only. CPU loops may delay Ctrl+C; live stdin is unavailable."
+    : options.state === "carry"
       ? "Scalar values, ordinary PWD-based cwd, and alias data carry between commands. Functions, arrays, options, and $? reset."
       : "Files persist; cwd, variables, functions, aliases, and $? reset per command.";
   write(
     bridge,
-    `\x1b[?2004h\x1b[?2027hjust-bash ${options.state} baseline. ${stateNotice}\r\nOutput is returned after each command completes.\r\n\r\n`,
+    `\x1b[?2004h\x1b[?2027h${candidate ? "Bashkit" : `just-bash ${options.state}`} baseline. ${stateNotice}\r\nOutput is returned after each command completes.\r\n\r\n`,
   );
   while (!bridge.closed()) {
     Atomics.store(bridge.state, control.phase, 1);

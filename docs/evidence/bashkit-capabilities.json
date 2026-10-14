@@ -1,0 +1,102 @@
+{
+  "package": "@everruns/bashkit-wasm",
+  "version": "0.18.2",
+  "browser": "152.0.7977.82",
+  "cases": [
+    {
+      "id": "stream",
+      "events": [
+        {
+          "kind": "started",
+          "at": 1792003462512.015
+        },
+        {
+          "kind": "output",
+          "stdout": "STREAM_BEGIN\n",
+          "stderr": "",
+          "at": 1792003462522.72
+        },
+        {
+          "kind": "output",
+          "stdout": "STREAM_END\n",
+          "stderr": "",
+          "at": 1792003462823.355
+        },
+        {
+          "kind": "finished",
+          "stdout": "STREAM_BEGIN\nSTREAM_END\n",
+          "stderr": "",
+          "exitCode": 0,
+          "at": 1792003462824.035
+        }
+      ]
+    },
+    {
+      "id": "sleep-cancel",
+      "events": [
+        {
+          "kind": "started",
+          "at": 1792003462824.17
+        },
+        {
+          "kind": "cancelSent",
+          "at": 1792003462854.36
+        },
+        {
+          "kind": "cancelCalled",
+          "at": 1792003462854.41
+        },
+        {
+          "kind": "finished",
+          "error": "Error: execution cancelled",
+          "at": 1792003463124.7898
+        }
+      ]
+    },
+    {
+      "id": "cpu-cancel",
+      "events": [
+        {
+          "kind": "started",
+          "at": 1792003463125.0698
+        },
+        {
+          "kind": "cancelSent",
+          "at": 1792003463155.185
+        },
+        {
+          "kind": "finished",
+          "stdout": "COUNT:200000\n",
+          "stderr": "",
+          "exitCode": 0,
+          "at": 1792003463472.045
+        },
+        {
+          "kind": "cancelCalled",
+          "at": 1792003463472.0999
+        }
+      ]
+    },
+    {
+      "id": "file-repeat",
+      "events": [
+        {
+          "kind": "started",
+          "at": 1792003463472.3198
+        },
+        {
+          "kind": "finished",
+          "stdout": "FILE:0:10000\nFILE:1:10000\nFILE:2:10000\nFILE:3:10000\nFILE:4:10000\nFILE:5:10000\nFILE:6:10000\nFILE:7:10000\nFILE:8:10000\nFILE:9:10000\nFILE:10:0\nFILE:11:0\nFILE:12:0\nFILE:13:0\nFILE:14:0\nFILE:15:0\nFILE:16:0\nFILE:17:0\nFILE:18:0\nFILE:19:0\n",
+          "stderr": "",
+          "exitCode": 0,
+          "at": 1792003463497.265
+        }
+      ]
+    }
+  ],
+  "cleanup": {
+    "browserClosed": true,
+    "serverStopped": true,
+    "snapshotRemoved": true
+  }
+}

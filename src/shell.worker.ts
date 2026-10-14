@@ -17,21 +17,26 @@ const api: WorkerControl = {
   async initialize(buffer, engine, wasmUrl, baselineState, profileBuffer, collectCosts) {
     const profile = profileBuffer ? new ExecutionProfile(profileBuffer, collectCosts) : undefined;
     const bridge = new SharedBridge(buffer, profile?.costs ? profile : undefined);
-    if (engine === "just-bash") {
+    if (engine === "just-bash" || engine === "bashkit") {
       if (typeof Atomics.waitAsync !== "function")
         throw new Error(
-          "The just-bash adapter needs Atomics.waitAsync. Use a current Chromium browser or select Brush.",
+          "The script baseline adapter needs Atomics.waitAsync. Use a current Chromium browser or select Brush.",
         );
       const { startBaseline } = await import("./baseline");
+      if (engine === "just-bash") await import("./baseline-session");
+      const candidate =
+        engine === "bashkit"
+          ? await (await import("./bashkit-session")).createBashkitSession()
+          : undefined;
       setTimeout(() => {
-        void startBaseline(bridge, { state: baselineState }, profile).catch((error) => {
+        void startBaseline(bridge, { state: baselineState }, profile, candidate).catch((error) => {
           Atomics.store(bridge.state, control.phase, 4);
           setTimeout(() => {
             throw error;
           }, 0);
         });
       }, 0);
-      return { wasmBytes: 0 };
+      return { wasmBytes: candidate?.wasmBytes ?? 0 };
     }
     const host = new BrowserHost(bridge, profile);
     const response = await fetch(wasmUrl);

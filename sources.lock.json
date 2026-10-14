@@ -24,5 +24,13 @@
     "revision": "7537a260e38648e8998db7a95504102ad80b0194",
     "discoveredHead": "3ebd1c291462bc6bad3c6df7ebfe563d8799bfd9",
     "provenance": "https://registry.npmjs.org/-/npm/v1/attestations/just-bash@3.6.0"
+  },
+  "bashkit": {
+    "repository": "https://github.com/everruns/bashkit",
+    "version": "0.18.2",
+    "package": "@everruns/bashkit-wasm",
+    "revision": "567511386572d4c4b9f649ab1da97aad53b9f341",
+    "inspectedHead": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "provenance": "https://registry.npmjs.org/-/npm/v1/attestations/@everruns%2fbashkit-wasm@0.18.2"
   }
 }

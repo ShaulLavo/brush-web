@@ -86,3 +86,5 @@ The [architecture research](reports/Browser%20shell%20architecture%20choices.md)
 The [completed performance proof](docs/performance-proof.md) separates worker execution from visible output and records both improvements and remaining losses. OPFS remains deferred.
 
 The [instrumented cost breakdown](docs/execution-costs.md) measures host calls, conversion, copying, queue gaps and submitted frames for both engines, with separate controls for profiler overhead and hardware WebGPU replay.
+
+The [Bashkit comparison](docs/bashkit-comparison.md) evaluates `@everruns/bashkit-wasm` through the same Ghostty adapter and records its session and cancellation limits.

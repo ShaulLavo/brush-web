@@ -8,9 +8,8 @@ import type {
 import terminalWasmUrl from "ghostty-webgpu/ghostty-vt.wasm?url";
 import terminalBridgeUrl from "ghostty-webgpu/bridge.wasm?url";
 import { BrowserSession } from "./session";
+import type { Engine } from "./session";
 import "./style.css";
-
-type Engine = "brush" | "just-bash";
 
 interface BrowserTestAccess {
   readonly terminal: Terminal | undefined;
@@ -103,7 +102,12 @@ async function openTerminal(host: HTMLElement): Promise<Terminal> {
 }
 
 function Workbench(handle: Handle) {
-  let engine: Engine = query.get("engine") === "just-bash" ? "just-bash" : "brush";
+  let engine: Engine =
+    query.get("engine") === "bashkit"
+      ? "bashkit"
+      : query.get("engine") === "just-bash"
+        ? "just-bash"
+        : "brush";
   let state = "starting";
   let error: string | undefined;
   let warning: string | undefined;
@@ -347,6 +351,14 @@ function Workbench(handle: Handle) {
             >
               just-bash <span class="engine-detail">baseline</span>
             </button>
+            <button
+              type="button"
+              aria-pressed={engine === "bashkit"}
+              disabled={busy}
+              mix={on("click", () => selectEngine("bashkit"))}
+            >
+              Bashkit <span class="engine-detail">evaluation</span>
+            </button>
           </div>
           <div class="session-actions">
             <button
@@ -375,6 +387,13 @@ function Workbench(handle: Handle) {
               ? "Files, scalar values and ordinary cwd carry between commands. Functions, arrays, shell options and exit status reset."
               : "Files persist. Cwd, variables, functions, aliases, and exit status reset after each command."}
             {" Output appears when the command finishes."}
+          </div>
+        )}
+        {engine === "bashkit" && (
+          <div class="baseline-note">
+            Experimental: variables, functions, arrays and cwd persist; prior exit status resets.
+            Collected output. CPU loops may delay Ctrl+C. Command completion only; live stdin is
+            unavailable.
           </div>
         )}
 
@@ -409,7 +428,8 @@ function Workbench(handle: Handle) {
           {busy && (
             <div class="loading-overlay" role="status">
               <span class="loading-dot" />
-              Starting {engine === "brush" ? "Brush" : "just-bash"}…
+              Starting{" "}
+              {engine === "brush" ? "Brush" : engine === "bashkit" ? "Bashkit" : "just-bash"}…
             </div>
           )}
         </div>
@@ -441,7 +461,7 @@ function Workbench(handle: Handle) {
           <summary>Try a few things</summary>
           <div class="help-content">
             <p>
-              {engine === "brush"
+              {engine !== "just-bash"
                 ? "Shell state and files stay in this session."
                 : "Files stay in this session. Each submitted command starts with fresh shell state."}{" "}
               Restarting or switching engines starts fresh.
@@ -458,7 +478,9 @@ function Workbench(handle: Handle) {
                   <code>export NAME=world; echo "hello $NAME"</code>
                 </dt>
                 <dd>
-                  {engine === "brush" ? "Persistent environment" : "Environment within one command"}
+                  {engine !== "just-bash"
+                    ? "Persistent environment"
+                    : "Environment within one command"}
                 </dd>
               </div>
               <div>
