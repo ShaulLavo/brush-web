@@ -209,3 +209,79 @@ test("child stdio reports pipes rather than terminal devices", async ({ page }) 
   await output(page, "TTY:false:false:false");
   await ready(page);
 });
+
+for (const [label, setup, executable] of [
+  ["relative", "cd /bin", "./bun"],
+  ["dot segments", "cd /home/guest", "/bin/../bin/./bun"],
+]) {
+  test(`external executable lookup resolves ${label}`, async ({ page }) => {
+    await open(page);
+    await command(page, `${setup}; ${executable} -e 'console.log("RESOLVED_OK")'; echo LOOKUP:$?`);
+    await output(page, "RESOLVED_OK");
+    await output(page, "LOOKUP:0");
+    await ready(page);
+  });
+}
+
+for (const [label, setup, executable] of [
+  ["missing relative", "cd /bin", "./missing"],
+  ["deleted registered", "rm /bin/bun", "/bin/bun"],
+]) {
+  test(`external executable lookup rejects ${label} files`, async ({ page }) => {
+    await open(page);
+    await command(page, `${setup}; ${executable} -e 'console.log("DELETED_RAN")'; echo MISSING:$?`);
+    await output(page, "MISSING:127");
+    expect(
+      await page.evaluate(() => window.brushWeb?.readLines().map((line) => line.trim())),
+    ).not.toContain("DELETED_RAN");
+    await ready(page);
+    await expect.poll(() => page.workers().length).toBe(1);
+  });
+}
+
+test("external zero-length stdin read finishes without input or EOF", async ({ page }) => {
+  await open(page);
+  await command(
+    page,
+    `bun -e 'console.log("ZERO_READ:"+require("node:fs").readSync(0,new Uint8Array(0),0,0,null))'`,
+  );
+  await output(page, "ZERO_READ:0");
+  await ready(page);
+});
+
+test("normal child exit discards unfinished terminal input before the next child", async ({
+  page,
+}, testInfo) => {
+  await open(page);
+  await command(page, `bun -e 'console.log("TYPE_NOW"); await Bun.sleep(2000)'`);
+  await output(page, "TYPE_NOW");
+  await page.keyboard.insertText("stale");
+  await expect
+    .poll(() => page.evaluate(() => window.brushWeb?.readLines().join("\n")))
+    .toContain("stale");
+  await ready(page);
+  await command(
+    page,
+    `bun -e 'console.log("NEXT_READY"); Bun.sleepSync(1); console.log("INPUT:"+(await Bun.stdin.text()).trim())'`,
+  );
+  await output(page, "NEXT_READY");
+  await command(page, "fresh");
+  await page.keyboard.press("Control+d");
+  await output(page, "INPUT:fresh");
+  await ready(page);
+  await page.screenshot({ path: testInfo.outputPath("normal-exit-handoff.png") });
+});
+
+test("registered executable paths must still name regular files", async ({ page }) => {
+  await open(page);
+  await command(
+    page,
+    `rm /bin/bun; mkdir /bin/bun; /bin/bun -e 'console.log("DIRECTORY_RAN")'; echo DIRECTORY:$?`,
+  );
+  await output(page, "DIRECTORY:126");
+  expect(
+    await page.evaluate(() => window.brushWeb?.readLines().map((line) => line.trim())),
+  ).not.toContain("DIRECTORY_RAN");
+  await ready(page);
+  await expect.poll(() => page.workers().length).toBe(1);
+});

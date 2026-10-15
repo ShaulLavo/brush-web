@@ -27,6 +27,15 @@ const {
 } = await import(
   "data:text/javascript;base64," + Buffer.from(compiled.outputFiles[0].contents).toString("base64")
 );
+const zeroRead = new ProcessPipe(createTransport().stdin);
+assert.equal(zeroRead.read(0), 0, "empty open pipe accepts a zero-byte read");
+assert.equal(zeroRead.readBlocking(0), 0);
+assert.equal(zeroRead.write(Uint8Array.of(42)), 1);
+assert.equal(zeroRead.read(0), 0, "nonempty pipe accepts a zero-byte read");
+assert.equal(zeroRead.readBlocking(0), 0);
+assert.deepEqual(zeroRead.read(1), Uint8Array.of(42), "zero-byte reads preserve input");
+zeroRead.close();
+assert.equal(zeroRead.read(0), 0);
 const bytes = Uint8Array.from({ length: 70000 }, (_, i) => i % 256);
 const pipe = new ProcessPipe(createTransport().stdin);
 assert.equal(pipe.write(bytes), 65536);
