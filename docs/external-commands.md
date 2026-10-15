@@ -20,9 +20,9 @@ On child completion, unread terminal input is discarded, including unfinished ca
 
 ## Build the Bun asset
 
-`npm run build` runs `npm run build:programs`. That script expands the pinned `third-party/bun-wasm/bun.wasm.gz` into ignored `public/programs/bun.wasm`, which Vite copies into `dist/programs/`. It verifies both the gzip and uncompressed SHA-256 against `sources.lock.json`. A fresh checkout needs no Bun checkout or separate binary download.
+`npm run build` runs `npm run build:programs`. That script verifies the pinned runtime patch and expands the pinned `third-party/bun-wasm/bun.wasm.gz` into ignored `public/programs/bun.wasm`, which Vite copies into `dist/programs/`. It verifies the patch, gzip, and uncompressed SHA-256 against `sources.lock.json`. A fresh checkout needs no Bun checkout or separate binary download.
 
-The compressed source asset is 3.6 MB. It is committed because the public playground replaced its artifact during verification. The old pinned binary has SHA-256 `baec730c94b81064f63c31f4e503ccd43029bcd60acd4fe99f3c6fa826529695`; the replacement has a different hash. An immutable upstream release asset can replace the committed gzip later. Builds must continue to check the pinned hash.
+The compressed source asset is 3.6 MiB. It is committed because the public playground replaced its artifact during verification. The current patched binary is 10,623,616 bytes with SHA-256 `35079165184d6e0f17b41951c28191134265be58f885b34a298f769c49463e66`. The original pin was `baec730c94b81064f63c31f4e503ccd43029bcd60acd4fe99f3c6fa826529695`; the replacement public artifact had a different hash. An immutable upstream release asset can replace the committed gzip later. Builds must continue to check the pinned hash.
 The Bun playground defaults to a different engine, `bun-browser.wasm`. That engine runs JavaScript in the worker's own JS engine after WASM setup. This integration uses the complete QuickJS WASI executable, `bun.wasm`. It needs no service worker or JS engine bridge.
 
 To supply the exact artifact locally, set its path before building:
@@ -31,7 +31,11 @@ To supply the exact artifact locally, set its path before building:
 BUN_WASM=/work/projects/bun-wasm/dist/bun.wasm npm run build
 ```
 
-The source revision and artifact hashes are pinned in `sources.lock.json`. `BUN_WASM` supplies a local uncompressed artifact and must pass the same hash check. Changing the runtime requires updating the source pin and compressed artifact together.
+The source revision, runtime patch, and artifact hashes are pinned in `sources.lock.json`. `third-party/bun-wasm/zero-length-stdin.patch` makes Bun's native stdin read return before calling Rust's buffered reader for a zero-byte request. Without that guard, a zero-byte `fs.readSync` issues an 8 KiB WASI read and waits for input. The pipe transport also returns immediately for zero-capacity reads.
+
+To reproduce the patched binary, make a worktree of bun-wasm at the pinned revision, apply the patch with `git apply`, prepare its Bun dependencies with `scripts/sync-bun.sh`, and run `JOBS=4 BINARYEN_CORES=2 scripts/build.sh`. This rebuild uses the pinned source's Rust nightly-2026-09-15 and Binaryen 133 toolchain. The four vendored host files remain unmodified.
+
+`BUN_WASM` supplies a local uncompressed artifact and must pass the same hash check. Changing the runtime requires updating the source pin and compressed artifact together.
 The unmodified Bun filesystem and WASI host files live in `third-party/bun-wasm/`. Their original paths and source revision are recorded in the lock file. Bun, QuickJS, libc, and Temporal dependency licenses ship in `THIRD_PARTY_NOTICES.txt`.
 
 ## Register another WASI program

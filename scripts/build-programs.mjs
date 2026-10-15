@@ -7,6 +7,9 @@ const root = resolve(import.meta.dirname, "..");
 const pin = JSON.parse(await readFile(resolve(root, "sources.lock.json"), "utf8")).bunWasm;
 const output = resolve(root, "public/programs/bun.wasm");
 const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+const runtimePatch = await readFile(resolve(root, pin.runtimePatch));
+if (hash(runtimePatch) !== pin.runtimePatchSha256)
+  throw new Error("Bun runtime patch checksum mismatch");
 let existing;
 try {
   existing = await readFile(output);
@@ -22,7 +25,7 @@ else {
 }
 if (hash(bytes) !== pin.wasmSha256)
   throw new Error(
-    `Bun WASM checksum mismatch. Build bun-wasm at ${pin.revision} and set BUN_WASM to dist/bun.wasm. See docs/external-commands.md.`,
+    `Bun WASM checksum mismatch. Build bun-wasm at ${pin.revision} with ${pin.runtimePatch} and set BUN_WASM to dist/bun.wasm. See docs/external-commands.md.`,
   );
 await mkdir(resolve(root, "public/programs"), { recursive: true });
 await writeFile(output, bytes);
