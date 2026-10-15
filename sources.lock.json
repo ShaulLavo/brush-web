@@ -67,5 +67,28 @@
       "arm64-macos": "28bab047c4ce845c5c1da111222ffee5fafcec0bbedd046ad8b3dcae0fd57076",
       "x86_64-macos": "72a98df1bfb81dd1e241d2b022e15c72edbd49e29d84abc6a1129c7d083072dd"
     }
+  },
+  "bunWasm": {
+    "repository": "https://github.com/ShaulLavo/bun-wasm",
+    "revision": "db2c90953da89e187096874fafbcc8a08df8c386",
+    "engine": "quickjs",
+    "wasmSha256": "35079165184d6e0f17b41951c28191134265be58f885b34a298f769c49463e66",
+    "wasmBytes": 10623616,
+    "hostFiles": [
+      "web/src/fs.ts",
+      "web/src/wasi.ts",
+      "web/src/subprocess-fs.ts",
+      "web/src/net/trampoline.ts"
+    ],
+    "strategy": "Vendored unmodified host files and compressed WASI binary rebuilt from the revision with runtimePatch; build verifies patch and artifact checksums.",
+    "artifactOrigin": "Local rebuild with scripts/build.sh from the pinned revision plus runtimePatch.",
+    "sourceArtifact": "third-party/bun-wasm/bun.wasm.gz",
+    "sourceArtifactSha256": "9c00ba1d610cd8f9e1a343c9acda14b0b65d2909f928577383c67384f5af2f48",
+    "runtimePatch": "third-party/bun-wasm/zero-length-stdin.patch",
+    "runtimePatchSha256": "b11e226355bee53bc68f3721d9fb34bbdab36960f9e1aa23a9b28753a261c93b",
+    "buildToolchain": {
+      "rust": "nightly-2026-09-15",
+      "binaryen": "133"
+    }
   }
 }

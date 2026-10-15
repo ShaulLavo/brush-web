@@ -1,0 +1,239 @@
+diff --git i/brush-core/src/commands.rs w/brush-core/src/commands.rs
+index a05d648..19d3af1 100644
+--- i/brush-core/src/commands.rs
++++ w/brush-core/src/commands.rs
+@@ -10,7 +10,9 @@ use std::{
+ 
+ use brush_parser::ast;
+ use itertools::Itertools;
+-use sys::commands::{CommandExt, CommandFdInjectionExt, CommandFgControlExt};
++#[cfg(not(all(target_os = "wasi", feature = "browser-host")))]
++use sys::commands::CommandFgControlExt;
++use sys::commands::{CommandExt, CommandFdInjectionExt};
+ 
+ use crate::{
+     ErrorKind, ExecutionControlFlow, ExecutionExitCode, ExecutionParameters, ExecutionResult,
+@@ -21,7 +23,7 @@ use crate::{
+     openfiles::{self, OpenFile, OpenFiles},
+     pathsearch, processes,
+     results::ExecutionSpawnResult,
+-    sys, trace_categories, traps, variables,
++    sys, traps, variables,
+ };
+ 
+ /// Encapsulates the result of waiting for a command to complete.
+@@ -618,7 +620,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
+ pub(crate) fn execute_external_command(
+     context: ExecutionContext<'_, impl extensions::ShellExtensions>,
+     executable_path: &str,
+-    process_group_id: Option<i32>,
++    _process_group_id: Option<i32>,
+     argv0_override: Option<&str>,
+     args: &[CommandArg],
+ ) -> Result<ExecutionSpawnResult, error::Error> {
+@@ -634,6 +636,32 @@ pub(crate) fn execute_external_command(
+         })
+         .collect::<Vec<_>>();
+ 
++    #[cfg(all(target_os = "wasi", feature = "browser-host"))]
++    return sys::wasm::external::execute(
++        context,
++        executable_path,
++        argv0_override.unwrap_or(executable_path),
++        &cmd_args,
++    );
++
++    #[cfg(not(all(target_os = "wasi", feature = "browser-host")))]
++    execute_external_command_native(
++        context,
++        executable_path,
++        _process_group_id,
++        argv0_override,
++        &cmd_args,
++    )
++}
++
++#[cfg(not(all(target_os = "wasi", feature = "browser-host")))]
++fn execute_external_command_native(
++    context: ExecutionContext<'_, impl extensions::ShellExtensions>,
++    executable_path: &str,
++    process_group_id: Option<i32>,
++    argv0_override: Option<&str>,
++    cmd_args: &[&String],
++) -> Result<ExecutionSpawnResult, error::Error> {
+     // Before we lose ownership of the open files, figure out if stdin will be a terminal.
+     let child_stdin_is_terminal = context
+         .try_fd(openfiles::OpenFiles::STDIN_FD)
+@@ -654,7 +682,7 @@ pub(crate) fn execute_external_command(
+         &context,
+         executable_path,
+         argv0,
+-        cmd_args.as_slice(),
++        cmd_args,
+         false, /* empty environment? */
+     )?;
+ 
+@@ -680,7 +708,7 @@ pub(crate) fn execute_external_command(
+ 
+     // When tracing is enabled, report.
+     tracing::debug!(
+-        target: trace_categories::COMMANDS,
++        target: crate::trace_categories::COMMANDS,
+         "Spawning: cmd='{} {}'",
+         cmd.get_program().to_string_lossy().to_string(),
+         cmd.get_args()
+diff --git i/brush-core/src/sys/wasm/external.rs w/brush-core/src/sys/wasm/external.rs
+new file mode 100644
+index 0000000..e4d0123
+--- /dev/null
++++ w/brush-core/src/sys/wasm/external.rs
+@@ -0,0 +1,138 @@
++//! Browser-owned external commands. OpenFile streams never become native Stdio.
++
++use std::io::{Read, Write};
++
++use crate::{commands::ExecutionContext, extensions::ShellExtensions, sys};
++
++#[link(wasm_import_module = "browser")]
++unsafe extern "C" {
++    fn process_spawn(ptr: *const u8, len: usize, terminal: u32) -> i32;
++    fn process_read(child: i32, ptr: *mut u8, len: usize, fd: *mut u32) -> i32;
++    fn process_write(child: i32, ptr: *const u8, len: usize) -> i32;
++    fn process_stdin_close(child: i32);
++    fn process_wait(child: i32) -> i32;
++    fn process_pause(child: i32);
++    fn process_close(child: i32);
++}
++
++struct Child(i32);
++impl Drop for Child {
++    fn drop(&mut self) {
++        unsafe { process_close(self.0) };
++    }
++}
++
++fn text(out: &mut Vec<u8>, value: &str) {
++    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
++    out.extend_from_slice(value.as_bytes());
++}
++
++pub(crate) fn execute(
++    context: ExecutionContext<'_, impl ShellExtensions>,
++    executable: &str,
++    argv0: &str,
++    args: &[&String],
++) -> Result<crate::results::ExecutionSpawnResult, crate::Error> {
++    let mut meta = Vec::new();
++    text(&mut meta, executable);
++    text(&mut meta, &context.shell.working_dir().to_string_lossy());
++    text(&mut meta, argv0);
++    meta.extend_from_slice(&(args.len() as u32).to_le_bytes());
++    for arg in args {
++        text(&mut meta, arg);
++    }
++    let mut env = Vec::new();
++    for (key, value) in context.shell.env().iter_exported() {
++        if !value.value().is_set() {
++            continue;
++        }
++        env.push((
++            key.to_string(),
++            value.value().to_cow_str(context.shell).into_owned(),
++        ));
++    }
++    env.push(("_".to_owned(), executable.to_owned()));
++    meta.extend_from_slice(&(env.len() as u32).to_le_bytes());
++    for (key, value) in env {
++        text(&mut meta, &key);
++        text(&mut meta, &value);
++    }
++    let terminal = matches!(
++        context.try_fd(0),
++        Some(crate::openfiles::OpenFile::Stdin(_))
++    );
++    let id = unsafe { process_spawn(meta.as_ptr(), meta.len(), u32::from(terminal)) };
++    if id < 0 {
++        return Err(crate::ErrorKind::FailedToExecuteCommand(
++            context.command_name,
++            std::io::Error::other("browser program is not registered or could not start"),
++        )
++        .into());
++    }
++    let child = Child(id);
++    let mut stdin = context.stdin();
++    let mut stdout = context.stdout();
++    let mut stderr = context.stderr();
++    let mut input = [0u8; 16384];
++    let mut pending = 0..0;
++    let mut eof = terminal;
++    loop {
++        sys::browser::check_cancelled()?;
++        drain(child.0, &mut stdout, &mut stderr)?;
++        drain(child.0, &mut stdout, &mut stderr)?;
++        if !eof && pending.is_empty() {
++            let count = read_stdin(child.0, &mut stdin, &mut input)?;
++            pending = 0..count;
++            eof = count == 0;
++        }
++        let bytes = &input[pending.clone()];
++        let count = if bytes.is_empty() {
++            0
++        } else {
++            unsafe { process_write(child.0, bytes.as_ptr(), bytes.len()) }
++        };
++        if count >= 0 {
++            pending.start += count as usize;
++        } else if count != -2 {
++            pending = 0..0;
++            eof = true;
++        }
++        let status = unsafe { process_wait(child.0) };
++        if status >= 0 {
++            stdout.flush()?;
++            stderr.flush()?;
++            return Ok(
++                crate::ExecutionResult::from(crate::ExecutionExitCode::from(status as u8)).into(),
++            );
++        }
++        if status != -2 {
++            return Err(std::io::Error::other("browser child failed").into());
++        }
++        unsafe { process_pause(child.0) };
++    }
++}
++
++fn read_stdin(child: i32, stdin: &mut impl Read, bytes: &mut [u8]) -> std::io::Result<usize> {
++    let count = stdin.read(bytes)?;
++    if count == 0 {
++        unsafe { process_stdin_close(child) };
++    }
++    Ok(count)
++}
++
++fn drain(child: i32, stdout: &mut impl Write, stderr: &mut impl Write) -> Result<(), crate::Error> {
++    let mut bytes = [0u8; 16384];
++    let mut fd = 0;
++    let count = unsafe { process_read(child, bytes.as_mut_ptr(), bytes.len(), &mut fd) };
++    if count > 0 {
++        let data = &bytes[..count as usize];
++        match fd {
++            1 => stdout.write_all(data)?,
++            2 => stderr.write_all(data)?,
++            _ => return Err(std::io::Error::other("invalid browser child output fd").into()),
++        }
++    } else if count != 0 && count != -2 {
++        return Err(std::io::Error::other("browser child pipe failed").into());
++    }
++    Ok(())
++}
+diff --git i/brush-core/src/sys/wasm/mod.rs w/brush-core/src/sys/wasm/mod.rs
+index 65ab62b..2aafd71 100644
+--- i/brush-core/src/sys/wasm/mod.rs
++++ w/brush-core/src/sys/wasm/mod.rs
+@@ -17,3 +17,6 @@ pub(crate) use crate::sys::stubs::users;
+ /// Platform-specific errors.
+ #[derive(Debug, thiserror::Error)]
+ pub enum PlatformError {}
++
++#[cfg(all(target_os = "wasi", feature = "browser-host"))]
++pub(crate) mod external;

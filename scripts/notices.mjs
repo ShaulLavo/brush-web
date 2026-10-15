@@ -39,6 +39,10 @@ for (const [path, pkg] of Object.entries(lock.packages)) {
   await include(`${path.split("node_modules/").at(-1)} ${pkg.version}`, resolve(root, path));
 }
 await include("ghostty-webgpu 0.3.24", resolve(root, ".sources/ghostty-webgpu"));
+for (const name of (await readdir(resolve(root, "third-party/bun-wasm"))).filter((name) =>
+  name.includes("LICENSE"),
+))
+  output += `\n\n## bun-wasm ${pins.bunWasm.revision} / ${name}\n\n${await readFile(resolve(root, "third-party/bun-wasm", name), "utf8")}\n`;
 for (const name of await readdir(resolve(root, "third-party/bashkit")))
   output += `\n\n## Bashkit 0.18.2 / ${name}\n\n${await readFile(resolve(root, "third-party/bashkit", name), "utf8")}\n`;
 output +=

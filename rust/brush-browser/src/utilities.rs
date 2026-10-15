@@ -1,4 +1,4 @@
-use std::io::{BufWriter, Read, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
 
 use brush_core::builtins::{self, ContentOptions, ContentType, SimpleCommand};
@@ -8,6 +8,7 @@ use crate::host;
 
 const COMMANDS: &[&str] = &[
     "cat",
+    "grep",
     "ls",
     "mkdir",
     "touch",
@@ -55,6 +56,7 @@ impl SimpleCommand for HostCommand {
         }
         match context.command_name.as_str() {
             "cat" => cat(context, &args),
+            "grep" => grep(context, &args),
             "ls" => ls(context, &args),
             "mkdir" => mkdir(context, &args),
             "touch" => touch(context, &args),
@@ -72,6 +74,39 @@ impl SimpleCommand for HostCommand {
 
 fn failure(message: impl Into<String>) -> Error {
     std::io::Error::new(std::io::ErrorKind::InvalidInput, message.into()).into()
+}
+
+fn grep(
+    context: ExecutionContext<'_, impl ShellExtensions>,
+    args: &[String],
+) -> Result<ExecutionResult, Error> {
+    reject_options(args)?;
+    let [pattern] = args else {
+        return Err(failure(
+            "grep: expected one literal pattern; reads stdin only",
+        ));
+    };
+    let mut input = BufReader::new(context.stdin());
+    let mut output = context.stdout();
+    let mut line = Vec::new();
+    let mut matched = false;
+    loop {
+        brush_core::sys::browser::check_cancelled()?;
+        line.clear();
+        if input.read_until(b'\n', &mut line)? == 0 {
+            break;
+        }
+        if pattern.is_empty()
+            || line
+                .windows(pattern.len())
+                .any(|bytes| bytes == pattern.as_bytes())
+        {
+            output.write_all(&line)?;
+            matched = true;
+        }
+    }
+    output.flush()?;
+    Ok(brush_core::ExecutionExitCode::from(u8::from(!matched)).into())
 }
 
 fn reject_options(args: &[String]) -> Result<(), Error> {
@@ -313,9 +348,9 @@ fn write_bytes(
 fn help(context: ExecutionContext<'_, impl ShellExtensions>) -> Result<ExecutionResult, Error> {
     write_bytes(context, b"Brush runs entirely in this browser worker.\n\
 Native Brush builtins include echo, printf, read, cd, pwd, aliases, functions, arrays, history, completion and shell control flow.\n\
-Browser utilities: cat [FILE...], ls [PATH...], mkdir [-p] DIR..., touch FILE..., rm FILE..., seq [START [STEP]] END, sleep SECONDS, clear, uname, keydemo.\n\
+Browser utilities: cat [FILE...], grep LITERAL (stdin only), ls [PATH...], mkdir [-p] DIR..., touch FILE..., rm FILE..., seq [START [STEP]] END, sleep SECONDS, clear, uname, keydemo.\n\
 keydemo draws a small key/resize panel; press q or Ctrl+C to leave.\n\
-Files live in memory for this session. Native processes, packages and networking are unsupported.\n\
+Files live in memory for this session. bun runs as a WASI child worker. Native processes and networking are unsupported.\n\
 Try: mkdir demo; cd demo; printf 'hello\\n' > note; cat note\n\
 Try: greet() { echo \"hello $1\"; }; greet browser\n")
 }

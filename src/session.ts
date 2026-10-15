@@ -3,6 +3,8 @@ import { SharedBridge, control } from "./bridge";
 import { ExecutionProfile } from "./execution-profile";
 import type { WorkerControl } from "./shell.worker";
 import type { StartupTimeline } from "./startup";
+import { ProcessBroker } from "./process-broker";
+import type { SpawnRequest, ProcessSample } from "./process-protocol";
 export type Engine = "brush" | "just-bash" | "bashkit" | "bashkit-terminal";
 export type SessionOptions = {
   engine: Engine;
@@ -24,6 +26,7 @@ type DeliverySpan = {
 };
 type FramePoint = { at: number; outputBytes: number };
 type SessionMetrics = {
+  externalCommands: ProcessSample[];
   startupMs: number;
   outputBytes: number;
   inputBytes: number;
@@ -40,6 +43,7 @@ type SessionMetrics = {
 export class BrowserSession {
   private readonly bridge = new SharedBridge();
   private readonly worker: Worker;
+  private readonly processes = new ProcessBroker();
   private readonly profileBuffer;
   private readonly api;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -52,6 +56,7 @@ export class BrowserSession {
   private renderPending = false;
   private startupReject: ((reason: unknown) => void) | undefined;
   readonly metrics: SessionMetrics = {
+    externalCommands: [],
     startupMs: 0,
     outputBytes: 0,
     inputBytes: 0,
@@ -69,6 +74,13 @@ export class BrowserSession {
     this.profileBuffer = options.profile ? ExecutionProfile.createBuffer() : undefined;
     this.worker = new Worker(new URL("./shell.worker.ts", import.meta.url), { type: "module" });
     this.api = wrap<WorkerControl>(this.worker);
+    this.worker.addEventListener("message", (event: MessageEvent<SpawnRequest | ProcessSample>) => {
+      if (event.data.kind === "external-spawn") void this.processes.spawn(event.data);
+      if (event.data.kind === "external-complete") {
+        if (this.metrics.externalCommands.length === 256) this.metrics.externalCommands.shift();
+        this.metrics.externalCommands.push(event.data);
+      }
+    });
     this.worker.addEventListener("error", (event) =>
       this.fail(`Worker failed: ${event.message}. Restart the session to recover.`),
     );
@@ -166,6 +178,7 @@ export class BrowserSession {
     this.startupReject?.(new Error("Shell startup was cancelled."));
     this.disposed = true;
     this.bridge.close();
+    this.processes.dispose();
     clearTimeout(this.timer);
     this.worker.terminate();
     this.api[releaseProxy]();
