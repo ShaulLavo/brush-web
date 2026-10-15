@@ -60,4 +60,14 @@ npm run measure:external
 
 The measurement owns its static server on port 4299 and its headless Chromium instance, and stops both on exit. Timings come from the shell worker's spawn import, first received output byte, and child cleanup. Cold includes the first asset fetch and WASM compilation. Warm reuses the compiled module while starting a fresh worker and instance. These values exclude shell startup and terminal drawing.
 
+On 2026-10-15, unthrottled Chromium 156.0.8078.4 on an Intel(R) Core(TM) i7-14700K measured these times on localhost. The shell had its default small filesystem. The host was shared with other work.
+
+| Command | Trials | First output | Spawn through cleanup |
+| --- | ---: | ---: | ---: |
+| `bun -e 'console.log(1)'`, cold | 1 | 83.9 ms | 84.2 ms |
+| Same command, warm mean | 5 | 37.5 ms | 37.5 ms |
+| `bun -e '0'` inside a shell loop | 20 | No output | 16.5 ms per command |
+
+The complete 20-child loop took 329.9 ms. These are worker timings; terminal drawing is outside the measurement. The previous shell could not spawn Bun, so there is no successful-spawn baseline for a speed comparison.
+
 The recorded measurements and raw samples are in [external-commands.json](evidence/external-commands.json).
