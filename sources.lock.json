@@ -50,5 +50,22 @@
     "archiveSha256": "459509a093fb5afa035cf19acbd5fa77d62fca79c99b75b44f43cbc1f3f3cc47",
     "files": "spec/*.test.sh",
     "use": "bash-compatibility corpus; bash is the oracle, Oils expectations are ignored"
+  },
+  "binaryen": {
+    "repository": "https://github.com/WebAssembly/binaryen",
+    "version": "125",
+    "use": "wasm-opt for the measured -Oz variants, with the flags of Bashkit's release build (crates/bashkit-wasm/scripts/build.sh)",
+    "flags": [
+      "-Oz",
+      "--enable-bulk-memory",
+      "--enable-nontrapping-float-to-int",
+      "--enable-sign-ext"
+    ],
+    "archiveSha256": {
+      "x86_64-linux": "7c3bc16599c8274a04d34a504fe4be2047884f900e0e2da2f6fb9cd667183be4",
+      "aarch64-linux": "d0382de3c189a7cbb9fdda93e2966f4557f6a00f201e2c4937c27ca01cead4fc",
+      "arm64-macos": "28bab047c4ce845c5c1da111222ffee5fafcec0bbedd046ad8b3dcae0fd57076",
+      "x86_64-macos": "72a98df1bfb81dd1e241d2b022e15c72edbd49e29d84abc6a1129c7d083072dd"
+    }
   }
 }

@@ -2,6 +2,7 @@ import { wrap, releaseProxy } from "comlink";
 import { SharedBridge, control } from "./bridge";
 import { ExecutionProfile } from "./execution-profile";
 import type { WorkerControl } from "./shell.worker";
+import type { StartupTimeline } from "./startup";
 export type Engine = "brush" | "just-bash" | "bashkit" | "bashkit-terminal";
 export type SessionOptions = {
   engine: Engine;
@@ -12,6 +13,7 @@ export type SessionOptions = {
   baselineState?: "isolated" | "carry";
   profile?: "phase" | "cost";
   trace?: boolean;
+  startupTimeoutMs?: number;
 };
 type DeliverySpan = {
   startedAt: number;
@@ -33,6 +35,7 @@ type SessionMetrics = {
   deliveries: DeliverySpan[];
   frames: FramePoint[];
   traceDropped: number;
+  startup: StartupTimeline | undefined;
 };
 export class BrowserSession {
   private readonly bridge = new SharedBridge();
@@ -60,6 +63,7 @@ export class BrowserSession {
     deliveries: [],
     frames: [],
     traceDropped: 0,
+    startup: undefined,
   };
   private constructor(private readonly options: SessionOptions) {
     this.profileBuffer = options.profile ? ExecutionProfile.createBuffer() : undefined;
@@ -86,12 +90,15 @@ export class BrowserSession {
       let timeout: ReturnType<typeof setTimeout> | undefined;
       const failure = new Promise<never>((_resolve, reject) => {
         session.startupReject = reject;
+        const limit = options.startupTimeoutMs ?? 60000;
         timeout = setTimeout(
           () =>
             reject(
-              new Error("Shell startup exceeded 15 seconds. Check the WASM asset and restart."),
+              new Error(
+                `Shell startup exceeded ${limit / 1000} seconds. Check the WASM asset and restart.`,
+              ),
             ),
-          15000,
+          limit,
         );
       });
       try {
@@ -107,6 +114,7 @@ export class BrowserSession {
           failure,
         ]);
         session.metrics.wasmBytes = result.wasmBytes;
+        session.metrics.startup = result.startup;
       } finally {
         clearTimeout(timeout);
         session.startupReject = undefined;

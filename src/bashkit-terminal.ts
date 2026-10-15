@@ -2,6 +2,7 @@ import init, { Terminal } from "bashkit-terminal-source";
 import wasmUrl from "bashkit-terminal-source/bashkit_wasm_bg.wasm?url";
 import { SharedBridge, control } from "./bridge";
 import { ExecutionProfile, profileFields } from "./execution-profile";
+import { markStartup } from "./startup";
 
 function parseStatus(value: unknown): { status: "idle" } | { status: "exited"; exitCode: number } {
   if (typeof value !== "object" || value === null || !("status" in value))
@@ -22,8 +23,13 @@ export async function createTerminalSession(bridge: SharedBridge, profile?: Exec
     throw new Error("Bashkit Terminal needs Atomics.waitAsync in this comparison adapter.");
   const response = await fetch(wasmUrl);
   if (!response.ok) throw new Error(`Bashkit Terminal WASM fetch failed (${response.status})`);
+  markStartup("wasmResponse");
   const wasmBytes = Number(response.headers.get("content-length") ?? 0);
-  const exports = await init({ module_or_path: response });
+  // Compile separately so startup timing can split compilation from instantiation.
+  const module = await WebAssembly.compileStreaming(response);
+  markStartup("compiled");
+  const exports = await init({ module_or_path: module });
+  markStartup("instantiated");
   const terminal = new Terminal({
     rows: Atomics.load(bridge.state, control.rows),
     cols: Atomics.load(bridge.state, control.cols),
@@ -36,6 +42,7 @@ export async function createTerminalSession(bridge: SharedBridge, profile?: Exec
     maxMemory: 32 * 1024 * 1024,
     timeoutMs: 60000,
   });
+  markStartup("shellCreated");
   let running: Promise<void> | undefined;
   let failure: unknown;
   let exited = false;
