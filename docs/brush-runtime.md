@@ -4,7 +4,7 @@ The shell is the pinned upstream Brush interpreter. The browser worker instantia
 
 `rust/brush-browser/src/main.rs` constructs one persistent `brush_core::Shell`, registers native Brush builtins plus the small Rust browser command host, then runs `InteractiveShell` with upstream `VtInputBackend`. The shell owns variables, aliases, functions, cwd, history and exit status. The existing VT editor owns echo, cursor movement, completion and history navigation. The worker's input bridge owns canonical input while commands read stdin. The output bridge owns LF-to-CRLF translation, including incremental writes. Ghostty interprets the resulting bytes and terminal modes.
 
-WASI makes ordinary Rust filesystem calls useful without adding a second filesystem model to Brush. Files are session-local browser memory. The browser host mounts `/home/guest` and `/dev/null`. Native process creation remains unavailable. Unknown commands fail through Brush's normal command lookup; a file that would require an external process fails with an execution error.
+WASI makes ordinary Rust filesystem calls useful without adding a second filesystem model to Brush. Files are session-local browser memory. The browser host mounts `/home/guest` and `/dev/null`. Native process creation remains unavailable. Registered WASI programs run through the [browser external command host](external-commands.md). Brush uses ordinary command lookup before the host starts a child worker.
 
 ## Worker import contract
 
@@ -43,7 +43,7 @@ The module also exports `browser_scalar_width(codepoint) -> u32`. The host uses 
 
 ## Command host and limitations
 
-Native Brush builtins remain the default Bash-mode builtin set. Browser utilities implemented in Rust are `cat`, `ls`, `mkdir`, `touch`, `rm`, `seq`, `sleep`, `clear`, `uname`, `keydemo` and `browser-help`. They are registered as shell builtins, so Brush still performs parsing, expansion, pipes and redirections. Unsupported utility options fail explicitly. These implementations are small demonstrations, not full coreutils replacements.
+Native Brush builtins remain the default Bash-mode builtin set. Browser utilities implemented in Rust are `cat`, literal-only stdin `grep`, `ls`, `mkdir`, `touch`, `rm`, `seq`, `sleep`, `clear`, `uname`, `keydemo` and `browser-help`. They are registered as shell builtins, so Brush still performs parsing, expansion, pipes and redirections. Unsupported utility options fail explicitly. These implementations are small demonstrations, not full coreutils replacements.
 
 The browser `seq` utility buffers at most 8 KiB of output and checks cancellation for every number. The WASI host grows file capacity geometrically within its logical-data and reserved-capacity budgets. The [performance proof](performance-proof.md) documents the measurements and remaining losses.
 

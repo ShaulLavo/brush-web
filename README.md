@@ -2,6 +2,8 @@
 
 Brush runs as Rust/WASM inside a browser worker, connected to Ghostty's byte-oriented terminal. Remix 3 supplies the workbench. The shell session retains cwd, variables, exports, functions, aliases, history, and exit status. Files live in memory until the session ends.
 
+The shell can [run Bun as an external command](docs/external-commands.md), with live output, byte pipes, exit status, Ctrl+C, and file changes after exit.
+
 The demo includes completion, grapheme-aware editing, safe bracketed paste, resize handling, incremental terminal output, interruptible stdin, and Ctrl+C cancellation of tight shell loops. Run `browser-help` for the small Rust command host, or `keydemo` for an interactive key and resize demonstration.
 
 ## Run the shell
@@ -73,7 +75,7 @@ HTTPS or localhost is required. The page explains missing capabilities and offer
 
 ## Scope and limitations
 
-Brush's WASM pipelines run stages sequentially with a bounded intermediate buffer. Interactive terminal output streams incrementally. Arbitrary native executables, job control, process substitution, networking, packages, and persistence are unsupported. A long parser or regex operation can delay cooperative cancellation until its next execution checkpoint.
+Brush's WASM pipelines run stages sequentially with a bounded intermediate buffer. Interactive terminal output streams incrementally. Registered WASI programs, including bun.wasm, run in separate child workers. Arbitrary native executables, job control, process substitution, networking, package downloads, and persistence are unsupported. A long parser or regex operation can delay cooperative cancellation until its next execution checkpoint.
 
 The just-bash baseline uses the same terminal and byte bridge, but its public `exec` API isolates shell state and returns collected stdout and stderr. Its adapter preserves files and input history, supplies its own small editor, and discloses those differences. This comparison does not claim equivalent interactive sessions.
 

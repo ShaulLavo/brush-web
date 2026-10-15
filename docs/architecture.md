@@ -2,6 +2,8 @@
 
 One Remix 3 component owns a Ghostty terminal and one `BrowserSession`. A dedicated worker owns the WASI instance and persistent Brush shell. The main thread never waits with Atomics and never executes shell commands.
 
+Registered WASI commands use separate child workers, created by a page broker while the shell worker blocks. The shell owns files and merges child changes at exit. The [external command host](external-commands.md) describes the byte pipes and current copy-at-spawn limits.
+
 Ghostty's `onData` supplies `Uint8Array`; output returns through `terminal.write(Uint8Array)`. The application forwards auto-fit resize events and disposes both terminal and worker on restart or removal. Native Ghostty handles browser keyboard encoding, composition, paste envelopes, focus, and terminal escape interpretation.
 
 ## Shared memory ownership

@@ -50,7 +50,7 @@ async fn run() -> Result<u8, Box<dyn std::error::Error>> {
         .var("HOME", ShellVariable::new("/home/guest"))
         .var("HISTFILE", ShellVariable::new(""))
         .var("HISTSIZE", ShellVariable::new("1000"))
-        .var("PATH", ShellVariable::new(""))
+        .var("PATH", ShellVariable::new("/bin"))
         .var("TERM", ShellVariable::new("xterm-256color"))
         .build()
         .await?;

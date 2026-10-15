@@ -6,6 +6,7 @@ dist/
 test-results/
 playwright-report/
 public/brush/
+public/programs/
 .env*
 
 public/THIRD_PARTY_NOTICES.txt

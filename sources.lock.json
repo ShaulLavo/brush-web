@@ -67,5 +67,22 @@
       "arm64-macos": "28bab047c4ce845c5c1da111222ffee5fafcec0bbedd046ad8b3dcae0fd57076",
       "x86_64-macos": "72a98df1bfb81dd1e241d2b022e15c72edbd49e29d84abc6a1129c7d083072dd"
     }
+  },
+  "bunWasm": {
+    "repository": "https://github.com/ShaulLavo/bun-wasm",
+    "revision": "db2c90953da89e187096874fafbcc8a08df8c386",
+    "engine": "quickjs",
+    "wasmSha256": "baec730c94b81064f63c31f4e503ccd43029bcd60acd4fe99f3c6fa826529695",
+    "wasmBytes": 10623737,
+    "hostFiles": [
+      "web/src/fs.ts",
+      "web/src/wasi.ts",
+      "web/src/subprocess-fs.ts",
+      "web/src/net/trampoline.ts"
+    ],
+    "strategy": "Vendored unmodified host files and compressed pinned WASI binary; build expands or copies BUN_WASM into ignored output and verifies SHA-256.",
+    "artifactOrigin": "https://bun.sprockt.dev/playground/bun.wasm.gz",
+    "sourceArtifact": "third-party/bun-wasm/bun.wasm.gz",
+    "sourceArtifactSha256": "40cdd71f4bc857141ec3eb2d9496010377a8e5e7cdd297f6b60abb54f9efc05f"
   }
 }

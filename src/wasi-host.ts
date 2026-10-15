@@ -11,6 +11,9 @@ import {
 } from "@bjorn3/browser_wasi_shim";
 import { SharedBridge, control } from "./bridge";
 import { ExecutionProfile, profileFields } from "./execution-profile";
+import { ProcessHost } from "./process-host";
+import { wasiPrograms } from "./wasi-programs";
+import { installProgramFiles } from "./process-filesystem";
 const encoder = new TextEncoder();
 const RESIZE = encoder.encode("\x1b[997~");
 export class BrowserHost {
@@ -20,7 +23,8 @@ export class BrowserHost {
   private canonical: number[] = [];
   private pendingLine: Uint8Array = new Uint8Array();
   private memory: WebAssembly.Memory | undefined;
-  private readonly capacities = new WeakMap<File, Uint8Array>();
+  private capacities = new WeakMap<File, Uint8Array>();
+  private readonly processes = new ProcessHost(this);
   private readonly appendFiles = new WeakSet<OpenFile>();
   private usage: { bytes: number } | undefined;
   private allocatedBytes = 0;
@@ -52,6 +56,7 @@ export class BrowserHost {
     private readonly profile?: ExecutionProfile,
   ) {
     this.epoch = Atomics.load(bridge.state, control.resize);
+    installProgramFiles(this.root.dir, Object.keys(wasiPrograms));
     this.wasi = new WASI(
       ["brush-browser"],
       ["HOME=/home/guest", "TERM=xterm-256color", "USER=guest", "PATH=/bin", "LANG=C.UTF-8"],
@@ -67,6 +72,10 @@ export class BrowserHost {
   }
   get imports() {
     const callbacks = {
+      ...this.processes.imports(() => {
+        if (!this.memory) throw new Error("WASM memory is unavailable");
+        return this.memory;
+      }),
       read: (ptr: number, length: number) => {
         const memory = this.memory;
         if (!memory) throw new Error("WASM memory is unavailable");
@@ -159,6 +168,17 @@ export class BrowserHost {
     const data = this.read(length);
     if (typeof data === "number") return { ret: wasi.ERRNO_INTR, data: new Uint8Array() };
     return { ret: 0, data };
+  }
+  pollStdin(): Uint8Array | undefined {
+    while (this.bridge.availableInput()) {
+      const line = this.canonicalByte(this.bridge.receive(1)[0]);
+      if (line) return line;
+    }
+    return undefined;
+  }
+  filesystemChanged() {
+    this.capacities = new WeakMap();
+    this.usage = undefined;
   }
   private readCanonical(): Uint8Array | number {
     for (;;) {
