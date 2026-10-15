@@ -1,6 +1,7 @@
 import { Bash, initBashkit } from "@everruns/bashkit-wasm";
 import wasmUrl from "@everruns/bashkit-wasm/bashkit_wasm_bg.wasm?url";
 import type { ScriptSession } from "./baseline";
+import { markStartup } from "./startup";
 
 export async function createBashkitSession(): Promise<{
   shell: ScriptSession;
@@ -9,8 +10,13 @@ export async function createBashkitSession(): Promise<{
 }> {
   const response = await fetch(wasmUrl);
   if (!response.ok) throw new Error(`Bashkit WASM fetch failed (${response.status})`);
+  markStartup("wasmResponse");
   const wasmBytes = Number(response.headers.get("content-length") ?? 0);
-  await initBashkit(response);
+  // Compile separately so startup timing can split compilation from instantiation.
+  const module = await WebAssembly.compileStreaming(response);
+  markStartup("compiled");
+  await initBashkit(module);
+  markStartup("instantiated");
   const bash = new Bash({
     profile: "interactive",
     cwd: "/home/user",
@@ -23,6 +29,7 @@ export async function createBashkitSession(): Promise<{
   });
   const inventory = await bash.execute("shopt -s expand_aliases; compgen -c");
   const commands = inventory.stdout.split(/\s+/).filter(Boolean);
+  markStartup("shellCreated");
   const shell: ScriptSession = {
     cwd: "/home/user",
     fs: { resolvePath: (_cwd, path) => path, readdirWithFileTypes: async () => [] },

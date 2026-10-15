@@ -48,6 +48,12 @@ function errorText(cause: unknown): string {
   return "The browser session stopped unexpectedly. Restart the session to continue.";
 }
 
+// Slow-network measurements may extend the startup guard; normal pages keep 60 seconds.
+function startupTimeoutMs(): number | undefined {
+  const value = Number(query.get("startupTimeout"));
+  return query.get("test") === "1" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
 function checkCapabilities(): void {
   if (!globalThis.crossOriginIsolated) {
     throw new Error(
@@ -127,6 +133,8 @@ function Workbench(handle: Handle) {
   let firstFrameMs: number | undefined;
   let startedAt = 0;
   let hasOutput = false;
+  let readyMarked = false;
+  let promptShown = false;
 
   const render = () => {
     if (!handle.signal.aborted) void handle.update();
@@ -166,6 +174,10 @@ function Workbench(handle: Handle) {
       fail(message, expectedGeneration);
       return;
     }
+    if (nextState === "ready" && !readyMarked) {
+      readyMarked = true;
+      performance.mark("brush:ready");
+    }
     state = nextState;
     busy = nextState === "starting";
     if (terminal?.textarea) terminal.textarea.disabled = busy || nextState === "exited";
@@ -198,6 +210,10 @@ function Workbench(handle: Handle) {
       current.on("error", ({ cause }) => fail(cause, expectedGeneration)),
       current.onFrame(() => {
         session?.markRendered();
+        if (readyMarked && !promptShown) {
+          promptShown = true;
+          performance.mark("brush:prompt-frame");
+        }
         if (!hasOutput || firstFrameMs !== undefined) return;
         firstFrameMs = performance.now() - startedAt;
         render();
@@ -223,6 +239,8 @@ function Workbench(handle: Handle) {
     busy = true;
     firstFrameMs = undefined;
     hasOutput = false;
+    readyMarked = false;
+    promptShown = false;
     startedAt = performance.now();
     render();
     try {
@@ -233,6 +251,7 @@ function Workbench(handle: Handle) {
         return;
       }
       terminal = current;
+      performance.mark("brush:terminal-opened");
       if (current.textarea) current.textarea.disabled = true;
       wireTerminal(current, expectedGeneration);
       await createSession(current, expectedGeneration);
@@ -243,6 +262,7 @@ function Workbench(handle: Handle) {
 
   async function createSession(current: Terminal, expectedGeneration: number) {
     const grid = current.appearance.grid;
+    performance.mark("brush:session-start");
     const created = await BrowserSession.create({
       engine,
       baselineState: query.get("baselineState") === "carry" ? "carry" : "isolated",
@@ -253,6 +273,7 @@ function Workbench(handle: Handle) {
             ? "phase"
             : undefined,
       trace: query.get("trace") === "1",
+      startupTimeoutMs: startupTimeoutMs(),
       cols: grid.columns,
       rows: grid.rows,
       onOutput(bytes) {

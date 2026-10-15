@@ -1,6 +1,6 @@
 {
   "name": "brush-web",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "private": true,
   "type": "module",
   "scripts": {
@@ -23,6 +23,8 @@
     "proof:analyze": "node scripts/analyze-performance.mjs",
     "measure:costs": "node scripts/attribute-costs.mjs",
     "costs:analyze": "node scripts/analyze-costs.mjs",
+    "measure:cold": "node scripts/measure-cold-start.mjs",
+    "cold:analyze": "node scripts/analyze-cold-start.mjs",
     "bashkit:probe": "node scripts/probe-bashkit.mjs",
     "build:bashkit": "node scripts/build-bashkit.mjs",
     "test:bashkit": "node --test .sources/bashkit/__test__/terminal.test.mjs .sources/bashkit/__test__/bashkit-wasm.test.mjs",
