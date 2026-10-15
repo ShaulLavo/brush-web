@@ -87,6 +87,8 @@ The [completed performance proof](docs/performance-proof.md) separates worker ex
 
 The [instrumented cost breakdown](docs/execution-costs.md) measures host calls, conversion, copying, queue gaps and submitted frames for both engines, with separate controls for profiler overhead and hardware WebGPU replay.
 
+The [bash compatibility run](docs/bash-compatibility.md) checks each interpreter against real GNU bash on the Oils spec corpus plus Brush's and Bashkit's own suites. Reproduce it with `npm run compat`.
+
 The [Bashkit comparison](docs/bashkit-comparison.md) evaluates `@everruns/bashkit-wasm` through the same Ghostty adapter and records its session and cancellation limits.
 
 The separate **Bashkit native terminal** option uses its source-tree `Terminal` API at the revision in `sources.lock.json`. It forwards raw bytes to the native editor and drains raw output into Ghostty. Its own package tests run with `npm run test:bashkit`. No source patch is applied. OPFS remains deferred.
