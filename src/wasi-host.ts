@@ -92,13 +92,7 @@ export class BrowserHost {
       clear_cancel: () => {
         const cancelled = Atomics.exchange(this.bridge.state, control.cancel, 0);
         if (!cancelled) return;
-        Atomics.store(
-          this.bridge.state,
-          control.inputRead,
-          Atomics.load(this.bridge.state, control.inputWrite),
-        );
-        this.canonical = [];
-        this.pendingLine = new Uint8Array();
+        this.discardStdin();
         this.previousCR = false;
         this.write(encoder.encode("\x1b[?1049l\x1b[?25h\x1b[0m\r\n"));
       },
@@ -175,6 +169,15 @@ export class BrowserHost {
       if (line) return line;
     }
     return undefined;
+  }
+  discardStdin() {
+    Atomics.store(
+      this.bridge.state,
+      control.inputRead,
+      Atomics.load(this.bridge.state, control.inputWrite),
+    );
+    this.canonical = [];
+    this.pendingLine = new Uint8Array();
   }
   filesystemChanged() {
     this.capacities = new WeakMap();

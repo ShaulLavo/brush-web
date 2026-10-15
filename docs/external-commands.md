@@ -16,6 +16,8 @@ Output arrives while the child runs. Stdin, stdout, and stderr carry bytes, incl
 
 Ctrl+C terminates the child worker, stops the rest of the submitted command list, and sets the shell status to 130. The same shell returns to its prompt. Terminal stdin supports canonical lines and Ctrl+D for EOF. It does not provide a child PTY or raw terminal control.
 
+On child completion, unread terminal input is discarded, including unfinished canonical lines and bytes still queued for the child. It never becomes a shell command or input to the next child. This avoids executing text intended for the finished child. The host clears canonical and pending line buffers at that handoff.
+
 ## Build the Bun asset
 
 `npm run build` runs `npm run build:programs`. That script expands the pinned `third-party/bun-wasm/bun.wasm.gz` into ignored `public/programs/bun.wasm`, which Vite copies into `dist/programs/`. It verifies both the gzip and uncompressed SHA-256 against `sources.lock.json`. A fresh checkout needs no Bun checkout or separate binary download.
@@ -36,7 +38,7 @@ The unmodified Bun filesystem and WASI host files live in `third-party/bun-wasm/
 
 Add its absolute command path and same-origin WASM asset path to `src/wasi-programs.ts`. Arrange for the build to copy the executable under `public/`. The host creates a file at the command path so Brush's ordinary PATH search, `command`, and completion can find it. Those files identify registered programs; their contents are not executable code.
 
-Every invocation starts a fresh worker and WASM instance. The page caches the compiled module for the session. Unregistered executable files fail with status 126. An unknown command still returns 127.
+Every invocation starts a fresh worker and WASM instance. The page caches the compiled module for the session. Executable paths resolve against the current directory and normalize dot segments before lookup. The path must still name a regular file. Existing unregistered files and directories fail with status 126. Missing paths, including deleted registered programs, return 127.
 
 `patches/brush-external-commands.patch` routes only the WASI browser build through seven host imports. Rust keeps the shell stream handles, pumps input and tagged output, and closes the child on every return path. The page owns worker creation and module caching, so a blocked shell cannot prevent a child from starting.
 
@@ -48,7 +50,9 @@ The shell worker owns the filesystem. At spawn, the child receives a copy with t
 
 The result buffer accepts at most 8 MiB of serialized changes. The merged shell tree must also fit the existing 8 MiB data and 1,024-object quotas. A failed merge returns status 1 without changing the shell tree. This is temporary copy-at-spawn behavior. Plan 001 step 2 replaces this adapter with one filesystem worker shared by the shell and children.
 
-Brush still executes pipeline stages sequentially and limits each intermediate pipeline to 1 MiB. Terminal output streams live, but a downstream pipeline stage starts after the upstream stage finishes. An unbounded `bun dev | grep` pipeline therefore remains unsupported. The demo `grep` accepts one literal pattern on stdin; regexes, files, and options belong to the command work in step 3.
+Brush still executes pipeline stages sequentially and limits each intermediate pipeline to 1 MiB. Terminal output streams live, but a downstream pipeline stage starts after the upstream stage finishes. A long-running producer below the limit keeps downstream waiting until it exits, so `bun dev | grep error` never shows live output. On overflow, Brush stops the producer and prints `browser pipeline buffer exceeds 1 MiB; stages execute sequentially`. The downstream stage still runs with the first 1,048,576 bytes. The overall pipeline can return 0 when the downstream stage succeeds; `set -o pipefail` makes the overflow return 1. Ctrl+C stops a waiting producer with status 130 and reaps its worker. Plan 001 step 1b replaces sequential stages with bounded streaming pipes.
+
+The demo `grep` accepts one literal pattern on stdin; regexes, files, and options belong to the command work in step 3.
 
 ## Measure startup and command overhead
 

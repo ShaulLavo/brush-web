@@ -21,6 +21,7 @@ export class ProcessPipe {
     this.bytes = new Uint8Array(buffer, 16);
   }
   read(capacity: number): Uint8Array | number {
+    if (!capacity) return 0;
     const read = Atomics.load(this.state, 0) >>> 0;
     const closed = Atomics.load(this.state, 2);
     const written = Atomics.load(this.state, 1) >>> 0;

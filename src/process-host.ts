@@ -13,7 +13,7 @@ type Child = {
   request: SpawnRequest;
   stdin: ProcessPipe;
   output: ProcessOutput;
-  terminal: boolean;
+  input: "terminal" | "closed" | "pipe";
   pending: Uint8Array;
   startedAt: number;
   firstOutputAt: number;
@@ -40,7 +40,7 @@ export class ProcessHost {
             request,
             stdin: new ProcessPipe(transport.stdin),
             output: new ProcessOutput(transport.output),
-            terminal: Boolean(terminal),
+            input: terminal ? "terminal" : "pipe",
             pending: new Uint8Array(),
             startedAt,
             firstOutputAt: 0,
@@ -82,6 +82,7 @@ export class ProcessHost {
           finishedAt: performance.timeOrigin + performance.now(),
         } satisfies ProcessSample);
         cancelProcess(child.request.transport);
+        if (child.input !== "pipe") this.host.discardStdin();
         this.child = undefined;
       },
     };
@@ -91,13 +92,13 @@ export class ProcessHost {
     return this.child;
   }
   private input(child: Child) {
-    if (!child.terminal) return;
+    if (child.input !== "terminal") return;
     if (!child.pending.length) {
       const bytes = this.host.pollStdin();
       if (!bytes) return;
       if (!bytes.length) {
         child.stdin.close();
-        child.terminal = false;
+        child.input = "closed";
         return;
       }
       child.pending = bytes;

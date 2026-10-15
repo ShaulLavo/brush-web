@@ -1,6 +1,7 @@
 import { cancelProcess, finishProcess, ProcessOutput } from "./process-transport";
 import type { ChildRequest, SpawnRequest } from "./process-protocol";
 import { wasiPrograms } from "./wasi-programs";
+import { MemFS, normalize } from "../third-party/bun-wasm/fs";
 
 type Child = { request: SpawnRequest; worker?: Worker };
 export class ProcessBroker {
@@ -11,9 +12,15 @@ export class ProcessBroker {
   private readonly controller = new AbortController();
   constructor(private readonly programs: Readonly<Record<string, string>> = wasiPrograms) {}
   async spawn(request: SpawnRequest) {
-    const asset = this.programs[request.executable];
     if (this.disposed) return;
-    if (!asset) {
+    const executable = normalize(request.executable, request.cwd);
+    const file = new MemFS(request.root).lookup(executable);
+    if (!file) {
+      finishProcess(request.transport, 127);
+      return;
+    }
+    const asset = this.programs[executable];
+    if (file.kind !== "file" || !asset) {
       finishProcess(request.transport, 126);
       return;
     }
@@ -35,7 +42,7 @@ export class ProcessBroker {
       child.worker = worker;
       worker.addEventListener("error", () => finishProcess(request.transport, 1));
       worker.addEventListener("messageerror", () => finishProcess(request.transport, 1));
-      worker.postMessage({ ...request, module: compiled } satisfies ChildRequest);
+      worker.postMessage({ ...request, executable, module: compiled } satisfies ChildRequest);
     } catch (error) {
       new ProcessOutput(request.transport.output).writeAll(
         2,

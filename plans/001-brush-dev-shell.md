@@ -27,6 +27,11 @@ Fallback: if step 1 fails, fork Bashkit source and make its custom builtins stre
    - Ctrl+C terminates a long-running `bun run` child and returns to the prompt with status 130;
    - files written by the child are visible to the shell after it exits, and vice versa.
    Today's copy-at-spawn filesystem is acceptable for step 1; step 2 replaces it.
+1b. **Concurrent pipeline stages.** The browser build currently runs Brush pipeline stages sequentially with a 1 MiB intermediate buffer, so `bun dev | grep error` never shows output. Run stages concurrently with bounded streaming pipes. Acceptance, in the browser:
+   - `bun run ticker.ts | grep tick` shows each line live;
+   - a producer emitting more than 1 MiB streams its complete output downstream;
+   - Ctrl+C kills all stages and returns to the prompt.
+   This is separate follow-up work and is not implemented in the step-1 external-command PR.
 2. **One virtual filesystem on OPFS.** A pool of pre-opened `FileSystemSyncAccessHandle`s, modelled on SQLite's `opfs-sahpool` VFS, owned by one worker. Path-to-slot metadata lives in the pool, so directory operations are synchronous bookkeeping. Brush, bun.wasm and the editor reach it through one WASI host via shared memory. Persists across reloads. Replaces copy-at-spawn and its 8 MiB merge limit.
 3. **Commands.** Enable upstream's `brush-coreutils-builtins` (uutils coreutils as in-process builtins, `vendor/brush/brush-coreutils-builtins`). Add `grep` (ripgrep's search crates or uutils-adjacent), `sed`, `awk` and `jq` (jaq) as in-process builtins, so loops do not start a worker per command. Rare tools may be separate WASI programs through the step-1 spawn path. Measure the added binary size.
 4. **Interpreter.** Fix namerefs, ERR/DEBUG traps and alias placement first, upstream where accepted. Track with `npm run compat`.
