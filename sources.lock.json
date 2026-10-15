@@ -70,22 +70,20 @@
   },
   "bunWasm": {
     "repository": "https://github.com/ShaulLavo/bun-wasm",
-    "revision": "db2c90953da89e187096874fafbcc8a08df8c386",
+    "revision": "c81bcce890c5b121d7fee0a3eeaf3c8fef34e5cc",
     "engine": "quickjs",
-    "wasmSha256": "35079165184d6e0f17b41951c28191134265be58f885b34a298f769c49463e66",
-    "wasmBytes": 10623616,
+    "wasmSha256": "0ad375ace9c032730745655fe32056d2163b640fa882c1683c3635d54b79287d",
+    "wasmBytes": 10860006,
     "hostFiles": [
       "web/src/fs.ts",
       "web/src/wasi.ts",
       "web/src/subprocess-fs.ts",
       "web/src/net/trampoline.ts"
     ],
-    "strategy": "Vendored unmodified host files and compressed WASI binary rebuilt from the revision with runtimePatch; build verifies patch and artifact checksums.",
-    "artifactOrigin": "Local rebuild with scripts/build.sh from the pinned revision plus runtimePatch.",
+    "strategy": "Vendored unmodified host files and compressed WASI binary rebuilt from the revision; build verifies artifact checksums.",
+    "artifactOrigin": "Local QuickJS rebuild with scripts/build.sh from the unmodified pinned revision.",
     "sourceArtifact": "third-party/bun-wasm/bun.wasm.gz",
-    "sourceArtifactSha256": "9c00ba1d610cd8f9e1a343c9acda14b0b65d2909f928577383c67384f5af2f48",
-    "runtimePatch": "third-party/bun-wasm/zero-length-stdin.patch",
-    "runtimePatchSha256": "b11e226355bee53bc68f3721d9fb34bbdab36960f9e1aa23a9b28753a261c93b",
+    "sourceArtifactSha256": "87d85b1b9183fd49261ad23640591bc559135c55b4f177e2aa50298e415e3998",
     "buildToolchain": {
       "rust": "nightly-2026-09-15",
       "binaryen": "133"

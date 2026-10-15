@@ -1,0 +1,208 @@
+{
+  "date": "2026-10-15T20:26:44.803Z",
+  "browser": "156.0.8078.4",
+  "cpu": "Intel(R) Core(TM) i7-14700K",
+  "engine": "QuickJS bun.wasm",
+  "shell": "Brush wasm32-wasip1",
+  "command": "bun -e 'console.log(1)'",
+  "cold": {
+    "firstOutputMs": 92.445068359375,
+    "totalMs": 92.755126953125
+  },
+  "warm": {
+    "trials": 5,
+    "firstOutputMs": 37.37900390625,
+    "totalMs": 37.43798828125
+  },
+  "loop": {
+    "command": "for i in {1..20}; do bun -e '0'; done",
+    "count": 20,
+    "perCommandMs": 18.73551025390625,
+    "wallMs": 375.80517578125
+  },
+  "samples": [
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004021.8699,
+      "firstOutputAt": 1792096004114.315,
+      "finishedAt": 1792096004114.625
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004135.415,
+      "firstOutputAt": 1792096004170.915,
+      "finishedAt": 1792096004170.98
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004184.76,
+      "firstOutputAt": 1792096004223.7,
+      "finishedAt": 1792096004223.78
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004233.88,
+      "firstOutputAt": 1792096004271.675,
+      "finishedAt": 1792096004271.73
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004284.3,
+      "firstOutputAt": 1792096004319.26,
+      "finishedAt": 1792096004319.3
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004333.26,
+      "firstOutputAt": 1792096004372.96,
+      "finishedAt": 1792096004373.015
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004386.1099,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004419.26
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004419.3599,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004437.105
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004437.155,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004456.16
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004456.2249,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004475.4849
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004475.555,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004493.635
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004493.69,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004512.865
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004512.925,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004532.1199
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004532.16,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004549.665
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004549.7048,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004566.8298
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004566.885,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004586.175
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004586.2349,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004603.5698
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004603.63,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004621.185
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004621.24,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004637.005
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004637.06,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004652.93
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004652.9849,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004672.505
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004672.555,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004689.365
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004689.415,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004706.775
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004706.835,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004726.9
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004726.9548,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004744.815
+    },
+    {
+      "kind": "external-complete",
+      "executable": "/bin/bun",
+      "startedAt": 1792096004744.875,
+      "firstOutputAt": 0,
+      "finishedAt": 1792096004761.915
+    }
+  ],
+  "bunWasmSha256": "35079165184d6e0f17b41951c28191134265be58f885b34a298f769c49463e66"
+}

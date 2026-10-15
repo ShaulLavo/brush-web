@@ -20,9 +20,9 @@ On child completion, unread terminal input is discarded, including unfinished ca
 
 ## Build the Bun asset
 
-`npm run build` runs `npm run build:programs`. That script verifies the pinned runtime patch and expands the pinned `third-party/bun-wasm/bun.wasm.gz` into ignored `public/programs/bun.wasm`, which Vite copies into `dist/programs/`. It verifies the patch, gzip, and uncompressed SHA-256 against `sources.lock.json`. A fresh checkout needs no Bun checkout or separate binary download.
+`npm run build` runs `npm run build:programs`. That script expands the pinned `third-party/bun-wasm/bun.wasm.gz` into ignored `public/programs/bun.wasm`, which Vite copies into `dist/programs/`. It verifies the gzip and uncompressed SHA-256 against `sources.lock.json`. A fresh checkout needs no Bun checkout or separate binary download.
 
-The compressed source asset is 3.6 MiB. It is committed because the public playground replaced its artifact during verification. The current patched binary is 10,623,616 bytes with SHA-256 `35079165184d6e0f17b41951c28191134265be58f885b34a298f769c49463e66`. The original pin was `baec730c94b81064f63c31f4e503ccd43029bcd60acd4fe99f3c6fa826529695`; the replacement public artifact had a different hash. An immutable upstream release asset can replace the committed gzip later. Builds must continue to check the pinned hash.
+The compressed source asset is committed because the public playground replaced its artifact during verification. The uncompressed size and both SHA-256 hashes are recorded in `sources.lock.json`. An immutable upstream release asset can replace the committed gzip later. Builds must continue to check the pinned hash.
 The Bun playground defaults to a different engine, `bun-browser.wasm`. That engine runs JavaScript in the worker's own JS engine after WASM setup. This integration uses the complete QuickJS WASI executable, `bun.wasm`. It needs no service worker or JS engine bridge.
 
 To supply the exact artifact locally, set its path before building:
@@ -31,9 +31,9 @@ To supply the exact artifact locally, set its path before building:
 BUN_WASM=/work/projects/bun-wasm/dist/bun.wasm npm run build
 ```
 
-The source revision, runtime patch, and artifact hashes are pinned in `sources.lock.json`. `third-party/bun-wasm/zero-length-stdin.patch` makes the bun-wasm runtime's stdin read return before calling Rust's buffered reader for a zero-byte request. This is a bug in bun-wasm's own runtime, not in Bun: native Bun 1.4.2 returns 0 immediately. The fix moves into bun-wasm, after which this patch is dropped and the pin moves to that revision. Without that guard, a zero-byte `fs.readSync` issues an 8 KiB WASI read and waits for input. The pipe transport also returns immediately for zero-capacity reads.
+The source revision and artifact hashes are pinned in `sources.lock.json`. The stdin fix now comes from bun-wasm itself at revision `c81bcce890c5b121d7fee0a3eeaf3c8fef34e5cc`. Its runtime returns before calling Rust's buffered stdin reader for a zero-byte request. This was a bug in bun-wasm's own runtime, not in Bun. Without that guard, a zero-byte `fs.readSync` issues an 8 KiB WASI read and waits for input. The pipe transport also returns immediately for zero-capacity reads. bun-wasm's [patch documentation](https://github.com/ShaulLavo/bun-wasm/blob/c81bcce890c5b121d7fee0a3eeaf3c8fef34e5cc/docs/bun-patches.md#zero-length-stdin-reads-waited-for-eof) records the cause and regression coverage.
 
-The committed artifact is pinned by hash, not reproducible byte for byte. Rebuilding the pinned revision with the patch gives a working binary with a different hash, because the build embeds absolute QuickJS and Bun dependency source paths. To build a comparable binary, make a worktree of bun-wasm at the pinned revision, apply the patch with `git apply`, prepare its Bun dependencies with `scripts/sync-bun.sh`, and run `JOBS=4 BINARYEN_CORES=2 scripts/build.sh`; supply it with `BUN_WASM` only after updating the pins.
+The committed artifact is pinned by hash, not reproducible byte for byte. Rebuilding the pinned revision gives a working binary with a different hash, because the build embeds absolute QuickJS and Bun dependency source paths. To build a comparable binary, make a worktree of bun-wasm at the pinned revision, source `env.sh`, prepare its Bun dependencies with `scripts/sync-bun.sh`, and run `JOBS=4 BINARYEN_CORES=2 scripts/build.sh`; supply it with `BUN_WASM` only after updating the pins. No local runtime patch is needed.
 
 `BUN_WASM` supplies a local uncompressed artifact and must pass the same hash check. Changing the runtime requires updating the source pin and compressed artifact together.
 The unmodified Bun filesystem and WASI host files live in `third-party/bun-wasm/`. Their original paths and source revision are recorded in the lock file. Bun, QuickJS, libc, and Temporal dependency licenses ship in `THIRD_PARTY_NOTICES.txt`.
@@ -68,14 +68,16 @@ npm run measure:external
 
 The measurement owns its static server on port 4299 and its headless Chromium instance, and stops both on exit. Timings come from the shell worker's spawn import, first received output byte, and child cleanup. Cold includes the first asset fetch and WASM compilation. Warm reuses the compiled module while starting a fresh worker and instance. These values exclude shell startup and terminal drawing.
 
-On 2026-10-15, unthrottled Chromium 156.0.8078.4 on an Intel(R) Core(TM) i7-14700K measured these times on localhost. The shell had its default small filesystem. The host was shared with other work.
+On 2026-10-15, unthrottled Chromium 156.0.8078.4 on an Intel(R) Core(TM) i7-14700K measured these times on localhost. The shell had its default small filesystem. The child used the bun-wasm pin above. The host was shared with other work.
 
 | Command | Trials | First output | Spawn through cleanup |
 | --- | ---: | ---: | ---: |
-| `bun -e 'console.log(1)'`, cold | 1 | 83.9 ms | 84.2 ms |
-| Same command, warm mean | 5 | 37.5 ms | 37.5 ms |
-| `bun -e '0'` inside a shell loop | 20 | No output | 16.5 ms per command |
+| `bun -e 'console.log(1)'`, cold | 1 | 92.0 ms | 92.3 ms |
+| Same command, warm mean | 5 | 37.0 ms | 37.0 ms |
+| `bun -e '0'` inside a shell loop | 20 | No output | 17.1 ms per command |
 
-The complete 20-child loop took 329.9 ms. These are worker timings; terminal drawing is outside the measurement. The previous shell could not spawn Bun, so there is no successful-spawn baseline for a speed comparison.
+The complete 20-child loop took 342.7 ms. These are worker timings; terminal drawing is outside the measurement.
 
-The recorded measurements and raw samples are in [external-commands.json](evidence/external-commands.json).
+A paired run used the same production app with only the executable replaced. Before the re-pin, cold spawn through cleanup took 92.8 ms, warm mean took 37.4 ms, and the loop averaged 18.7 ms per command. After the re-pin, those values were 92.3 ms, 37.0 ms, and 17.1 ms. Cold and warm startup stayed within 1.2%. The loop was 8.8% lower in this sample. These shared-host measurements show no material startup regression and do not establish a speed improvement.
+
+The recorded measurements and raw samples are in [external-commands.json](evidence/external-commands.json) and [external-commands-before-repin.json](evidence/external-commands-before-repin.json). Each record includes the measured executable's hash.
