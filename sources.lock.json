@@ -43,5 +43,12 @@
       "terminal"
     ],
     "wasmOpt": false
+  },
+  "oils": {
+    "repository": "https://github.com/oils-for-unix/oils",
+    "revision": "bdc8364c253ce921e033bbc2399ea2ce0be41825",
+    "archiveSha256": "459509a093fb5afa035cf19acbd5fa77d62fca79c99b75b44f43cbc1f3f3cc47",
+    "files": "spec/*.test.sh",
+    "use": "bash-compatibility corpus; bash is the oracle, Oils expectations are ignored"
   }
 }

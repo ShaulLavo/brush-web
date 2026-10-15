@@ -1,6 +1,6 @@
 {
   "name": "brush-web",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "private": true,
   "type": "module",
   "scripts": {
@@ -25,7 +25,8 @@
     "costs:analyze": "node scripts/analyze-costs.mjs",
     "bashkit:probe": "node scripts/probe-bashkit.mjs",
     "build:bashkit": "node scripts/build-bashkit.mjs",
-    "test:bashkit": "node --test .sources/bashkit/__test__/terminal.test.mjs .sources/bashkit/__test__/bashkit-wasm.test.mjs"
+    "test:bashkit": "node --test .sources/bashkit/__test__/terminal.test.mjs .sources/bashkit/__test__/bashkit-wasm.test.mjs",
+    "compat": "node scripts/bash-compat.mjs"
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "0.4.2",
@@ -42,6 +43,7 @@
     "esbuild": "0.27.7",
     "oxfmt": "0.70.0",
     "typescript": "7.0.2",
-    "vite": "8.3.1"
+    "vite": "8.3.1",
+    "yaml": "2.9.1"
   }
 }
