@@ -299,6 +299,7 @@ const spotSetup =
   "printf 'apple\\nbanana\\ncherry\\nfig\\n' > fruits; printf 'apple,3\\nfig,2\\napple,5\\n' > prices; " +
   "mkdir -p d/e; printf 'fig\\n' > d/a.txt; printf 'fig\\n' > d/e/b.txt; printf 'x\\n' > d/c.md; ";
 
+await mkdir(resolve(root, ".scratch"), { recursive: true });
 const scratch = await mkdtemp(resolve(root, ".scratch/bash-compat-"));
 const pools = [];
 let finished = false;
