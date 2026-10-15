@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { build } from "esbuild";
+import { readFile } from "node:fs/promises";
 const compiled = await build({
   stdin: {
-    contents: `export * from './src/process-transport'; export * from './src/process-filesystem'; export * from './src/process-wasi'; export { Wasi } from './third-party/bun-wasm/wasi'; export * from './third-party/bun-wasm/subprocess-fs'; export { MemFS } from './third-party/bun-wasm/fs'; export { Directory, File } from '@bjorn3/browser_wasi_shim';`,
+    contents: `export * from './src/process-transport'; export * from './src/process-filesystem'; export * from './src/process-wasi'; export { Wasi } from './third-party/bun-wasm/wasi'; export * from './third-party/bun-wasm/subprocess-fs'; export { MemFS } from './third-party/bun-wasm/fs'; export { installHostSlotsViaImport } from './third-party/bun-wasm/net/trampoline'; export { Directory, File } from '@bjorn3/browser_wasi_shim';`,
     resolveDir: process.cwd(),
     loader: "ts",
   },
@@ -13,6 +14,7 @@ const compiled = await build({
 });
 const {
   ProcessPipe,
+  installHostSlotsViaImport,
   Wasi,
   pipeStdio,
   ProcessOutput,
@@ -165,3 +167,43 @@ guest.start({
   },
 });
 console.log("Child stdio reports pipes while preopened directories keep their file type.");
+
+const bunModule = await WebAssembly.compile(
+  await readFile(new URL("../public/programs/bun.wasm", import.meta.url)),
+);
+const bunFilesystem = new MemFS();
+bunFilesystem.mkdirp("/home/guest");
+let bunOutput = "";
+const bun = new Wasi({
+  args: [
+    "bun",
+    "-e",
+    'console.log("ZERO_READ:"+require("node:fs").readSync(0,new Uint8Array(0),0,0,null))',
+  ],
+  env: { PWD: "/home/guest" },
+  fs: bunFilesystem,
+  preopens: { "/": "/" },
+  stdin(capacity) {
+    assert.fail(`A zero-byte Bun read must not request ${capacity} bytes from stdin`);
+  },
+  stdout(bytes) {
+    bunOutput += new TextDecoder().decode(bytes);
+  },
+  stderr(bytes) {
+    assert.fail(new TextDecoder().decode(bytes));
+  },
+  sleep() {},
+});
+const bunImports = bun.imports(bunModule);
+let bunMemory;
+pipeStdio(bunImports, () => bunMemory);
+const bunInstance = new WebAssembly.Instance(bunModule, bunImports);
+bunMemory = bunInstance.exports.memory;
+bun.hostCall = installHostSlotsViaImport(bunInstance, {
+  poll() {
+    return 0;
+  },
+});
+assert.equal(bun.start(bunInstance), 0);
+assert.equal(bunOutput, "ZERO_READ:0\n");
+console.log("Bun zero-byte stdin reads finish without requesting host input.");
