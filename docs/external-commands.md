@@ -68,14 +68,16 @@ npm run measure:external
 
 The measurement owns its static server on port 4299 and its headless Chromium instance, and stops both on exit. Timings come from the shell worker's spawn import, first received output byte, and child cleanup. Cold includes the first asset fetch and WASM compilation. Warm reuses the compiled module while starting a fresh worker and instance. These values exclude shell startup and terminal drawing.
 
-On 2026-10-15, unthrottled Chromium 156.0.8078.4 on an Intel(R) Core(TM) i7-14700K measured these times on localhost. The shell had its default small filesystem. The host was shared with other work.
+On 2026-10-15, unthrottled Chromium 156.0.8078.4 on an Intel(R) Core(TM) i7-14700K measured these times on localhost. The shell had its default small filesystem. The child used the bun-wasm pin above. The host was shared with other work.
 
 | Command | Trials | First output | Spawn through cleanup |
 | --- | ---: | ---: | ---: |
-| `bun -e 'console.log(1)'`, cold | 1 | 83.9 ms | 84.2 ms |
-| Same command, warm mean | 5 | 37.5 ms | 37.5 ms |
-| `bun -e '0'` inside a shell loop | 20 | No output | 16.5 ms per command |
+| `bun -e 'console.log(1)'`, cold | 1 | 92.0 ms | 92.3 ms |
+| Same command, warm mean | 5 | 37.0 ms | 37.0 ms |
+| `bun -e '0'` inside a shell loop | 20 | No output | 17.1 ms per command |
 
-The complete 20-child loop took 329.9 ms. These are worker timings; terminal drawing is outside the measurement. The previous shell could not spawn Bun, so there is no successful-spawn baseline for a speed comparison.
+The complete 20-child loop took 342.7 ms. These are worker timings; terminal drawing is outside the measurement.
 
-The recorded measurements and raw samples are in [external-commands.json](evidence/external-commands.json).
+A paired run used the same production app with only the executable replaced. Before the re-pin, cold spawn through cleanup took 92.8 ms, warm mean took 37.4 ms, and the loop averaged 18.7 ms per command. After the re-pin, those values were 92.3 ms, 37.0 ms, and 17.1 ms. Cold and warm startup stayed within 1.2%. The loop was 8.8% lower in this sample. These shared-host measurements show no material startup regression and do not establish a speed improvement.
+
+The recorded measurements and raw samples are in [external-commands.json](evidence/external-commands.json) and [external-commands-before-repin.json](evidence/external-commands-before-repin.json). Each record includes the measured executable's hash.

@@ -1,207 +1,209 @@
 {
-  "date": "2026-10-15T15:42:10.385Z",
+  "date": "2026-10-15T20:26:46.369Z",
   "browser": "156.0.8078.4",
   "cpu": "Intel(R) Core(TM) i7-14700K",
   "engine": "QuickJS bun.wasm",
   "shell": "Brush wasm32-wasip1",
   "command": "bun -e 'console.log(1)'",
   "cold": {
-    "firstOutputMs": 83.91015625,
-    "totalMs": 84.210205078125
+    "firstOutputMs": 92.014892578125,
+    "totalMs": 92.2998046875
   },
   "warm": {
     "trials": 5,
-    "firstOutputMs": 37.4689453125,
-    "totalMs": 37.518017578125
+    "firstOutputMs": 36.952880859375,
+    "totalMs": 37.003955078125
   },
   "loop": {
     "command": "for i in {1..20}; do bun -e '0'; done",
     "count": 20,
-    "perCommandMs": 16.4530029296875,
-    "wallMs": 329.889892578125
+    "perCommandMs": 17.08548583984375,
+    "wallMs": 342.719970703125
   },
   "samples": [
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078929651.97,
-      "firstOutputAt": 1792078929735.8801,
-      "finishedAt": 1792078929736.1802
+      "startedAt": 1792096005619.08,
+      "firstOutputAt": 1792096005711.095,
+      "finishedAt": 1792096005711.38
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078929751.625,
-      "firstOutputAt": 1792078929791.435,
-      "finishedAt": 1792078929791.5051
+      "startedAt": 1792096005733.5,
+      "firstOutputAt": 1792096005771.8599,
+      "finishedAt": 1792096005771.925
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078929800.205,
-      "firstOutputAt": 1792078929837.465,
-      "finishedAt": 1792078929837.5151
+      "startedAt": 1792096005783.645,
+      "firstOutputAt": 1792096005819.9648,
+      "finishedAt": 1792096005820.015
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078929850.245,
-      "firstOutputAt": 1792078929885.125,
-      "finishedAt": 1792078929885.1702
+      "startedAt": 1792096005833.8,
+      "firstOutputAt": 1792096005872.41,
+      "finishedAt": 1792096005872.455
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078929900.0251,
-      "firstOutputAt": 1792078929936.895,
-      "finishedAt": 1792078929936.94
+      "startedAt": 1792096005883.955,
+      "firstOutputAt": 1792096005919.455,
+      "finishedAt": 1792096005919.5
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078929950.695,
-      "firstOutputAt": 1792078929989.22,
-      "finishedAt": 1792078929989.2551
+      "startedAt": 1792096005933.52,
+      "firstOutputAt": 1792096005969.4949,
+      "finishedAt": 1792096005969.545
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930000.965,
+      "startedAt": 1792096005984.555,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930029.31
+      "finishedAt": 1792096006019.07
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930029.3801,
+      "startedAt": 1792096006019.15,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930049.3
+      "finishedAt": 1792096006036.73
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930049.36,
+      "startedAt": 1792096006036.78,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930064.19
+      "finishedAt": 1792096006052.865
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930064.235,
+      "startedAt": 1792096006052.925,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930081.1501
+      "finishedAt": 1792096006069.4
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930081.195,
+      "startedAt": 1792096006069.4849,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930099.465
+      "finishedAt": 1792096006086.2449
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930099.51,
+      "startedAt": 1792096006086.305,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930116.23
+      "finishedAt": 1792096006102.095
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930116.2651,
+      "startedAt": 1792096006102.145,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930131.82
+      "finishedAt": 1792096006117.16
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930131.855,
+      "startedAt": 1792096006117.2,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930146.7852
+      "finishedAt": 1792096006132.335
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930146.83,
+      "startedAt": 1792096006132.38,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930161.665
+      "finishedAt": 1792096006149.5999
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930161.695,
+      "startedAt": 1792096006149.645,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930177.01
+      "finishedAt": 1792096006168.075
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930177.06,
+      "startedAt": 1792096006168.125,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930191.905
+      "finishedAt": 1792096006184.845
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930191.96,
+      "startedAt": 1792096006184.9,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930207.11
+      "finishedAt": 1792096006201.2
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930207.1602,
+      "startedAt": 1792096006201.255,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930223.215
+      "finishedAt": 1792096006215.645
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930223.2651,
+      "startedAt": 1792096006215.695,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930237.6501
+      "finishedAt": 1792096006229.9949
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930237.69,
+      "startedAt": 1792096006230.04,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930255.58
+      "finishedAt": 1792096006244.47
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930255.62,
+      "startedAt": 1792096006244.535,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930271.895
+      "finishedAt": 1792096006261.1099
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930271.925,
+      "startedAt": 1792096006261.145,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930287.0251
+      "finishedAt": 1792096006278.405
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930287.065,
+      "startedAt": 1792096006278.455,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930301.605
+      "finishedAt": 1792096006293.555
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930301.6401,
+      "startedAt": 1792096006293.5999,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930316.0452
+      "finishedAt": 1792096006312.155
     },
     {
       "kind": "external-complete",
       "executable": "/bin/bun",
-      "startedAt": 1792078930316.075,
+      "startedAt": 1792096006312.2,
       "firstOutputAt": 0,
-      "finishedAt": 1792078930330.855
+      "finishedAt": 1792096006327.275
     }
-  ]
+  ],
+  "bunWasmSha256": "0ad375ace9c032730745655fe32056d2163b640fa882c1683c3635d54b79287d",
+  "bunWasmRevision": "c81bcce890c5b121d7fee0a3eeaf3c8fef34e5cc"
 }
