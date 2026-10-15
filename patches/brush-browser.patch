@@ -399,6 +399,19 @@ index 9f3ed3d..70fe2d9 100644
          } else {
              Self::GeneralError
          }
+diff --git i/brush-core/src/expansion.rs w/brush-core/src/expansion.rs
+index 6dff507..defc356 100644
+--- i/brush-core/src/expansion.rs
++++ w/brush-core/src/expansion.rs
+@@ -2067,7 +2067,7 @@ impl<'a, SE: extensions::ShellExtensions> WordExpander<'a, SE> {
+                 Expansion::from(self.shell.options().option_flags())
+             }
+             brush_parser::word::SpecialParameter::ProcessId => {
+-                Expansion::from(std::process::id().to_string())
++                Expansion::from(sys::current_process_id().to_string())
+             }
+             brush_parser::word::SpecialParameter::LastBackgroundProcessId => {
+                 if let Some(job) = self.shell.jobs().current_job()
 diff --git i/brush-core/src/interp.rs w/brush-core/src/interp.rs
 index 617e36e..644da8b 100644
 --- i/brush-core/src/interp.rs
@@ -500,7 +513,7 @@ index 617e36e..644da8b 100644
      // Execute in a subshell.
      let mut subshell = shell.clone();
 diff --git i/brush-core/src/sys.rs w/brush-core/src/sys.rs
-index f0fe981..c5d0e44 100644
+index f0fe981..952019e 100644
 --- i/brush-core/src/sys.rs
 +++ w/brush-core/src/sys.rs
 @@ -29,6 +29,7 @@ pub mod tokio_process;
@@ -511,6 +524,21 @@ index f0fe981..c5d0e44 100644
  pub mod fs;
  
  pub use platform::async_pipe;
+@@ -47,3 +48,14 @@ pub use platform::terminal;
+ pub(crate) use platform::users;
+ 
+ pub use platform::PlatformError;
++
++/// Returns the shell's process ID, as reported by `$$` and `$BASHPID`.
++///
++/// WASM hosts have no process IDs (`std::process::id()` panics on WASI), so the
++/// shell reports itself as the sandbox's only process, PID 1.
++pub(crate) fn current_process_id() -> u32 {
++    #[cfg(target_family = "wasm")]
++    return 1;
++    #[cfg(not(target_family = "wasm"))]
++    std::process::id()
++}
 diff --git i/brush-core/src/sys/wasm/fs.rs w/brush-core/src/sys/wasm/fs.rs
 index 423ab3c..72f3f87 100644
 --- i/brush-core/src/sys/wasm/fs.rs
@@ -571,6 +599,28 @@ index 4fa8edc..3450785 100644
          Ok(buf.len())
      }
  
+diff --git i/brush-core/src/wellknownvars.rs w/brush-core/src/wellknownvars.rs
+index ce53481..6f2ffe3 100644
+--- i/brush-core/src/wellknownvars.rs
++++ w/brush-core/src/wellknownvars.rs
+@@ -80,13 +80,10 @@ pub(crate) fn init_well_known_vars(
+     shell.env_mut().set_global("BASHOPTS", bashopts_var)?;
+ 
+     // BASHPID
+-    #[cfg(not(target_family = "wasm"))] // ast-grep-ignore: platform-cfg-outside-sys
+-    {
+-        let mut bashpid_var =
+-            ShellVariable::new(ShellValue::String(std::process::id().to_string()));
+-        bashpid_var.treat_as_integer();
+-        shell.env_mut().set_global("BASHPID", bashpid_var)?;
+-    }
++    let mut bashpid_var =
++        ShellVariable::new(ShellValue::String(sys::current_process_id().to_string()));
++    bashpid_var.treat_as_integer();
++    shell.env_mut().set_global("BASHPID", bashpid_var)?;
+ 
+     // BASH_ALIASES
+     shell.env_mut().set_global(
 diff --git i/brush-interactive/Cargo.toml w/brush-interactive/Cargo.toml
 index 0eee206..3d5d98a 100644
 --- i/brush-interactive/Cargo.toml

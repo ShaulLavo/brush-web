@@ -265,6 +265,15 @@ test("stderr and input EOF are byte streams; unsupported jobs fail clearly", asy
   await output(page, "after-eof");
 });
 
+test("$$ and BASHPID report a stable PID and the shell stays alive", async ({ page }) => {
+  await open(page);
+  await command(page, "echo pid:$$ bashpid:$BASHPID sub:$(echo $$); echo status:$?");
+  await output(page, "pid:1 bashpid:1 sub:1");
+  await output(page, "status:0");
+  await command(page, "echo after-pid");
+  await output(page, "after-pid");
+});
+
 test("IME composition commits exactly once through Ghostty input", async ({ page }) => {
   await open(page);
   await page.keyboard.insertText("echo ");
