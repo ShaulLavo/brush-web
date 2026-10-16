@@ -15,7 +15,14 @@
 enum Frame {
     /// Shell code inside `$(` (or `(` nesting within it).
     Code,
+    /// Immediately after `$(`: a second adjacent `(` selects arithmetic.
+    Substitution,
+    /// Arithmetic parens hide shell keywords, comments and heredoc operators.
+    Arithmetic,
+    /// A `${...}` span inside arithmetic or command text.
+    Parameter,
     Single,
+    Ansi,
     Double,
     Backtick,
 }
@@ -66,6 +73,8 @@ enum Mode {
     Normal,
     /// After a backslash: the next char is literal.
     Escape,
+    /// A continuation after `$(` must not hide an arithmetic second `(`.
+    SubstitutionEscape,
     /// `#` comment, until newline.
     Comment,
     /// Reading the word after `<<` / `<<-`.
@@ -117,8 +126,17 @@ impl Default for SubstScanner {
 
 impl SubstScanner {
     pub fn new() -> Self {
+        Self::with_frame(Frame::Substitution)
+    }
+
+    /// Process substitutions start command code, not a dollar-arithmetic opener.
+    pub fn new_command() -> Self {
+        Self::with_frame(Frame::Code)
+    }
+
+    fn with_frame(frame: Frame) -> Self {
         Self {
-            stack: vec![Frame::Code],
+            stack: vec![frame],
             parens: vec![0],
             code: vec![CodeState {
                 cmd_pos: true,
@@ -145,6 +163,13 @@ impl SubstScanner {
     fn feed_inner(&mut self, c: char) -> Step {
         match std::mem::replace(&mut self.mode, Mode::Normal) {
             Mode::Escape => Step::Body,
+            Mode::SubstitutionEscape => {
+                if c != '\n' {
+                    *self.stack.last_mut().expect("substitution frame") = Frame::Code;
+                    self.quote_word();
+                }
+                Step::Body
+            }
             Mode::Comment => {
                 if c == '\n' {
                     self.on_newline();

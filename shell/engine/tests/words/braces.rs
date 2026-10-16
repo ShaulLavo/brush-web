@@ -429,6 +429,10 @@ fn braces_preserve_inactive_command_comments_and_deep_parameter_text() {
 #[test]
 fn brace_opacity_distinguishes_arithmetic_shifts_and_shell_keywords() {
     check(
+        "args \"$((1 << 2\n)){a,b}\" \"$((case == in)){a,b}\"; v=ok; args \"${v:-$((1 << 2\n))}{a,b}\"",
+        &[&["4{a,b}", "1{a,b}"], &["ok{a,b}"]],
+    );
+    check(
         "args $((1 << 2\n)){a,b}; case=1; in=2; args $((case == in)){a,b}; v=ok; args ${v:-$((1 << 2\n))}{a,b} $(((1+2) << 1)){a,b}",
         &[&["4a", "4b"], &["0a", "0b"], &["oka", "okb", "6a", "6b"]],
     );
