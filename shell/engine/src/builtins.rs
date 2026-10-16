@@ -15,8 +15,21 @@ pub(crate) fn declaration_command(word: &Word) -> bool {
     if word.quoted || word.part_quoted.first().copied().unwrap_or(false) {
         return false;
     }
-    matches!(word.parts.as_slice(), [WordPart::Literal(name)]
-        if matches!(name.as_str(), "export" | "local"))
+    let [WordPart::Literal(name)] = word.parts.as_slice() else {
+        return false;
+    };
+    matches!(name.as_str(), "export" | "local")
+        && word
+            .raw
+            .as_deref()
+            .is_none_or(|raw| uncontinued(raw).eq(name.bytes()))
+}
+
+/// The prefix-only part of Bashkit normalize_raw_word: continuations disappear
+/// before recognition. Other escapes and quotes must remain syntax. Callers
+/// stop at '=' so quote handling in the assignment value is unaffected.
+fn uncontinued(raw: &str) -> impl Iterator<Item = u8> + '_ {
+    raw.split("\\\n").flat_map(str::bytes)
 }
 
 /// Adapted from Bashkit is_assignment_prefix/is_decl_assignment_word. Only
@@ -36,6 +49,13 @@ pub(crate) fn assignment_operand(word: &Word) -> bool {
     let Some((name, _)) = prefix.split_once('=') else {
         return false;
     };
+    if word.raw.as_deref().is_some_and(|raw| {
+        !uncontinued(raw)
+            .take(name.len() + 1)
+            .eq(prefix[..=name.len()].bytes())
+    }) {
+        return false;
+    }
     let mut bytes = name.bytes();
     bytes
         .next()

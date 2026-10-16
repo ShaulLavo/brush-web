@@ -298,6 +298,51 @@ fn declaration_syntax_requires_an_unquoted_literal_command_and_prefix() {
 }
 
 #[test]
+fn escaped_assignment_equals_does_not_enable_declaration_syntax() {
+    check_output(r#"v='a b'; export z\=$v; echo "<$z>""#, "<a>\n");
+}
+
+#[test]
+fn escaped_command_spelling_does_not_enable_declaration_syntax() {
+    check_output(r#"v='a b'; e\xport z=$v; echo "<$z>""#, "<a>\n");
+}
+
+#[test]
+fn declaration_source_spelling_survives_functions_and_redirects() {
+    check(
+        r#"v='a b'; f() { export z\=$v; args "$z"; e\xport z=$v; args "$z"; }; f; export 2>/dev/null r\=$v; args "$r"; 2>/dev/null e\xport s=$v; args "$s"; export 2>&1 t\=$v; args "$t""#,
+        &[&["a"], &["a"], &["a"], &["a"], &["a"]],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(r#"v='a b'; f() { e\xport z=$v; args "$z"; }"#), 0);
+    assert_eq!(rig.run("f"), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["a"]]);
+}
+
+#[test]
+fn declaration_line_continuations_and_mixed_values_stay_scalar() {
+    check(
+        "v='a b'; ex\\\nport z=$v; args \"$z\"; export y\\\n=$v; args \"$y\"; export x=\\\n\"p q\"$v; args \"$x\"; f() { lo\\\ncal w\\\n=\"p q\"$v; args \"$w\"; }; f",
+        &[&["a b"], &["a b"], &["p qa b"], &["p qa b"]],
+    );
+}
+
+#[test]
+fn declaration_raw_capture_yields_and_can_be_cancelled_before_dispatch() {
+    let rig = Rig::new(Limits::default());
+    let source = format!("export {}", "v= ".repeat(4000));
+    let job = rig.shell.start(&source).unwrap();
+    rig.ex.drive(2);
+    let peer = rig.ex.spawn(async { 42 });
+    rig.ex.drive(4);
+    assert!(peer.is_finished());
+    assert!(!job.is_finished());
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(!rig.shell.state().borrow().variables.contains_key("v"));
+}
+
+#[test]
 fn quoted_at_word_trims_a_leading_mixed_ifs_delimiter() {
     check_output(r#"IFS=" :"; v=" :"; f(){ echo $v"$@"; }; f a b"#, "a b\n");
     check(

@@ -114,6 +114,26 @@ case sets and are not a comparison under this new fixed identity.
 | Brush suite | 1,889 | 1,888 | 295 |
 | Bashkit suite | 2,223 | 2,222 | 445 |
 
+The first word-field expansion slice raises the committed baseline without
+changing the fixed identity, eligibility or oracle observations:
+
+| Corpus | Initial passes | Word-field passes | Gained | Lost |
+| --- | ---: | ---: | ---: | ---: |
+| Oils | 288 | 291 | 3 | 0 |
+| Brush suite | 295 | 304 | 9 | 0 |
+| Bashkit suite | 445 | 452 | 7 | 0 |
+
+The [measured replay](https://github.com/ShaulLavo/brush-web/actions/runs/38886633355)
+at `1149096` supplies these outcomes. CI also checks fresh pass membership against
+the committed baseline, so later fixes cannot silently lose one of these gains.
+This slice covers quoting, empty arguments, IFS, positional/PIPESTATUS field
+boundaries and declaration syntax. Parameter operators, globbing, tilde and
+brace expansion remain later slices. Declaration syntax deliberately diverges
+from Bashkit where escaped names or `=` wrongly suppress splitting (upstream
+bug report #26 in the owner's ready-to-file list); the engine uses retained raw
+word spelling and leaves the parser byte-identical. Cold-start measurement
+continues to wait for real-browser integration.
+
 Two fresh GNU bash runs disagreed on `brush-suite:options/set-e:145` and
 `bashkit-suite:background:11`. Both retain the explicit exclusion
 `fresh bash oracle output is not deterministic`. These account for the two

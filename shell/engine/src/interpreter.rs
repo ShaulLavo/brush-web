@@ -83,6 +83,7 @@ struct Core {
 #[derive(Clone)]
 pub(crate) struct Context {
     core: Rc<Core>,
+    source: Rc<str>,
     pub cancel: Cancel,
     pub group: GroupId,
     scope: u64,
@@ -217,6 +218,7 @@ impl Session {
         let foreground_cancel = cancel.clone();
         let context = Context {
             core: self.core.clone(),
+            source: Rc::from(source),
             cancel,
             group,
             scope: 0,
@@ -537,6 +539,7 @@ fn background(
     let cancel = Cancel::new();
     let child_context = Context {
         core: context.core.clone(),
+        source: context.source.clone(),
         cancel: cancel.clone(),
         group,
         scope: context.core.allocate_id(),
@@ -573,12 +576,63 @@ fn expansion_work(limits: &Limits) -> expand::Work {
             .saturating_add(limits.arguments),
     )
 }
+
+/// Function words already retain raw spelling. For top-level declarations use
+/// the unchanged lexer's raw-capture API on this command's bounded source span.
+/// AST order supplies assignment/argument counts; operators stay lexer-owned.
+async fn retain_declaration_syntax(
+    simple: &mut SimpleCommand,
+    source: &str,
+    cancel: &Cancel,
+) -> Result<(), i32> {
+    if simple.name.raw.is_some() || !builtins::declaration_command(&simple.name) {
+        return Ok(());
+    }
+    let source = source
+        .get(simple.span.start.offset..simple.span.end.offset)
+        .ok_or(2)?;
+    let mut lexer = Lexer::new(source);
+    lexer.set_capture_raw(true);
+    let mut assignments = simple.assignments.len();
+    let mut words = std::iter::once(&mut simple.name).chain(simple.args.iter_mut());
+    let mut target = words.next();
+    let mut redirect_operand = false;
+    let mut budget = Budget::default();
+    while let Some(token) = lexer.next_spanned_token() {
+        budget.checkpoint(cancel).await.map_err(|_| 130)?;
+        let Some(raw) = token.raw else {
+            let spelling = &source[token.span.start.offset..token.span.end.offset];
+            redirect_operand = spelling.ends_with(['<', '>'])
+                || spelling.ends_with(">|")
+                || spelling.ends_with(">&")
+                || spelling.ends_with("<&");
+            continue;
+        };
+        if redirect_operand {
+            redirect_operand = false;
+            continue;
+        }
+        if assignments > 0 {
+            assignments -= 1;
+            continue;
+        }
+        let word = target.take().ok_or(2)?;
+        word.raw = Some(raw);
+        target = words.next();
+        if target.is_none() {
+            return Ok(());
+        }
+    }
+    Err(2)
+}
+
 async fn simple_command(
-    simple: SimpleCommand,
+    mut simple: SimpleCommand,
     state: SharedState,
     fds: Descriptors,
     context: Context,
 ) -> Result<Outcome, i32> {
+    retain_declaration_syntax(&mut simple, &context.source, &context.cancel).await?;
     let mut assigned = Vec::new();
     let mut bytes = 0usize;
     let mut budget = Budget::default();

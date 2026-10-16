@@ -51,3 +51,11 @@ Bashkit's `is_decl_keyword` at the same pinned revision. Prefix quote protection
 and list-word delimiter handling deliberately diverge from upstream where its
 rules disagree with GNU Bash. No additional upstream code or parser changes are
 included by these corrections.
+
+Declaration spelling checks also adapt the continuation-removal rule from
+`crates/bashkit/src/parser/print_cmd.rs::normalize_raw_word` at
+`491c3281f668b76d64b15210b8f5d7bf97244be0`. The engine uses a lazy prefix
+iterator, retaining other quotes and escapes. An original engine adapter uses
+the unchanged lexer's public raw-capture API within bounded command spans when
+`Word.raw` is absent outside function bodies. Escaped declaration spellings
+are corrected against GNU Bash; no parser files are modified.
