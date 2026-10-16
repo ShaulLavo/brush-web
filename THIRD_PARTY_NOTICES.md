@@ -32,7 +32,7 @@ The shell's first word-expansion area is separately adapted from Bashkit at
 Implementation sources are `crates/bashkit/src/interpreter/expansion.rs`
 (`expand_word_to_fields`, segment protection, positional fields and IFS splitting)
 and `crates/bashkit/src/interpreter/mod.rs` (command-name field promotion,
-declaration operands and `is_decl_assignment_word`). Adaptations live in
+declaration operands, `is_decl_keyword` and `is_decl_assignment_word`). Adaptations live in
 `shell/engine/src/expand.rs`, `interpreter.rs`, `state.rs` and `builtins.rs`.
 Tests in `shell/engine/tests/words.rs` adapt
 `crates/bashkit/tests/spec_cases/bash/word-split.test.sh`,
@@ -43,3 +43,11 @@ The upstream MIT license is retained at `shell/parser/LICENSE` and included by
 the notices script. Structural quote protection, cooperative work bounds and
 explicit overflow errors replace upstream sentinel/truncation paths; no output
 buffering or `mapfile` implementation is included in this port.
+
+The word port also corrects declaration syntax recognition and leading mixed-IFS
+handling in quoted `@` words against bounded GNU Bash observations. These local
+regressions extend the adapted tests; the declaration command check starts from
+Bashkit's `is_decl_keyword` at the same pinned revision. Prefix quote protection
+and list-word delimiter handling deliberately diverge from upstream where its
+rules disagree with GNU Bash. No additional upstream code or parser changes are
+included by these corrections.

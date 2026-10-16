@@ -9,9 +9,27 @@ use crate::{
 use shell_parser::parser::{Word, WordPart};
 use std::fmt::Write as _;
 
+/// Bashkit's is_decl_keyword starts with the command's syntax, not the name
+/// produced by expansion. Quoting also prevents declaration-keyword syntax.
+pub(crate) fn declaration_command(word: &Word) -> bool {
+    if word.quoted || word.part_quoted.first().copied().unwrap_or(false) {
+        return false;
+    }
+    matches!(word.parts.as_slice(), [WordPart::Literal(name)]
+        if matches!(name.as_str(), "export" | "local"))
+}
+
 /// Adapted from Bashkit is_assignment_prefix/is_decl_assignment_word. Only
 /// syntactic assignment operands of declaration builtins suppress splitting.
 pub(crate) fn assignment_operand(word: &Word) -> bool {
+    let prefix_quoted = if word.part_quoted.iter().any(|quoted| *quoted) {
+        word.part_quoted.first().copied().unwrap_or(false)
+    } else {
+        word.quoted
+    };
+    if prefix_quoted {
+        return false;
+    }
     let Some(WordPart::Literal(prefix)) = word.parts.first() else {
         return false;
     };

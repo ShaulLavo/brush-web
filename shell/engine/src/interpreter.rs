@@ -639,6 +639,7 @@ async fn simple_command(
     .await?;
     bytes += argv.iter().map(String::len).sum::<usize>();
     drop(assignment_state);
+    let declaration = builtins::declaration_command(&simple.name);
     for word in simple.args {
         budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
         let remaining_bytes = context.limits().expansion_bytes.saturating_sub(bytes);
@@ -647,9 +648,6 @@ async fn simple_command(
             .arguments
             .saturating_sub(assigned.len())
             .saturating_sub(argv.len());
-        let declaration = argv
-            .first()
-            .is_some_and(|name| matches!(name.as_str(), "export" | "local"));
         let fields = if declaration && builtins::assignment_operand(&word) {
             if remaining_words == 0 {
                 return Err(2);

@@ -91,6 +91,8 @@ struct Fields {
     current: String,
     present: bool,
     whitespace: bool,
+    leading: bool,
+    list_word: bool,
     bytes: usize,
     max_bytes: usize,
     max_fields: usize,
@@ -102,6 +104,8 @@ impl Fields {
             current: String::new(),
             present: false,
             whitespace: false,
+            leading: true,
+            list_word: false,
             bytes: 0,
             max_bytes,
             max_fields,
@@ -120,6 +124,7 @@ impl Fields {
             self.push()?;
         }
         self.whitespace = false;
+        self.leading = false;
         if self.out.len() >= self.max_fields {
             return Err(2);
         }
@@ -129,11 +134,20 @@ impl Fields {
     fn character(&mut self, ch: char, delimiter: Delimiter) -> Result<(), i32> {
         match delimiter {
             Delimiter::Whitespace => self.whitespace = true,
-            Delimiter::Other => {
-                self.push()?;
-                self.whitespace = false;
-            }
+            Delimiter::Other => self.non_whitespace()?,
             Delimiter::Text => self.text(ch)?,
+        }
+        Ok(())
+    }
+    fn non_whitespace(&mut self) -> Result<(), i32> {
+        // Bash's quoted-@ word path trims leading IFS whitespace together
+        // with its adjacent first delimiter. Protected empty prefixes are
+        // text boundaries and have already ended the leading region.
+        let trim = self.list_word && self.leading && self.whitespace;
+        self.leading = false;
+        self.whitespace = false;
+        if !trim {
+            self.push()?;
         }
         Ok(())
     }
@@ -311,6 +325,21 @@ fn is_list(part: &WordPart) -> bool {
     }
 }
 
+fn part_quoted(word: &Word, index: usize, has_part_quotes: bool) -> bool {
+    if has_part_quotes {
+        return word.part_quoted.get(index).copied().unwrap_or(false);
+    }
+    word.quoted
+}
+
+fn is_at(part: &WordPart) -> bool {
+    match part {
+        WordPart::Variable(name) => name == "@",
+        WordPart::ArrayAccess { name, index } => name == "PIPESTATUS" && index == "@",
+        _ => false,
+    }
+}
+
 async fn expand(
     word: &Word,
     state: &SharedState,
@@ -345,11 +374,14 @@ async fn expand(
     }
     for (index, part) in word.parts.iter().enumerate() {
         expansion.work.checkpoint(cancel).await?;
-        let quoted = if has_part_quotes {
-            word.part_quoted.get(index).copied().unwrap_or(false)
-        } else {
-            word.quoted
-        };
+        if part_quoted(word, index, has_part_quotes) && is_at(part) && !scalar {
+            expansion.fields.list_word = true;
+            break;
+        }
+    }
+    for (index, part) in word.parts.iter().enumerate() {
+        expansion.work.checkpoint(cancel).await?;
+        let quoted = part_quoted(word, index, has_part_quotes);
         if is_list(part) {
             expansion.elements(part, state, quoted, scalar).await?;
             continue;

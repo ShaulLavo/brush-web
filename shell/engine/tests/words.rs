@@ -288,8 +288,8 @@ fn declaration_syntax_requires_an_unquoted_literal_command_and_prefix() {
     check_output(r#"v="a b"; n=export; $n x=$v; echo "<$x>""#, "<a>\n");
     check_output(r#"v="a b"; export "x="$v; echo "<$x>""#, "<a>\n");
     check(
-        r#"v='a b'; 'export' x=$v; args "$x"; export "y"=$v; args "$y"; export z\=$v; args "$z"; export plain=$v; args "$plain"; export quoted="$v"; args "$quoted""#,
-        &[&["a"], &["a"], &["a"], &["a b"], &["a b"]],
+        r#"v='a b'; 'export' x=$v; args "$x"; export "y"=$v; args "$y"; export z\=$v; args "$z"; export plain=$v; args "$plain"; export quoted="$v"; args "$quoted"; export mixed="p q"$v; args "$mixed""#,
+        &[&["a"], &["a"], &["a"], &["a b"], &["a b"], &["p qa b"]],
     );
     check(
         r#"v='a b'; f() { n=local; $n x=$v; local "y="$v; local plain=$v; args "$x" "$y" "$plain"; }; f"#,
@@ -316,6 +316,17 @@ fn quoted_at_word_trims_a_leading_mixed_ifs_delimiter() {
         r#"IFS=' :'; v=' :'; f() { args ""$v"$@"; args x$v"$@"; args $v"$*"; }; f a b"#,
         &[&["", "a", "b"], &["x", "a", "b"], &["", "a b"]],
     );
+    let rig = Rig::new(Limits {
+        arguments: 3,
+        ..Limits::default()
+    });
+    rig.variable("IFS", " :");
+    rig.variable("v", " :");
+    assert_eq!(rig.run(r#"f() { args $v"$@"; }; f a b"#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["a", "b"]]);
+    rig.variable("v", ":");
+    assert_eq!(rig.run("f a b"), 2);
+    assert_eq!(rig.calls.borrow().len(), 1, "overflow must not dispatch");
 }
 
 #[test]

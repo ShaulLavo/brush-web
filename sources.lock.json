@@ -187,7 +187,8 @@
         "path": "crates/bashkit/src/interpreter/mod.rs",
         "items": [
           "execute_simple_command_body command-name field promotion and declaration operands",
-          "is_decl_assignment_word"
+          "is_decl_assignment_word",
+          "is_decl_keyword"
         ]
       }
     ],
@@ -206,6 +207,6 @@
     "testDestinations": [
       "shell/engine/tests/words.rs"
     ],
-    "strategy": "Adapt quote-aware literal/basic variable/positional/PIPESTATUS fields, IFS rules, scalar contexts and command-name promotion into the original streaming engine. Structural protection replaces sentinel strings. Cooperative Budget work, intermediate byte/element bounds and aggregate command field/byte limits reject overflow instead of truncating. No parser modifications, general parameter operators, globbing, substitutions, mapfile or output buffering are ported."
+    "strategy": "Adapt quote-aware literal/basic variable/positional/PIPESTATUS fields, IFS rules, scalar contexts and command-name promotion into the original streaming engine. Structural protection replaces sentinel strings. Declaration syntax requires an unquoted literal command and assignment prefix; quoted-at words trim leading mixed-IFS delimiters as verified with GNU Bash, diverging from upstream where needed. Cooperative Budget work, intermediate byte/element bounds and aggregate command field/byte limits reject overflow instead of truncating. No parser modifications, general parameter operators, globbing, substitutions, mapfile or output buffering are ported."
   }
 }
