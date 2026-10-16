@@ -121,10 +121,14 @@ test("browser carry mode recovers previous values after cooperative cancellation
   page,
 }) => {
   await open(page, "carry");
-  await command(page, "export KEEP=completed");
+  await command(page, 'export KEEP=completed; printf "prepared:%s\\n" "$KEEP"');
+  await output(page, "prepared:completed");
+  await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("ready");
   await command(page, "KEEP=inflight; while :; do :; done");
   await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("running");
   await page.keyboard.press("Control+c");
+  await output(page, "^C");
+  await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("ready");
   await command(page, 'printf "recovered:%s\\n" "$KEEP"');
   await output(page, "recovered:completed");
   await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("ready");
