@@ -2,7 +2,7 @@
 //! and glob.rs::glob_match_steps at the pinned revision in sources.lock.json.
 //! This matcher advances all basic-glob states over borrowed character slices.
 //! It allocates no candidate strings and never treats exhausted work as a miss.
-use super::{Error, Protection, Work};
+use super::{Error, Protection, Work, case};
 use crate::executor::Cancel;
 use std::mem::size_of;
 
@@ -16,8 +16,12 @@ struct Character {
 #[derive(Default)]
 pub(super) struct Pattern {
     chars: Vec<Character>,
+    quoted_empty: bool,
 }
 impl Pattern {
+    pub(super) fn keep_empty(&mut self) {
+        self.quoted_empty = true;
+    }
     pub(super) fn push(
         &mut self,
         value: char,
@@ -230,6 +234,73 @@ impl Pattern {
         } else {
             &value[..boundary]
         })
+    }
+    pub(super) async fn change_case(
+        &mut self,
+        value: &str,
+        upper: bool,
+        all: bool,
+        locale: case::Locale,
+        max_bytes: usize,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<String, Error> {
+        if !locale.utf8() {
+            self.require_ascii(work, cancel).await?;
+        }
+        let atoms = self.compile(work, cancel).await?;
+        let mut states = Vec::new();
+        work.admit_storage(atoms.len().saturating_add(1))?;
+        for _ in 0..=atoms.len() {
+            work.checkpoint(cancel).await?;
+            states.push(false);
+        }
+        let mut result = String::new();
+        for (index, ch) in value.chars().enumerate() {
+            work.checkpoint(cancel).await?;
+            let eligible = (all || index == 0) && (locale.utf8() || ch.is_ascii());
+            let selected = eligible
+                && self
+                    .matches_character(&atoms, &mut states, ch, work, cancel)
+                    .await?;
+            let mapped = if selected { locale.map(ch, upper)? } else { ch };
+            if mapped.len_utf8() > max_bytes.saturating_sub(result.len()) {
+                return Err(2.into());
+            }
+            work.admit_storage(mapped.len_utf8())?;
+            result.push(mapped);
+        }
+        Ok(result)
+    }
+    async fn require_ascii(&self, work: &mut Work, cancel: &Cancel) -> Result<(), Error> {
+        for ch in &self.chars {
+            work.checkpoint(cancel).await?;
+            if !ch.value.is_ascii() {
+                return Err(2.into());
+            }
+        }
+        Ok(())
+    }
+    async fn matches_character(
+        &self,
+        atoms: &[Atom],
+        states: &mut [bool],
+        value: char,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<bool, Error> {
+        // Omitted and unquoted expanded-empty patterns default to '?'.
+        // An explicitly quoted empty pattern matches no character.
+        if atoms.is_empty() {
+            return Ok(!self.quoted_empty);
+        }
+        states[0] = true;
+        for (index, atom) in atoms.iter().enumerate() {
+            work.checkpoint(cancel).await?;
+            states[index + 1] = matches!(atom, Atom::Star) && states[index];
+        }
+        self.advance(atoms, states, value, work, cancel).await?;
+        Ok(states[atoms.len()])
     }
     async fn advance(
         &self,
