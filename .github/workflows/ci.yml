@@ -38,6 +38,7 @@ jobs:
       - run: cargo fmt --manifest-path shell/Cargo.toml --all --check
   shell:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       CARGO_TARGET_DIR: .build/shell
     steps:

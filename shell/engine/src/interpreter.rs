@@ -339,6 +339,8 @@ fn execute(
             Command::Pipeline(pipeline) => {
                 let count = pipeline.commands.len();
                 if count == 0 || count > context.limits().pipeline_stages {
+                    state.borrow_mut().status = 2;
+                    state.borrow_mut().pipestatus = vec![2];
                     return Outcome::status(2);
                 }
                 let mut previous = None;
@@ -527,6 +529,8 @@ fn background(
     context: &Context,
 ) -> Outcome {
     if context.core.jobs.borrow().len() >= context.limits().jobs {
+        state.borrow_mut().status = 2;
+        state.borrow_mut().pipestatus = vec![2];
         return Outcome::status(2);
     }
     let group = context.core.host.allocate_group();

@@ -59,6 +59,7 @@ impl Rig {
         value
     }
     fn register(&self) {
+        self.host.register("okay", |_, _| async { 0 }.boxed_local());
         let ticks = self.ticks.clone();
         self.host.register("ticker", move |req, cancel| {
             let ticks = ticks.clone();
@@ -695,7 +696,7 @@ fn external_fd_close_delivers_epipe_before_consumer_exit() {
 fn command_byte_limit_includes_prefix_and_assignment_only_values() {
     for script in [
         "A=$VALUE B=$VALUE",
-        "A=$VALUE true xyz",
+        "A=$VALUE okay xyz",
         "A=12345678 echo abcde",
     ] {
         let r = Rig::with_limits(Limits {
@@ -709,7 +710,7 @@ fn command_byte_limit_includes_prefix_and_assignment_only_values() {
             .insert("VALUE".into(), "123456789".into());
         assert_eq!(r.run(script), 2, "{script}");
         assert!(!r.shell.state().borrow().variables.contains_key("A"));
-        assert!(r.output.len() == 0);
+        assert!(r.output.is_empty());
         assert_eq!(r.host.retained_count(), 0);
     }
     let r = Rig::with_limits(Limits {
@@ -717,13 +718,13 @@ fn command_byte_limit_includes_prefix_and_assignment_only_values() {
         ..Limits::default()
     });
     assert_eq!(r.run("A=1234 B=5678"), 0);
-    assert_eq!(r.run("C=1234 true"), 0);
+    assert_eq!(r.run("C=1234 okay"), 0);
     assert_eq!(r.shell.state().borrow().variables.get("A").unwrap(), "1234");
 }
 
 #[test]
 fn command_word_limit_includes_prefix_and_assignment_only_values() {
-    for script in ["A=x true arg", "A=x B=y true", "A=x B=y C=z"] {
+    for script in ["A=x okay arg", "A=x B=y okay", "A=x B=y C=z"] {
         let r = Rig::with_limits(Limits {
             arguments: 2,
             ..Limits::default()
@@ -736,7 +737,7 @@ fn command_word_limit_includes_prefix_and_assignment_only_values() {
         ..Limits::default()
     });
     assert_eq!(r.run("A=x B=y"), 0);
-    assert_eq!(r.run("C=z true"), 0);
+    assert_eq!(r.run("C=z okay"), 0);
     assert_eq!(r.run("true arg"), 0);
 }
 
@@ -859,7 +860,7 @@ fn local_restores_export_state_at_declaration_not_function_entry() {
 fn negated_single_command_preserves_exec_descriptor_changes() {
     let r = Rig::new();
     assert_eq!(r.run("! exec >log; echo hello"), 0);
-    assert!(r.output.len() == 0);
+    assert!(r.output.is_empty());
     assert_eq!(r.fs.read_file("/home/guest/log").unwrap(), b"hello\n");
 }
 
@@ -883,7 +884,7 @@ fn assignment_values_expand_against_prior_assignments_in_the_same_command() {
 
 #[test]
 fn command_byte_limit_counts_assignment_names_and_accepts_exact_boundary() {
-    for script in ["A=1234 true", "A=1234 B=12", "LONGNAME=x"] {
+    for script in ["A=1234 okay", "A=1234 B=12", "LONGNAME=x"] {
         for (limit, status) in [(9, 2), (10, 0)] {
             let r = Rig::with_limits(Limits {
                 expansion_bytes: limit,
@@ -892,4 +893,26 @@ fn command_byte_limit_counts_assignment_names_and_accepts_exact_boundary() {
             assert_eq!(r.run(script), status, "limit={limit}: {script}");
         }
     }
+}
+
+#[test]
+fn rejected_pipeline_and_background_publish_failure_status() {
+    let r = Rig::with_limits(Limits {
+        pipeline_stages: 1,
+        ..Limits::default()
+    });
+    assert_eq!(
+        r.run("true; false | true; printf '%s:%s\\n' \"$?\" \"${PIPESTATUS[*]}\""),
+        0
+    );
+    assert_eq!(r.text(), "2:2\n");
+    let r = Rig::with_limits(Limits {
+        jobs: 0,
+        ..Limits::default()
+    });
+    assert_eq!(
+        r.run("true; true & printf '%s:%s\\n' \"$?\" \"${PIPESTATUS[*]}\""),
+        0
+    );
+    assert_eq!(r.text(), "2:2\n");
 }
