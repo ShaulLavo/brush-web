@@ -95,3 +95,34 @@ Step 1 includes the minimum production semantics, fixture commands and session i
 ## Out of scope here
 
 The runtime itself (plan 001 step 2 and `handoff-runtime.md`), the terminal choice, the product's look and its repository.
+
+## Follow-up: IFS snapshot storage admission
+
+Status: Approved. Fold this into the next word-expansion unit before adding more
+allocation paths. This was found during arithmetic review and predates that PR.
+
+`Ifs::new` in `shell/engine/src/expand.rs` copies the IFS string and inserts
+characters into a `BTreeSet` without calling `Work::admit_storage`. It checks
+`max_raw` before the string copy and checkpoints character work, but those checks
+do not reserve temporary storage. The same implementation is present on main
+`2342019`; inspect it with
+`git show 2342019:shell/engine/src/expand.rs` around `impl Ifs`.
+At arithmetic head `49b255a`, the function starts at line 250. This is a
+source-confirmed accounting gap; the allocation-boundary test below has not yet
+been added or run. No crash, corpus regression, or timing claim is implied.
+
+Start with a private `expand::tests` test that creates default shared state,
+sets IFS to `:`, creates `Work::new(64, 0, 1)` and `Cancel::new()`, then calls
+`Ifs::new(&state, &cancel, 64, &mut work).now_or_never()`. Under the current code
+this path copies the string and inserts the delimiter without checking the zero
+storage allowance. Assert explicit status 2 at that boundary, then cover exact
+admission, duplicate characters, empty/default IFS, large IFS, and cancellation.
+Run the focused test through the shared queue with the pinned Rust toolchain.
+
+Fix the representation and admission together. Preserve tiny expansion budgets
+for default IFS and literal or protected words; blindly charging heap nodes on
+every word can reject cases that need no owned IFS storage. Keep literal
+protection, final-IFS updates, list separators, and Unicode delimiter semantics.
+Run all native/WASI word tests, regenerate word fixtures 1/42 independently and
+diff byte-for-byte, and require zero lost fixed-corpus cases. Own and clean any
+task-created targets and scratch under the usual lane rules.
