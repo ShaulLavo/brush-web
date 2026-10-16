@@ -43,7 +43,10 @@ fn configured_parser_limits_are_enforced() {
         max_ast_depth: 1,
         ..ExecutionLimits::default()
     };
-    assert!(parse("(((echo nested)))", &limits).is_err());
+    // Adjacent `((` starts arithmetic syntax, not two nested subshells.
+    let nested = "( ( (echo nested) ) )";
+    assert!(parse(nested, &ExecutionLimits::default()).is_ok());
+    assert!(parse(nested, &limits).is_err());
     let limits = ExecutionLimits {
         parser_timeout: Duration::ZERO,
         ..ExecutionLimits::default()
