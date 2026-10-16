@@ -289,6 +289,13 @@ function fixedCases() {
     "unset unused; false; printf '%s\\n' \"${unused:-${?:0:1}}\"",
   ].entries())
     cases.push({ id: `boundary-${index}`, context: "boundary", script });
+  for (const [index, setup] of ["u=2", "unset u"].entries()) {
+    cases.push({
+      id: `quoted-unused-boundary-${index}`,
+      context: "boundary",
+      script: `v=abcdef; ${setup}; printf '<%s>\\n' "\${v:0:\${u:-'<(bad'}}"; echo after`,
+    });
+  }
   for (const [index, command] of [
     'printf "%s\\n" "$((1/0))"',
     "result=$((1/0))",

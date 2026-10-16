@@ -495,3 +495,17 @@ fn substring_boundary_storage_stops_at_the_matching_parenthesis() {
     assert_eq!(rig.run(&source), 0);
     assert_eq!(*rig.calls.borrow().last().unwrap(), ["a"]);
 }
+
+#[test]
+fn quoted_boundary_text_in_unselected_substring_operands_stays_lazy() {
+    check(
+        "v=abcdef; u=2; args \"${v:0:${u:-'<(bad'}}\"; args after",
+        &[&["ab"], &["after"]],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run("v=abcdef; args \"${v:0:${u:-'<(bad'}}\"; args forbidden"),
+        1
+    );
+    assert!(rig.calls.borrow().is_empty());
+}
