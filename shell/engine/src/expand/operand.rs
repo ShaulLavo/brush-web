@@ -326,7 +326,8 @@ impl<'a> Scanner<'a> {
 // substitutions and every byte/work/depth/cancellation limit retain their own
 // status; malformed lazy substitution syntax is Bash's fatal status 1.
 fn bad_substitution(message: &'static str, work: &mut Work) -> Result<(), Error> {
-    work.admit_storage("bad substitution".len() + message.len())?;
+    // The renderer owns name/message and their formatted diagnostic together.
+    work.admit_storage(("bad substitution".len() + message.len()) * 2 + 96)?;
     Err(Error::BadSubstitution {
         message,
         line: None,
@@ -412,4 +413,27 @@ pub(super) fn indirect_operator(operator: &ParameterOp) -> bool {
             | ParameterOp::AssignDefault
             | ParameterOp::Error
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_diagnostics_admit_both_owned_and_formatted_copies() {
+        let message = "no closing backtick";
+        let bytes = ("bad substitution".len() + message.len()) * 2 + 96;
+        let mut rejected = Work::new(1, bytes - 1, 1);
+        assert!(matches!(
+            bad_substitution(message, &mut rejected),
+            Err(Error::Status(2))
+        ));
+        assert_eq!(rejected.storage_remaining, bytes - 1);
+        let mut admitted = Work::new(1, bytes, 1);
+        assert!(matches!(
+            bad_substitution(message, &mut admitted),
+            Err(Error::BadSubstitution { .. })
+        ));
+        assert_eq!(admitted.storage_remaining, 0);
+    }
 }
