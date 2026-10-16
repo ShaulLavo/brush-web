@@ -2472,6 +2472,70 @@ fn errors_inside_trim_keep_cumulative_pattern_snapshot_admission() {
 }
 
 #[test]
+fn diagnostic_fields_share_the_remaining_command_ceiling_without_partial_dispatch() {
+    for (source, fields, status) in [
+        ("args ${bad:?$v}; args after", 6, 127),
+        ("args ${bad:?$v}; args after", 7, 127),
+        ("args ${bad:?$v}", 8, 2),
+        ("args ${bad:?$v}", 150, 2),
+        ("args one two ${bad:?$v}", 5, 127),
+        ("args one two ${bad:?$v}", 6, 2),
+        ("a=x args ${bad:?$v}", 6, 127),
+        ("a=x args ${bad:?$v}", 7, 2),
+        ("export name=value ${bad:?$v}", 6, 127),
+        ("export name=value ${bad:?$v}", 7, 2),
+        ("args >${bad:?$v}", 7, 127),
+        ("args >${bad:?$v}", 8, 2),
+        ("x=${bad:?$v}", 7, 127),
+        ("x=${bad:?$v}", 8, 2),
+    ] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: 256,
+            arguments: 8,
+            ..Limits::default()
+        });
+        rig.variable("IFS", ":");
+        rig.variable("v", &":".repeat(fields));
+        assert_eq!(rig.run(source), status, "{source}, fields={fields}");
+        assert!(rig.calls.borrow().is_empty(), "{source}");
+        assert!(rig.output.bytes().is_empty(), "{source}");
+        let expected = if status == 127 {
+            format!("/usr/bin/bash: line 1: bad: {}\n", " ".repeat(fields - 1))
+        } else {
+            String::new()
+        };
+        assert_eq!(rig.errors.bytes(), expected.as_bytes(), "{source}");
+        assert_eq!(rig.run("args recovered"), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["recovered"]]);
+        assert!(!rig.shell.state().borrow().variables.contains_key("a"));
+        assert!(!rig.shell.state().borrow().variables.contains_key("x"));
+    }
+}
+
+#[test]
+fn diagnostic_segment_and_join_storage_share_the_command_allowance() {
+    // A generous field ceiling isolates storage admission from field admission.
+    for (bytes, status) in [(256, 2), (1024, 127)] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: bytes,
+            arguments: 512,
+            ..Limits::default()
+        });
+        rig.variable("IFS", ":");
+        rig.variable("v", &":".repeat(150));
+        assert_eq!(rig.run("args ${bad:?$v}"), status);
+        assert!(rig.calls.borrow().is_empty());
+        assert!(rig.output.bytes().is_empty());
+        let expected = if status == 127 {
+            format!("/usr/bin/bash: line 1: bad: {}\n", " ".repeat(149))
+        } else {
+            String::new()
+        };
+        assert_eq!(rig.errors.bytes(), expected.as_bytes());
+    }
+}
+
+#[test]
 fn fatal_parameter_errors_stop_sequences_functions_and_conditions() {
     for (source, line, message) in [
         (
