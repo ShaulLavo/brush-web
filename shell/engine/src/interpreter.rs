@@ -63,6 +63,42 @@ impl Outcome {
         }
     }
 }
+/// Diagnostics for redirect-target failures use the stderr reached so far.
+/// Other expansions, including prefix RHSs, use the caller's original stderr.
+enum DiagnosticStderr {
+    Inherited,
+    Redirected(Option<io::Endpoint>),
+}
+struct CommandError {
+    error: expand::Error,
+    stderr: DiagnosticStderr,
+}
+impl CommandError {
+    fn at_line(mut self, line: Option<usize>) -> Self {
+        self.error = self.error.at_line(line);
+        self
+    }
+    fn redirect(error: expand::Error, stderr: Option<io::Endpoint>) -> Self {
+        Self {
+            error,
+            stderr: DiagnosticStderr::Redirected(stderr),
+        }
+    }
+}
+impl From<expand::Error> for CommandError {
+    fn from(error: expand::Error) -> Self {
+        Self {
+            error,
+            stderr: DiagnosticStderr::Inherited,
+        }
+    }
+}
+impl From<i32> for CommandError {
+    fn from(code: i32) -> Self {
+        expand::Error::Status(code).into()
+    }
+}
+
 type Descriptors = Rc<RefCell<FdTable>>;
 struct Job {
     owner: u64,
@@ -88,6 +124,7 @@ pub(crate) struct Context {
     pub group: GroupId,
     scope: u64,
     parameter_error_status: i32,
+    compound_child: bool,
 }
 impl Context {
     pub(crate) fn fs(&self) -> &dyn FileSystem {
@@ -105,9 +142,7 @@ impl Context {
     fn child_error_status(&self, command: &Command) -> i32 {
         if matches!(
             command,
-            Command::Simple(_)
-                | Command::Function(_)
-                | Command::Compound(CompoundCommand::Subshell(_), _)
+            Command::Simple(_) | Command::Function(_) | Command::Compound(..)
         ) {
             return self.parameter_error_status;
         }
@@ -116,7 +151,19 @@ impl Context {
     fn isolated_command(&self, command: &Command) -> Self {
         Self {
             parameter_error_status: self.child_error_status(command),
+            compound_child: matches!(command, Command::Compound(..)),
             ..self.isolated()
+        }
+    }
+    fn compound_body(&self) -> Self {
+        Self {
+            parameter_error_status: if self.compound_child {
+                1
+            } else {
+                self.parameter_error_status
+            },
+            compound_child: false,
+            ..self.clone()
         }
     }
     async fn cleanup_jobs(&self) {
@@ -241,6 +288,7 @@ impl Session {
             group,
             scope: 0,
             parameter_error_status: 127,
+            compound_child: false,
         };
         let state = self.state.clone();
         let join = self.core.executor.spawn(async move {
@@ -345,11 +393,7 @@ fn execute(
         let preserve = matches!(command, Command::Pipeline(_) | Command::List(_));
         let result = match command {
             Command::Simple(simple) => {
-                let line = simple.expansion_line;
-                match simple_command(simple, state.clone(), fds.clone(), context.clone()).await {
-                    Ok(result) => result,
-                    Err(error) => expansion_failure(error.at_line(line), &fds, &context).await,
-                }
+                simple_command(simple, state.clone(), fds, context.clone()).await
             }
             Command::Function(function) => {
                 state
@@ -428,45 +472,12 @@ fn execute(
             }
             Command::Compound(compound, redirs) => {
                 let mut work = expansion_work(context.limits());
-                match redirects(&redirs, &state, fds.clone(), &context, &mut work).await {
-                    Err(error) => expansion_failure(error, &fds, &context).await,
-                    Ok(fds) => match compound {
-                        CompoundCommand::BraceGroup(commands) => {
-                            sequence(commands, state.clone(), fds, context.clone()).await
-                        }
-                        CompoundCommand::While(loop_) => {
-                            let mut result = Outcome::status(0);
-                            loop {
-                                let condition = sequence(
-                                    loop_.condition.clone(),
-                                    state.clone(),
-                                    fds.clone(),
-                                    context.clone(),
-                                )
-                                .await;
-                                if context.cancel.is_cancelled() {
-                                    break Outcome::status(130);
-                                }
-                                if condition.flow != Flow::Normal {
-                                    break condition;
-                                }
-                                if condition.code != 0 {
-                                    break result;
-                                }
-                                result = sequence(
-                                    loop_.body.clone(),
-                                    state.clone(),
-                                    fds.clone(),
-                                    context.clone(),
-                                )
-                                .await;
-                                if result.flow != Flow::Normal {
-                                    break result;
-                                }
-                            }
-                        }
-                        _ => Outcome::status(2),
-                    },
+                match command_redirects(&redirs, &state, fds, &context, &mut work).await {
+                    Err(outcome) => outcome,
+                    Ok(fds) => {
+                        execute_compound_body(compound, state.clone(), fds, context.compound_body())
+                            .await
+                    }
                 }
             }
         };
@@ -479,7 +490,67 @@ fn execute(
     }
     .boxed_local()
 }
-async fn expansion_failure(error: expand::Error, fds: &Descriptors, context: &Context) -> Outcome {
+async fn command_redirects(
+    redirs: &[Redirect],
+    state: &SharedState,
+    fds: Descriptors,
+    context: &Context,
+    work: &mut expand::Work,
+) -> Result<Descriptors, Outcome> {
+    let original_fds = fds.clone();
+    match redirects(redirs, state, fds, context, work).await {
+        Ok(fds) => Ok(fds),
+        Err(error) => Err(expansion_failure(error, &original_fds, context).await),
+    }
+}
+
+async fn execute_compound_body(
+    compound: CompoundCommand,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+) -> Outcome {
+    match compound {
+        CompoundCommand::BraceGroup(commands) => {
+            sequence(commands, state.clone(), fds, context.clone()).await
+        }
+        CompoundCommand::While(loop_) => {
+            let mut result = Outcome::status(0);
+            loop {
+                let condition = sequence(
+                    loop_.condition.clone(),
+                    state.clone(),
+                    fds.clone(),
+                    context.clone(),
+                )
+                .await;
+                if context.cancel.is_cancelled() {
+                    break Outcome::status(130);
+                }
+                if condition.flow != Flow::Normal {
+                    break condition;
+                }
+                if condition.code != 0 {
+                    break result;
+                }
+                result = sequence(
+                    loop_.body.clone(),
+                    state.clone(),
+                    fds.clone(),
+                    context.clone(),
+                )
+                .await;
+                if result.flow != Flow::Normal {
+                    break result;
+                }
+            }
+        }
+        _ => Outcome::status(2),
+    }
+}
+
+async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Context) -> Outcome {
+    let CommandError { error, stderr } = error;
     let (name, message, line) = match error {
         expand::Error::Status(code) => return Outcome::status(code),
         expand::Error::Parameter {
@@ -498,7 +569,10 @@ async fn expansion_failure(error: expand::Error, fds: &Descriptors, context: &Co
         Some(line) => format!("/usr/bin/bash: line {line}: {name}: {message}\n"),
         None => format!("/usr/bin/bash: {name}: {message}\n"),
     };
-    let stderr = fds.borrow().get(2);
+    let stderr = match stderr {
+        DiagnosticStderr::Inherited => fds.borrow().get(2),
+        DiagnosticStderr::Redirected(stderr) => stderr,
+    };
     if let Some(stderr) = stderr {
         let _ = stderr
             .write_all(diagnostic.as_bytes(), &context.cancel)
@@ -523,33 +597,31 @@ async fn subshell(
     let child = state.borrow().clone().shared();
     let child_context = context.isolated();
     let child_fds = Rc::new(RefCell::new(fds.borrow().clone()));
-    let result = context
-        .core
-        .executor
-        .spawn(async move {
-            let mut work = expansion_work(child_context.limits());
-            let result = match redirects(
-                &redirs,
-                &child,
-                child_fds.clone(),
-                &child_context,
-                &mut work,
-            )
-            .await
-            {
-                Ok(fds) => {
-                    let body_context = Context {
-                        parameter_error_status: 1,
-                        ..child_context.clone()
+    drop(fds);
+    let result =
+        context
+            .core
+            .executor
+            .spawn(async move {
+                let mut work = expansion_work(child_context.limits());
+                let result =
+                    match command_redirects(&redirs, &child, child_fds, &child_context, &mut work)
+                        .await
+                    {
+                        Ok(fds) => {
+                            let body_context = Context {
+                                parameter_error_status: 1,
+                                compound_child: false,
+                                ..child_context.clone()
+                            };
+                            sequence(commands, child, fds, body_context).await
+                        }
+                        Err(outcome) => outcome,
                     };
-                    sequence(commands, child, fds, body_context).await
-                }
-                Err(error) => expansion_failure(error, &child_fds, &child_context).await,
-            };
-            child_context.cleanup_jobs().await;
-            result
-        })
-        .await;
+                child_context.cleanup_jobs().await;
+                result
+            })
+            .await;
     Outcome::status(result.code)
 }
 
@@ -625,6 +697,7 @@ fn background(
         group,
         scope: context.core.allocate_id(),
         parameter_error_status: context.child_error_status(&command),
+        compound_child: matches!(command, Command::Compound(..)),
     };
     let child = state.borrow().clone().shared();
     let fds = Rc::new(RefCell::new(fds.borrow().clone()));
@@ -709,12 +782,45 @@ async fn retain_declaration_syntax(
     Err(2)
 }
 
+struct PreparedCommand {
+    argv: Vec<String>,
+    assigned: Vec<(String, String)>,
+    fds: Descriptors,
+}
+
 async fn simple_command(
-    mut simple: SimpleCommand,
+    simple: SimpleCommand,
     state: SharedState,
     fds: Descriptors,
     context: Context,
-) -> Result<Outcome, expand::Error> {
+) -> Outcome {
+    let line = simple.expansion_line;
+    let original_fds = fds.clone();
+    let prepared = match prepare_simple_command(simple, &state, fds, &context).await {
+        Ok(prepared) => prepared,
+        Err(error) => return expansion_failure(error.at_line(line), &original_fds, &context).await,
+    };
+    if prepared.argv.first().is_some_and(|name| name == "exec") {
+        if prepared.argv.len() != 1 || !prepared.assigned.is_empty() {
+            return Outcome::status(2);
+        }
+        *original_fds.borrow_mut() = prepared.fds.borrow().clone();
+        return Outcome::status(0);
+    }
+    // Even a saved stderr can alias a pipe reader. Release all diagnostic-only
+    // ownership before dispatch, so a child's close can deliver EPIPE promptly.
+    drop(original_fds);
+    dispatch_simple_command(prepared, state, context)
+        .await
+        .unwrap_or_else(Outcome::status)
+}
+
+async fn prepare_simple_command(
+    mut simple: SimpleCommand,
+    state: &SharedState,
+    fds: Descriptors,
+    context: &Context,
+) -> Result<PreparedCommand, CommandError> {
     retain_declaration_syntax(&mut simple, &context.source, &context.cancel).await?;
     let assignment_count = simple.assignments.len();
     if assignment_count > context.limits().arguments {
@@ -723,10 +829,9 @@ async fn simple_command(
     let mut bytes = 0usize;
     let mut budget = Budget::default();
     let mut work = expansion_work(context.limits());
-    let original_fds = fds.clone();
     let mut argv = expand::fields(
         &simple.name,
-        &state,
+        state,
         &context.cancel,
         context.limits().expansion_bytes,
         context.limits().arguments - assignment_count,
@@ -751,7 +856,7 @@ async fn simple_command(
             vec![
                 expand::word(
                     &word,
-                    &state,
+                    state,
                     &context.cancel,
                     remaining_bytes,
                     context.limits().expansion_bytes,
@@ -762,7 +867,7 @@ async fn simple_command(
         } else {
             expand::fields(
                 &word,
-                &state,
+                state,
                 &context.cancel,
                 remaining_bytes,
                 remaining_words,
@@ -779,42 +884,58 @@ async fn simple_command(
     if argv.is_empty() {
         assignments(
             simple.assignments,
-            &state,
-            &context,
+            state,
+            context,
             &mut bytes,
             &mut work,
             true,
         )
         .await?;
-        redirects(&simple.redirects, &state, fds, &context, &mut work).await?;
-        return Ok(Outcome::status(0));
+        let fds = redirects(&simple.redirects, state, fds, context, &mut work).await?;
+        return Ok(PreparedCommand {
+            argv,
+            assigned: Vec::new(),
+            fds,
+        });
     }
-    let fds = redirects(&simple.redirects, &state, fds, &context, &mut work).await?;
+    let fds = redirects(&simple.redirects, state, fds, context, &mut work).await?;
     let assigned = assignments(
         simple.assignments,
-        &state,
-        &context,
+        state,
+        context,
         &mut bytes,
         &mut work,
         false,
     )
     .await?;
+    Ok(PreparedCommand {
+        argv,
+        assigned,
+        fds,
+    })
+}
+
+async fn dispatch_simple_command(
+    prepared: PreparedCommand,
+    state: SharedState,
+    context: Context,
+) -> Result<Outcome, i32> {
+    let PreparedCommand {
+        argv,
+        assigned,
+        fds,
+    } = prepared;
     let mut fields = argv.into_iter();
-    let name = fields.next().ok_or(2)?;
-    let args: Vec<_> = fields.collect();
-    if name == "exec" {
-        if !args.is_empty() || !assigned.is_empty() {
-            return Err(2.into());
-        }
-        *original_fds.borrow_mut() = fds.borrow().clone();
+    let Some(name) = fields.next() else {
         return Ok(Outcome::status(0));
-    }
+    };
+    let args: Vec<_> = fields.collect();
     // Prefix assignments for external commands belong only to their environment.
     // Prefix assignments on functions/builtins are deferred until full Bash rules.
     let function = state.borrow().functions.get(&name).cloned();
     if let Some(body) = function {
         if !assigned.is_empty() {
-            return Err(2.into());
+            return Err(2);
         }
         let _frame = FunctionFrame::enter(state.clone(), args, context.limits().function_depth)?;
         let mut outcome = execute(body, state, fds, context).await;
@@ -825,12 +946,10 @@ async fn simple_command(
     }
     if builtins::is_builtin(&name) {
         if !assigned.is_empty() {
-            return Err(2.into());
+            return Err(2);
         }
         let bindings = fds.borrow().clone();
-        return builtins::run(&name, args, state, bindings, context)
-            .await
-            .map_err(Into::into);
+        return builtins::run(&name, args, state, bindings, context).await;
     }
     let (mut env, cwd) = {
         let s = state.borrow();
@@ -854,13 +973,12 @@ async fn simple_command(
     // The child owns its inherited descriptors. Shell-side stage copies must
     // not keep a closed child reader/writer alive while waiting for its exit.
     drop(fds);
-    drop(original_fds);
     match context.cancel.run(context.core.host.wait(pid)).await {
         Ok(result) => Ok(Outcome::status(result.map_err(|_| 1)?)),
         Err(_) => {
             context.core.host.kill(pid, 2).map_err(|_| 1)?;
             context.core.host.wait(pid).await.map_err(|_| 1)?;
-            Err(130.into())
+            Err(130)
         }
     }
 }
@@ -939,7 +1057,7 @@ async fn redirects(
     fds: Descriptors,
     context: &Context,
     work: &mut expand::Work,
-) -> Result<Descriptors, expand::Error> {
+) -> Result<Descriptors, CommandError> {
     if redirs.is_empty() {
         return Ok(fds);
     }
@@ -959,7 +1077,9 @@ async fn redirects(
             work,
         )
         .await
-        .map_err(|error| error.at_line(redirect.expansion_line))?;
+        .map_err(|error| {
+            CommandError::redirect(error.at_line(redirect.expansion_line), fds.get(2))
+        })?;
         let input = matches!(redirect.kind, RedirectKind::Input | RedirectKind::DupInput);
         let fd = redirect.fd.unwrap_or(if input { 0 } else { 1 });
         let fd = u32::try_from(fd).map_err(|_| 2)?;

@@ -150,3 +150,15 @@ parameter errors; it changes no exit statuses or control flow. New original
 regressions in `shell/parser/tests/api.rs` and `shell/engine/tests/words.rs` use
 bounded GNU Bash observations. `shellParser.changeLog` and
 `shellParameterEffects` in `sources.lock.json` record the paths and reasons.
+
+The assignment/error review corrections are original interpreter adapters in
+`shell/engine/src/interpreter.rs`, rather than additional upstream implementation.
+They retain the effective diagnostic stderr on redirect-target failure, preserve
+the distinct prefix-RHS route, and select isolated compound body status only
+after redirects succeed. Command preparation finishes diagnostics and releases
+its descriptor owners before dispatch or body execution, restoring prompt EPIPE
+when a child closes its input before exiting. The existing streaming regression
+and all source-anchor assertions are retained. Additional original cases in
+`shell/engine/tests/words.rs` follow bounded GNU Bash routing/status observations
+and check frame restoration and cancellation. No parser or expansion-field
+implementation is changed by these corrections.

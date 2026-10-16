@@ -1582,3 +1582,255 @@ fn multiline_parameter_errors_use_bash_parse_time_diagnostic_lines() {
         assert!(rig.calls.borrow().is_empty(), "{case}: {source}");
     }
 }
+
+#[test]
+fn redirect_errors_preserve_applied_stderr_and_child_phase_status() {
+    // Exact GNU Bash observations. The fixture's wait operand is job ID 1;
+    // the Bash probe uses wait $! for the corresponding background process.
+    for (case, source, status, stdout, stderr, file) in [
+        (
+            "simple redirected stdout",
+            "echo ok 2>&1 >${u:?bad}; echo after",
+            127,
+            "/usr/bin/bash: line 1: u: bad\n",
+            "",
+            None,
+        ),
+        (
+            "simple redirected file",
+            "echo ok 2>errors >${u:?bad}; echo after",
+            127,
+            "",
+            "",
+            Some("/usr/bin/bash: line 1: u: bad\n"),
+        ),
+        (
+            "simple closed stderr",
+            "echo ok 2>&- >${u:?bad}; echo after",
+            127,
+            "",
+            "",
+            None,
+        ),
+        (
+            "simple restored stderr",
+            "echo ok 3>&2 2>&1 2>&3 >${u:?bad}; echo after",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "prefix RHS original stderr",
+            "a=${u:?bad} echo ok 2>&1; echo after",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "prefix RHS original stderr with file",
+            "a=${u:?bad} echo ok 2>errors; echo after",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "assignment-only RHS original stderr",
+            "a=${u:?bad} 2>&1; echo after",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "brace redirected stdout",
+            "\n{ echo body; } 2>&1 >${u:?bad}; echo after",
+            127,
+            "/usr/bin/bash: line 2: u: bad\n",
+            "",
+            None,
+        ),
+        (
+            "brace redirected file",
+            "{ echo body; } 2>errors >${u:?bad}; echo after",
+            127,
+            "",
+            "",
+            Some("/usr/bin/bash: line 1: u: bad\n"),
+        ),
+        (
+            "subshell redirected stdout",
+            "(echo body) 2>&1 >${u:?bad}; echo status=$?",
+            0,
+            "/usr/bin/bash: line 1: u: bad\nstatus=127\n",
+            "",
+            None,
+        ),
+        (
+            "pipeline compound redirect",
+            "{ echo body; } >${u:?bad} | cat; echo \"${PIPESTATUS[@]}\"",
+            0,
+            "127 0\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "pipeline compound body",
+            "{ echo ${u:?bad}; } | cat; echo \"${PIPESTATUS[@]}\"",
+            0,
+            "1 0\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "pipeline compound redirected diagnostic",
+            "\n{\n echo body;\n} 2>&1 >${u:?bad} | cat; echo \"${PIPESTATUS[@]}\"",
+            0,
+            "/usr/bin/bash: line 4: u: bad\n127 0\n",
+            "",
+            None,
+        ),
+        (
+            "pipeline while redirect",
+            "while false; do :; done >${u:?bad} | cat; echo \"${PIPESTATUS[@]}\"",
+            0,
+            "127 0\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "pipeline while body",
+            "while true; do echo ${u:?bad}; done | cat; echo \"${PIPESTATUS[@]}\"",
+            0,
+            "1 0\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "background compound redirect",
+            "{ echo body; } >${u:?bad} & wait 1; echo status=$?",
+            0,
+            "status=127\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "background compound body",
+            "{ echo ${u:?bad}; } & wait 1; echo status=$?",
+            0,
+            "status=1\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "background compound redirected diagnostic",
+            "{ echo body; } 2>&1 >${u:?bad} & wait 1; echo status=$?",
+            0,
+            "/usr/bin/bash: line 1: u: bad\nstatus=127\n",
+            "",
+            None,
+        ),
+        (
+            "subshell compound redirect",
+            "( { echo body; } >${u:?bad}; echo after ); echo status=$?",
+            0,
+            "status=1\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "subshell pipeline redirect",
+            "( { echo body; } >${u:?bad} | cat; echo \"${PIPESTATUS[@]}\" )",
+            0,
+            "1 0\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "background AND-OR redirect",
+            "{ echo body; } >${u:?bad} && : & wait 1; echo status=$?",
+            0,
+            "status=1\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "function partial redirect restores locals",
+            "f() { local v=inner; echo body 2>&1 >${u:?${saved:=bad}}; echo after; }; v=outer; f; echo after",
+            127,
+            "/usr/bin/bash: line 1: u: bad\n",
+            "",
+            None,
+        ),
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), status, "{case}: {source}");
+        assert_eq!(rig.output.bytes(), stdout.as_bytes(), "{case}: {source}");
+        assert_eq!(rig.errors.bytes(), stderr.as_bytes(), "{case}: {source}");
+        assert!(rig.calls.borrow().is_empty(), "{case}: {source}");
+        if let Some(file) = file {
+            assert_eq!(
+                rig.fs.read_file("/home/guest/errors").unwrap(),
+                file.as_bytes(),
+                "{case}: {source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn partial_redirect_failure_restores_function_state_and_session_descriptors() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run("f() { local v=inner; echo body 2>&1 >${u:?${saved:=bad}}; }; v=outer; f"),
+        127
+    );
+    assert_eq!(rig.output.bytes(), b"/usr/bin/bash: line 1: u: bad\n");
+    assert!(rig.errors.bytes().is_empty());
+    assert_eq!(
+        rig.run(r#"args "$v" "$saved" "$#"; echo recovered; echo diagnostic >&2"#),
+        0
+    );
+    assert_eq!(*rig.calls.borrow(), &[vec!["outer", "bad", "0"]]);
+    assert_eq!(
+        rig.output.bytes(),
+        b"/usr/bin/bash: line 1: u: bad\nrecovered\n"
+    );
+    assert_eq!(rig.errors.bytes(), b"diagnostic\n");
+}
+
+#[test]
+fn cancellation_during_redirect_target_keeps_effects_and_restores_frames() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("v", "outer");
+    let source = format!(
+        "f() {{ local v=inner; echo body 2>&1 >${{u:?${{saved:=yes}}{}}}; }}; f arg",
+        "x".repeat(100_000)
+    );
+    let job = rig.shell.start(&source).unwrap();
+    for _ in 0..500 {
+        rig.ex.drive(1);
+        if rig.shell.state().borrow().variables.contains_key("saved") {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.shell
+            .state()
+            .borrow()
+            .variables
+            .get("saved")
+            .map(String::as_str),
+        Some("yes")
+    );
+    assert!(!job.is_finished());
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.output.bytes().is_empty());
+    assert!(rig.errors.bytes().is_empty());
+    assert_eq!(rig.run(r#"args "$v" "$saved" "$#"; echo recovered"#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["outer", "yes", "0"]]);
+    assert_eq!(rig.output.bytes(), b"recovered\n");
+}
