@@ -1,6 +1,6 @@
 # Bash compatibility
 
-**Verdict.** Source-built Bashkit matches GNU bash most closely, and the gap is large. On scripts that use only shell builtins it agrees with bash on 95% of the Oils spec cases. Brush in the browser agrees on 78% and just-bash on 85%. The Oils number flatters Bashkit and just-bash, because both projects test against Oils (details below). Bashkit still leads on corpora it was not tuned for: on Brush's own test cases it scores 84%, compared with 71% for Brush in the browser and 77% for natively built Brush. If interpreter fidelity decides the fork, fork Bashkit from source `main`, not the npm release: published 0.18.2 scores only 55% on Oils. Bashkit has one serious bug to fix first: the `mapfile` budget leak described below.
+**Verdict.** Source-built Bashkit matches GNU bash most closely, and the gap is large. On scripts that use only shell builtins it agrees with bash on 95% of the Oils spec cases. Brush in the browser agrees on 78% and just-bash on 85%. The Oils number flatters Bashkit and just-bash, because both projects test against Oils (details below). Bashkit still leads on corpora it was not tuned for: on Brush's own test cases it scores 84%, compared with 71% for Brush in the browser and 77% for natively built Brush. This study recommended Bashkit source over its npm release, whose published 0.18.2 scores only 55% on Oils. Plan 004 now builds an original engine; its fixed scoreboard is described below. Bashkit has one serious bug to fix first: the `mapfile` budget leak described below.
 
 Reproduce with `npm run compat`. Raw results, one line per case, are in [bash-compatibility.json](evidence/bash-compatibility.json).
 
@@ -99,3 +99,151 @@ Cause: `mapfile` replaces the array through builtin side effects that remove the
 - `bash -c` differs from Oils' practice of feeding code on stdin, for example in `read` without a redirect. Every engine runs the same way.
 - Category labels group Oils files by subject. Cases inside a file can touch other features.
 - Bashkit and just-bash were tuned against Oils. Treat their Oils numbers as upper bounds, and use the held-out rows for the comparison.
+
+
+## Own-shell fixed scoreboard
+
+The original `shell-engine` CLI is registered as `own-shell`. Brush is still the
+browser default. The first measured baseline is **288/1,682 Oils, 295/1,888 Brush-suite and
+445/2,222 Bashkit-suite**. The historical engine tables above keep their original
+case sets and are not a comparison under this new fixed identity.
+
+| Corpus | Previously classified builtins-only cases | Fresh scored cases | Own-shell passes |
+| --- | ---: | ---: | ---: |
+| Oils | 1,682 | 1,682 | 288 |
+| Brush suite | 1,889 | 1,888 | 295 |
+| Bashkit suite | 2,223 | 2,222 | 445 |
+
+Two fresh GNU bash runs disagreed on `brush-suite:options/set-e:145` and
+`bashkit-suite:background:11`. Both retain the explicit exclusion
+`fresh bash oracle output is not deterministic`. These account for the two
+smaller denominators. Oils remains at 1,682. No existing engine was rescored on
+this changed set, so the earlier percentages must not be treated as fixed-set
+pass-count targets without rerunning those engines under the same identity.
+
+The [oracle capture](https://github.com/ShaulLavo/brush-web/actions/runs/38882400825)
+used source `2b27d77`, GNU bash 5.3.15 inside bubblewrap and Node v26.7.0. The
+[baseline measurement](https://github.com/ShaulLavo/brush-web/actions/runs/38882791088)
+used source `5489846`. Initial metadata was refined from `nodeMajor: 26` to the
+exact `nodeVersion: "v26.7.0"` used by setup-node. GNU bash observations, case
+classifications and source-file hashes did not change. The baseline identity
+was resealed to match this metadata; no shell was rerun for that refinement.
+
+[The committed baseline](evidence/own-shell-baseline.json) records exact counts
+for all 16 Oils subject categories, 120 Brush file categories and 261 Bashkit
+file categories, including categories whose cases are all skipped. Its `counts`
+are recomputed from per-case outcomes when validated. Oils' first scored counts:
+
+| Oils category | Scored cases | Passes |
+| --- | ---: | ---: |
+| Quoting and word splitting | 73 | 38 |
+| Parameter expansion | 173 | 6 |
+| Brace expansion | 53 | 5 |
+| Arithmetic | 116 | 1 |
+| Arrays and assoc arrays | 127 | 5 |
+| Assignment, scope and special vars | 109 | 9 |
+| Command substitution and subshells | 25 | 2 |
+| Globbing and extglob | 76 | 24 |
+| Conditionals, test, [[ ]] and case | 146 | 21 |
+| Grammar, functions and control flow | 180 | 82 |
+| Here-docs and redirects | 44 | 26 |
+| Pipelines | 12 | 9 |
+| errexit, options and traps | 164 | 19 |
+| echo, printf, read, mapfile, getopts | 147 | 14 |
+| Other builtins (cd, eval, source, type, alias...) | 155 | 16 |
+| Real-world idioms | 82 | 11 |
+
+The fixed set starts from the published case membership in
+`docs/evidence/bash-compatibility.json`, including all excluded and external-case
+classifications. It does not rediscover eligibility on each CI machine. Capture
+loads scripts from the same pinned source paths and checks their IDs and names
+against that classification. GNU bash 5.3.15(1)-release runs each selected case
+twice, with fresh home/tmp directories, empty stdin and `LC_ALL=C.UTF-8`.
+The old engines' outputs are never used as expected shell behavior. New oracle
+timeouts, output-limit failures and nondeterminism become explicit exclusions,
+so any difference from the historical totals must be reported in this table.
+
+Capture runs inside bubblewrap with network namespaces disabled, a read-only
+`/usr`, private home/tmp directories and the two Python fixtures. Owner files and
+credentials are not mounted. The executable's SHA-256, version, capture platform,
+helper hash and classification hash are recorded. Every source file's SHA-256
+and upstream revision is recorded too. The source paths and retained upstream
+licenses are listed in `sources.lock.json` and `THIRD_PARTY_NOTICES.md`.
+
+`docs/evidence/own-shell-oracle.json` contains script text, category, case ID,
+classification and exact normalized stdout/stderr bytes in base64 plus numeric
+status. Only stdout and status decide a pass. stderr stays separate and is kept
+for inspection. Oracle observations keep full bytes. Score diagnostics keep at
+most 240 bytes per stream; longer streams include their full byte length and
+SHA-256. Passing cases need no diagnostic copy. Compaction happens after the
+exact comparison and does not affect scoring. Paths normalize to `$TMP` and `$HOME`; no UTF-8 conversion is used
+for scoring. Oils keeps its subject categories; the secondary corpora use their
+source file paths as categories. All skipped cases stay in the fixture and in the
+result. The exact scored denominator is `total - skipped` in each count group.
+
+CI uses Node 26.7.0 and `node:wasi` to run only those selected cases against the
+release `wasm32-wasip1` CLI. Each case gets a fresh memory filesystem with no host
+preopens and only the two fixture process programs. There is a 10-second timeout
+and a 4 MiB combined output ceiling per case. A crash or timeout fails that case;
+it never silently becomes a skip. The CLI drains both output pipes between
+executor turns; it does not collect program output until exit. Browser transport,
+shared filesystem behavior and cold-start measurement remain deferred until
+browser integration. Plan 004 steps 2 and 3 can use the tested stand-ins, but
+step 1's real browser gate must pass before step 6 replaces Brush.
+
+```sh
+# Normal fixed replay, no installed GNU bash or corpus sources required.
+npm run compat:shell
+
+# Keep exact per-case results, counts, gained/lost IDs and newly failing cases.
+BASH_COMPAT_OUT=/work/tmp/brush-web-current.json npm run compat:shell
+
+# Also compare with the baseline on the target branch, as pull-request CI does.
+BASH_COMPAT_BASE_REF="$(git merge-base HEAD origin/main)" npm run compat:shell
+
+# Cheap mutation/selection tests, independent of Rust and the corpora.
+npm run test:shell:scoreboard
+```
+
+The baseline stores exact outcomes and counts per corpus and category. Replay
+rejects a changed case set, oracle observations, source identity, Node version,
+environment policy or skip classification. It fails if **any corpus** loses a
+pass in its exact count, even if rounded percentages or an aggregate score would
+hide it. Gains and losses within a corpus are reported separately, including a
+newly failing list that needs a named reason in the PR.
+
+The compatibility CI job requires the candidate's committed per-case pass
+membership to equal the fresh result. Gains must update the baseline in the same
+PR, so a later loss of that gain cannot go unnoticed. Failure subtypes can change
+without a baseline edit. The current score artifact is written before reporting
+a stale baseline, so a climb PR can fetch and commit the updated result.
+
+CI separately checks nonregression against the target branch's baseline read
+with `git show` at the pull request's base SHA. Lowering the candidate baseline
+cannot hide a regression. Bootstrap is allowed
+only when the target source lock has no scoreboard entry. Later missing baseline
+files fail closed. New corpus/oracle/environment identities are incomparable;
+recapture and rerun both base and candidate under identical inputs, then review
+the baseline migration explicitly. Editing the identity alone is insufficient.
+
+Capture and initial baseline recording are explicit maintenance operations, not
+part of compatibility CI:
+
+```sh
+# Requires bubblewrap, Python 3, GNU bash 5.3.15 and pinned corpus sources.
+# BASH_COMPAT_BRUSH_DIR and BASH_COMPAT_BASHKIT_DIR may select existing caches.
+BASH_COMPAT_MODE=capture BASH_COMPAT_BASH=/usr/bin/bash npm run compat
+
+# After reviewing the oracle and pinning its SHA-256 in sources.lock.json:
+BASH_COMPAT_RECORD=1 BASH_COMPAT_OUT=docs/evidence/own-shell-baseline.json npm run compat:shell
+```
+
+Run builds, native/WASI tests and corpus captures through this host's heavy queue.
+`BASH_COMPAT_SCRATCH` selects the scratch parent, defaulting to `/work/tmp` locally
+and `RUNNER_TEMP` in Actions. Each run owns a `brush-web-compat-*` directory and
+removes it, workers and child groups on completion or interruption. Keep requested
+result files outside that scratch directory and remove disposable result files
+after review. Frozen replay neither prepares corpora nor invokes GNU bash, probes
+external commands, runs mapfile sweeps or downloads other engines. Live ad hoc
+comparisons still use `BASH_COMPAT_ENGINES` and `BASH_COMPAT_CORPORA`; unselected
+engines and Oils are not prepared.

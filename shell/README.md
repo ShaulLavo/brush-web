@@ -1,9 +1,9 @@
 # Shell workspace
 
-Plan [004](../plans/004-own-shell.md) starts here. This is a parser library, not
-an executable shell, interpreter, browser worker or process engine. Brush remains
-the workbench's default; the existing compatibility scores and guardrails do not
-change in this skeleton.
+Plan [004](../plans/004-own-shell.md) now has a parser library and an original
+async engine with a runnable native/WASI CLI. Brush remains the workbench's
+default. The engine and its fixture process host have no browser runtime wiring;
+step 1's real browser gate remains mandatory before replacing Brush.
 
 ## Parser and provenance
 
@@ -64,8 +64,8 @@ counter does not reset in nested command substitutions. Parser-local fuel and
 AST depth errors retain the upstream syntax-error representation; request work,
 cancellation and timeouts return `Error::ResourceLimit`.
 
-The future engine owns execution semantics, async scheduling, descriptors,
-process hosting and session state; none are placeholders in this crate.
+The separate engine owns execution semantics, async scheduling, descriptors,
+process hosting and session state. The parser crate does not implement them.
 
 ## Verification
 
@@ -79,8 +79,8 @@ npm run build:shell
 
 `test:rust` checks vendored checksums, runs all upstream parser unit tests plus
 original adapter/API tests, then retains the existing Brush tests. CI runs that
-command and the WASI release build. `build:shell` compiles the **library** for
-`wasm32-wasip1`; it does not yet produce or publish a runnable `.wasm` shell.
+command and the WASI release build. `build:shell` produces the runnable
+`.build/shell/wasm32-wasip1/release/shell-engine.wasm` CLI as well as the libraries.
 `../scripts/notices.mjs` includes the pinned MIT license and this workspace's Rust
 dependency licenses in the existing distribution notices flow.
 
@@ -89,3 +89,37 @@ dependency licenses in the existing distribution notices flow.
 The original async [engine core](engine/README.md) is now tested natively and under
 wasmtime against an explicitly in-process `ProcessHost`. This is not the browser
 worker gate: Brush remains the default, and no browser runtime wiring is included.
+
+## CLI and fixed compatibility scoreboard
+
+```sh
+npm run build:shell
+wasmtime run .build/shell/wasm32-wasip1/release/shell-engine.wasm -c 'echo hello; exit 7'
+npm run test:shell:wasi
+npm run test:shell:scoreboard
+npm run compat:shell
+```
+
+`-c SCRIPT` accepts exactly one script with empty stdin. The exit status is the
+script's status. stdout and stderr use independent 32 KiB pipes drained between
+executor turns with 8 KiB host scratch. The CLI imports its environment, uses
+`PWD` for its virtual cwd, and keeps file writes in a fresh 16 MiB memory filesystem.
+Its `ProcessHost` registers only the original `argv.py` and `printenv.py` fixture
+commands shared by the compatibility engines. It never launches host processes.
+The two helpers stream through the same bounded descriptors.
+
+`compat:shell` uses `own-shell` in frozen-oracle mode. It builds only that engine
+and runs the fixed builtins-only cases from the committed GNU bash fixture.
+It needs Node 26.7.0 and the Rust toolchain, but no installed bash, submodules,
+corpus downloads, npm dependencies or other engines. Set
+`BASH_COMPAT_SKIP_BUILD=1` to reuse the release WASM. The separate CI compatibility
+job does this after its release build. WASI streaming tests and the brotli-11
+1,000,000-byte ceiling remain in the existing shell job.
+
+See [the comparison method and commands](../docs/bash-compatibility.md#own-shell-fixed-scoreboard)
+for exact identities, skips, target-branch checks and baseline updates. The first
+measured baseline is 288/1,682 Oils, 295/1,888 Brush-suite and 445/2,222
+Bashkit-suite. Two freshly nondeterministic oracle cases explain the smaller
+secondary denominators. Candidate baselines must include every current passing
+case; CI separately rejects any corpus count below the target branch. Browser cold-start measurement is deferred until browser
+integration; this CLI establishes no cold-start or browser acceptance result.

@@ -109,5 +109,58 @@
       "tokens.rs": "14d7c19d7cda696bca22e723c891de9d4bec5922ebd33894b43748ace3797d37"
     },
     "licenseSha256": "b3e3b2f3fd15c45106e08434a52c5ad9ca97f15a1cc9894ab5b01078124cf613"
+  },
+  "shellScoreboard": {
+    "oracleFile": "docs/evidence/own-shell-oracle.json",
+    "baselineFile": "docs/evidence/own-shell-baseline.json",
+    "oracleSha256": "cb17fa836a504cf12c49c85c01026900ae3b317f0d054f34429bc65ae1c7fe75",
+    "format": "Schema 1, exact base64 stdout/stderr and numeric exit status; original classifications retained; source files SHA-256 in oracle fixture.",
+    "corpora": {
+      "oils": {
+        "repository": "https://github.com/oils-for-unix/oils",
+        "revision": "bdc8364c253ce921e033bbc2399ea2ce0be41825",
+        "paths": [
+          "spec/*.test.sh"
+        ],
+        "license": "Apache-2.0",
+        "licenseFile": "docs/evidence/licenses/oils-LICENSE.txt",
+        "licenseSha256": "1908bfaf2f61195b2ca1601deec0e69bc0c6937be21bae18120d655e44c6d501"
+      },
+      "brush-suite": {
+        "repository": "https://github.com/reubeno/brush",
+        "revision": "4cfba081f2f8bcda8150010a57203d020f14f0cc",
+        "paths": [
+          "brush-shell/tests/cases/compat/**/*.yaml"
+        ],
+        "license": "MIT",
+        "licenseFile": "docs/evidence/licenses/brush-MIT.txt",
+        "licenseSha256": "1c2618836a777ebc734928c5a8b3aba0e98a7726d88cb7bdb227c7889e86e902"
+      },
+      "bashkit-suite": {
+        "repository": "https://github.com/everruns/bashkit",
+        "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+        "paths": [
+          "crates/bashkit/tests/spec_cases/bash/*.test.sh"
+        ],
+        "excludedFiles": [
+          "oils-*",
+          "*just-bash*"
+        ],
+        "license": "MIT",
+        "licenseFile": "shell/parser/LICENSE",
+        "licenseSha256": "b3e3b2f3fd15c45106e08434a52c5ad9ca97f15a1cc9894ab5b01078124cf613"
+      }
+    },
+    "capture": {
+      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38882400825",
+      "source": "2b27d77",
+      "node": "v26.7.0",
+      "note": "Initial metadata refined from nodeMajor 26 to the exact setup-node version; script bytes, classifications and GNU bash observations unchanged."
+    },
+    "baselineMeasurement": {
+      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38882791088",
+      "source": "5489846",
+      "note": "Exact measured outcomes retained; identity updated for exact Node metadata, classifications copied from oracle, diagnostics compacted."
+    }
   }
 }
