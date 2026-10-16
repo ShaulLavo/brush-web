@@ -3,8 +3,9 @@
 // The native shell binary is intentionally used here: this lane is about parser,
 // lexer, and lazy-reparse behavior, not the browser/WASI adapter.
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const queue = "/work/tmp/wave-heavy/run.sh";
@@ -65,6 +66,8 @@ Options:
   --timeout-ms N  Timeout for each Bash and shell process (default: 2000)
   --shell PATH    Existing native shell-engine binary
   --output PATH   Write the same JSON report printed to stdout
+  --record PATH  Record Bash 5.3.15 output and require a clean native run
+  --replay PATH  Replay a recorded fixture without invoking Bash (repeatable)
   --help          Show this help
 
 If --shell is omitted, shell-engine is built in a temporary target directory through
@@ -72,7 +75,13 @@ If --shell is omitted, shell-engine is built in a temporary target directory thr
 }
 
 function parseArgs(argv) {
-  const options = { count: 3000, seed: 1, timeoutMs: 2000, shell: process.env.FUZZ_SHELL_BIN };
+  const options = {
+    count: 3000,
+    seed: 1,
+    timeoutMs: 2000,
+    shell: process.env.FUZZ_SHELL_BIN,
+    replays: [],
+  };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     if (arg === "--queue-active") continue;
@@ -88,6 +97,8 @@ function parseArgs(argv) {
     else if (name === "--timeout-ms") options.timeoutMs = Number.parseInt(value, 10);
     else if (name === "--shell") options.shell = resolve(value);
     else if (name === "--output") options.output = resolve(value);
+    else if (name === "--record") options.record = resolve(value);
+    else if (name === "--replay") options.replays.push(resolve(value));
     else throw new Error(`unknown option: ${arg}`);
   }
   if (!Number.isSafeInteger(options.count) || options.count < 0)
@@ -162,7 +173,7 @@ function buildOperand(random, depth) {
     const quoted = !nested.source.includes('"') && random.chance(1, 3);
     return {
       source: quoted ? `"${nested.source}"` : nested.source,
-      tags: combineTags(nested, [`nested-${depth}`, ...(quoted ? ["nested-double-quoted"] : [])]),
+      tags: combineTags(nested, ["nested-" + depth].concat(quoted ? ["nested-double-quoted"] : [])),
     };
   }
   const atom = random.pick(atomPool);
@@ -218,7 +229,7 @@ function renderCase(testCase) {
   const printed =
     testCase.quote === "double" ? `"${testCase.expression.source}"` : testCase.expression.source;
   // Native printf currently consumes only one argument; argv.py preserves every
-  // post-expansion field. Remove this workaround when plan 004 step 3.6 fixes printf.
+  // post-expansion field while retaining the same printf-style boundary evidence.
   return `${assignments.join("; ")}; argv.py ${printed} following`;
 }
 
@@ -306,6 +317,115 @@ function fixedCases() {
   );
 }
 
+function generateCases(seed, count) {
+  const random = rng(seed);
+  const cases = fixedCases();
+  let generated = 0;
+  for (let template = 0; generated < count; template++) {
+    const topLevel = generatedCase(random, template, "top-level");
+    cases.push(topLevel);
+    generated++;
+    if (generated < count) {
+      cases.push({
+        ...topLevel,
+        id: `generated-${template}-double`,
+        quote: "double",
+        featureTags: combineTags(topLevel.expression, [
+          topLevel.operator,
+          "double",
+          testCaseQuoteTag(topLevel.expression),
+        ]),
+      });
+      generated++;
+    }
+  }
+  return cases;
+}
+
+function sourceHash() {
+  return createHash("sha256").update(readFileSync(process.argv[1])).digest("hex");
+}
+
+function caseIdentity(testCase) {
+  return {
+    id: testCase.id,
+    label: testCase.label,
+    operator: testCase.operator,
+    quote: testCase.quote,
+    valueState: testCase.valueState,
+    operandState: testCase.operandState,
+    value: testCase.value,
+    operandValue: testCase.operandValue,
+    expectedUnsupported: testCase.expectedUnsupported ?? false,
+    expression: testCase.expression,
+    featureTags: testCase.featureTags,
+    fixedScript: testCase.fixedScript,
+  };
+}
+
+function coverage(cases) {
+  return {
+    operators: cases
+      .map((testCase) => testCase.operator)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .toSorted(),
+    quotes: cases
+      .map((testCase) => testCase.quote)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .toSorted(),
+  };
+}
+
+function encodeResult(result) {
+  return {
+    status: result.status,
+    signal: result.signal,
+    timedOut: result.timedOut || undefined,
+    stdoutBase64: result.stdout.toString("base64"),
+    stderrBase64: result.stderr.toString("base64"),
+  };
+}
+
+function decodeResult(result) {
+  return {
+    status: result.status,
+    signal: result.signal,
+    timedOut: result.timedOut,
+    stdout: Buffer.from(result.stdoutBase64 ?? "", "base64"),
+    stderr: Buffer.from(result.stderrBase64 ?? "", "base64"),
+  };
+}
+
+function validateFixture(fixturePath, fixture, expectedCases, expectedSeed, expectedCount) {
+  if (fixture.schema !== 1) throw new Error("unsupported shell-word fixture schema");
+  if (fixture.sourceHash !== sourceHash())
+    throw new Error("fixture source hash does not match this fuzzer");
+  if (fixture.seed !== expectedSeed || fixture.count !== expectedCount)
+    throw new Error("fixture seed/count does not match requested coverage");
+  if (!Number.isSafeInteger(fixture.timeoutMs) || fixture.timeoutMs < 1)
+    throw new Error("fixture timeout is invalid");
+  const filenameSeed = /seed-(\d+)\.json$/.exec(fixturePath);
+  if (filenameSeed && Number(filenameSeed[1]) !== fixture.seed)
+    throw new Error("fixture filename seed does not match fixture seed");
+  if (fixture.operators?.join("\u0000") !== operators.join("\u0000"))
+    throw new Error("fixture operator list does not match this fuzzer");
+  if (!Array.isArray(fixture.cases) || fixture.cases.length !== expectedCases.length)
+    throw new Error("fixture case count does not match generated coverage");
+  const expectedCoverage = coverage(expectedCases);
+  if (JSON.stringify(fixture.coverage) !== JSON.stringify(expectedCoverage))
+    throw new Error("fixture operator/quote coverage is incomplete or stale");
+  for (let index = 0; index < expectedCases.length; index++) {
+    const actual = fixture.cases[index];
+    const expected = expectedCases[index];
+    if (actual.script !== renderCase(expected))
+      throw new Error(`fixture script differs at case ${expected.id}`);
+    if (JSON.stringify(actual.case) !== JSON.stringify(caseIdentity(expected)))
+      throw new Error(`fixture case identity differs at case ${expected.id}`);
+    if (!actual.bash?.stdoutBase64 && actual.bash?.stdoutBase64 !== "")
+      throw new Error(`fixture Bash result is missing at case ${expected.id}`);
+  }
+}
+
 const bashPrelude = "argv.py() { python3 -c 'import sys; print(repr(sys.argv[1:]))' \"$@\"; }";
 
 function runProcess(command, args, script, timeoutMs) {
@@ -375,6 +495,77 @@ function execute(testCase, bashBin, shellBin, timeoutMs) {
   return { script, bash, ours, classification: classify(testCase, bash, ours) };
 }
 
+function recordFixture(path, options, cases, bashBin, shellBin) {
+  const bash = bashVersion(bashBin);
+  if (!bash.startsWith("GNU bash, version 5.3.15"))
+    throw new Error(`recording requires GNU Bash 5.3.15, got ${bash}`);
+  const recorded = [];
+  let mismatch = null;
+  for (const testCase of cases) {
+    const result = execute(testCase, bashBin, shellBin, options.timeoutMs);
+    if (result.classification !== "MATCH" && !mismatch) mismatch = { testCase, result };
+    recorded.push({
+      case: caseIdentity(testCase),
+      script: result.script,
+      bash: encodeResult(result.bash),
+    });
+  }
+  if (mismatch)
+    throw new Error(
+      `cannot record a dirty fixture at ${mismatch.testCase.id}: ${JSON.stringify(resultView(mismatch.result.ours))}`,
+    );
+  const fixture = {
+    schema: 1,
+    sourceHash: sourceHash(),
+    seed: options.seed,
+    count: options.count,
+    timeoutMs: options.timeoutMs,
+    bash,
+    operators,
+    coverage: coverage(cases),
+    cases: recorded,
+  };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify(fixture, null, 2) + "\n");
+  return fixture;
+}
+
+function replayFixture(path, shellBin, expectedCount) {
+  const fixture = JSON.parse(readFileSync(path, "utf8"));
+  if (fixture.count !== expectedCount)
+    throw new Error(
+      `fixture count ${fixture.count} does not match requested count ${expectedCount}`,
+    );
+  const cases = generateCases(fixture.seed, fixture.count);
+  validateFixture(path, fixture, cases, fixture.seed, expectedCount);
+  const counts = { MATCH: 0, UNSUPPORTED: 0, MISMATCH: 0 };
+  const mismatches = [];
+  for (let index = 0; index < cases.length; index++) {
+    const testCase = cases[index];
+    const expected = decodeResult(fixture.cases[index].bash);
+    const ours = runProcess(
+      shellBin,
+      ["-c", fixture.cases[index].script],
+      fixture.cases[index].script,
+      fixture.timeoutMs,
+    );
+    const classification = classify(testCase, expected, ours);
+    counts[classification]++;
+    if (classification === "MISMATCH" && mismatches.length < 50) {
+      mismatches.push({
+        id: testCase.id,
+        operator: testCase.operator,
+        quote: testCase.quote,
+        featureTags: testCase.featureTags,
+        script: fixture.cases[index].script,
+        bash: resultView(expected),
+        ours: resultView(ours),
+      });
+    }
+  }
+  return { path, seed: fixture.seed, total: cases.length, counts, mismatches };
+}
+
 function shrinkCase(testCase, bashBin, shellBin, timeoutMs, original) {
   if (testCase.fixedScript) return original;
   const candidates = [];
@@ -409,21 +600,13 @@ function bashVersion(bashBin) {
 }
 
 function ensureQueued() {
-  if (process.argv.includes("--queue-active")) return;
-  if (!existsSync(queue)) throw new Error(`shared queue not found: ${queue}`);
+  if (process.argv.includes("--queue-active") || !existsSync(queue)) return;
   const result = spawnSync(
     "bash",
-    [
-      queue,
-      "--class",
-      "light",
-      "brush-web-fuzz",
-      "--",
-      process.execPath,
-      process.argv[1],
-      ...process.argv.slice(2),
+    [queue, "--class", "light", "brush-web-fuzz", "--", process.execPath, process.argv[1]].concat(
+      process.argv.slice(2),
       "--queue-active",
-    ],
+    ),
     { cwd: root, env: process.env, stdio: "inherit" },
   );
   if (result.error) throw result.error;
@@ -461,32 +644,32 @@ function buildShell(options, scratch) {
 }
 
 function main() {
-  ensureQueued();
   const options = parseArgs(process.argv.slice(2));
+  ensureQueued();
   const scratch = options.shell ? null : mkdtempSync("/work/tmp/brush-web-fuzz-");
   try {
     const shellBin = buildShell(options, scratch);
+    if (options.replays.length) {
+      const reports = options.replays.map((path) => replayFixture(path, shellBin, options.count));
+      const replayReport = { mode: "replay", reports };
+      const text = JSON.stringify(replayReport, null, 2) + "\n";
+      if (options.output) writeFileSync(options.output, text);
+      for (const report of reports)
+        console.log(
+          `replay ${report.path}: MATCH=${report.counts.MATCH} UNSUPPORTED=${report.counts.UNSUPPORTED} MISMATCH=${report.counts.MISMATCH}`,
+        );
+      process.stdout.write(text);
+      if (reports.some((report) => report.counts.MISMATCH > 0 || report.counts.UNSUPPORTED > 0))
+        process.exitCode = 1;
+      return;
+    }
     const bashBin = process.env.BASH_BIN ?? "bash";
-    const random = rng(options.seed);
-    const cases = fixedCases();
-    let generated = 0;
-    for (let template = 0; generated < options.count; template++) {
-      const topLevel = generatedCase(random, template, "top-level");
-      cases.push(topLevel);
-      generated++;
-      if (generated < options.count) {
-        cases.push({
-          ...topLevel,
-          id: `generated-${template}-double`,
-          quote: "double",
-          featureTags: combineTags(topLevel.expression, [
-            topLevel.operator,
-            "double",
-            testCaseQuoteTag(topLevel.expression),
-          ]),
-        });
-        generated++;
-      }
+    const cases = generateCases(options.seed, options.count);
+    if (options.record) {
+      const fixture = recordFixture(options.record, options, cases, bashBin, shellBin);
+      console.log(`recorded clean fixture: ${options.record}`);
+      console.log(`seed=${fixture.seed} cases=${fixture.cases.length} bash=${fixture.bash}`);
+      return;
     }
     const counts = { MATCH: 0, UNSUPPORTED: 0, MISMATCH: 0 };
     const byOperator = {};

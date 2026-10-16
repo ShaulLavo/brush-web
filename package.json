@@ -1,6 +1,6 @@
 {
   "name": "brush-web",
-  "version": "0.0.25",
+  "version": "0.0.26",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,8 +10,8 @@
     "build": "npm run sources && npm run build:wasm && npm run build:programs && npm run build:bashkit && node scripts/notices.mjs && vite build && node scripts/finish-build.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
-    "format": "oxfmt --write src scripts tests vite.config.ts playwright.config.ts tsconfig.json package.json",
-    "format:check": "oxfmt --check src scripts tests vite.config.ts playwright.config.ts tsconfig.json package.json",
+    "format": "oxfmt --write src scripts tests vite.config.ts playwright.config.ts tsconfig.json package.json '!scripts/fixtures/**/*.json'",
+    "format:check": "oxfmt --check src scripts tests vite.config.ts playwright.config.ts tsconfig.json package.json '!scripts/fixtures/**/*.json'",
     "test": "playwright test",
     "verify": "npm run build && npm run typecheck && npm run format:check && npm run test:host && npm run test:process && npm run test:bashkit && npm test",
     "measure": "node scripts/measure.mjs",
@@ -36,7 +36,8 @@
     "test:shell:wasi": "node scripts/test-shell-wasi.mjs",
     "test:shell:scoreboard": "node --test scripts/test-shell-scoreboard*.mjs scripts/test-compat-selection.mjs scripts/test-own-shell-runner.mjs",
     "compat:shell": "BASH_COMPAT_MODE=frozen BASH_COMPAT_ENGINES=own-shell node scripts/bash-compat.mjs",
-    "fuzz:shell-words": "node scripts/fuzz-shell-words.mjs"
+    "fuzz:shell-words": "node scripts/fuzz-shell-words.mjs",
+    "fuzz:shell-words:ci": "node scripts/fuzz-shell-words.mjs --replay scripts/fixtures/shell-words-seed-1.json --replay scripts/fixtures/shell-words-seed-42.json"
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "0.4.2",
