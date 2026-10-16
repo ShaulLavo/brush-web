@@ -2225,6 +2225,153 @@ fn assignment_and_error_operands_are_lazy_including_unsupported_syntax() {
 }
 
 #[test]
+fn parameter_diagnostic_fields_follow_inner_quotes_and_ifs_in_every_context() {
+    // Independent clean GNU Bash 5.3.15, C.UTF-8 observations. Error operands
+    // split regardless of outer quotes/scalar context, then join with spaces.
+    for (ifs, value, operand, expected) in [
+        (" \t\n", " abc ", "", "parameter null or not set"),
+        (" \t\n", " abc ", "\"\"", ""),
+        (" \t\n", " abc ", "$empty", ""),
+        (" \t\n", " abc ", "$v", "abc"),
+        (" \t\n", " a  b ", "$v", "a b"),
+        (" \t\n", " \t\n ", "$v", ""),
+        (" \t\n", " abc ", " abc ", " abc "),
+        (" \t\n", " abc ", " $v ", "  abc  "),
+        (" \t\n", " abc ", "\"$v\"", " abc "),
+        (" \t\n", " abc ", "'$v'", "$v"),
+        (" \t\n", " abc ", "\\ $v\\ ", "  abc  "),
+        (" \t\n", " abc ", "a  b", "a  b"),
+        (" \t\n", " abc ", "${inner:-$v}", "abc"),
+        (" \t\n", " abc ", "${inner:=$v}", "abc"),
+        (" \t\n", " abc ", "${inner:- a  b }", "a b"),
+        (" \t\n", " abc ", "${inner:-\"$v\"}", " abc "),
+        ("", " abc ", "$v", " abc "),
+        (":", " abc ", "$v", " abc "),
+        (":", ":abc::def:", "$v", " abc  def"),
+        (":", ":abc::def:", "a$v/z", "a abc  def /z"),
+        (":", ":::", "$v", "  "),
+        (":", ":abc::def:", "\"$v\"", ":abc::def:"),
+        (" \t\n:", ": \tabc::def:\n ", "$v", " abc  def"),
+        ("\t", "\tabc\t\tdef\t", "$v", "abc def"),
+        (
+            "\u{a0}",
+            "\u{a0}abc\u{a0}\u{a0}def\u{a0}",
+            "$v",
+            " abc  def",
+        ),
+    ] {
+        for (prefix, operator) in [("", "?"), ("", ":?"), ("bad=; ", ":?")] {
+            let expected = if operand.is_empty() && operator == "?" {
+                "parameter not set"
+            } else {
+                expected
+            };
+            let expansion = format!("${{bad{operator}{operand}}}");
+            for context in ["args EXP", "args \"EXP\"", "x=EXP", "args >EXP"] {
+                let source = format!("{prefix}{}; args after", context.replace("EXP", &expansion));
+                let rig = Rig::new(Limits::default());
+                rig.variable("IFS", ifs);
+                rig.variable("v", value);
+                assert_eq!(rig.run(&source), 127, "{source}, IFS={ifs:?}");
+                assert!(rig.calls.borrow().is_empty(), "{source}");
+                assert!(rig.output.bytes().is_empty(), "{source}");
+                assert_eq!(
+                    rig.errors.bytes(),
+                    format!("/usr/bin/bash: line 1: bad: {expected}\n").as_bytes(),
+                    "{source}, IFS={ifs:?}, v={value:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn parameter_diagnostic_splitting_keeps_lazy_selection_and_assignment_storage() {
+    check(
+        r#"bad=; args "${bad?${saved:=wrong}}"; bad=present; args "${bad?${saved:=wrong}}" "${bad:?${saved:=wrong}}" "${saved-unset}""#,
+        &[&[""], &["present", "present", "unset"]],
+    );
+    let rig = Rig::new(Limits::default());
+    rig.variable("v", " abc ");
+    assert_eq!(rig.run("args ${bad:?${saved:=$v}}; args after"), 127);
+    assert_eq!(rig.errors.bytes(), b"/usr/bin/bash: line 1: bad: abc\n");
+    assert!(rig.output.bytes().is_empty());
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.run(r#"args "$saved""#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec![" abc "]]);
+}
+
+#[test]
+fn split_parameter_diagnostics_keep_exact_status_and_descriptor_routing() {
+    for (source, status, stdout, stderr, file) in [
+        (
+            "args ${bad:?$v} 2>errors",
+            127,
+            "",
+            "/usr/bin/bash: line 1: bad: abc\n",
+            None,
+        ),
+        (
+            "x=${bad:?$v} 2>errors",
+            127,
+            "",
+            "/usr/bin/bash: line 1: bad: abc\n",
+            None,
+        ),
+        (
+            "{ args ${bad:?$v}; } 2>errors",
+            127,
+            "",
+            "",
+            Some("/usr/bin/bash: line 1: bad: abc\n"),
+        ),
+        (
+            "{ args ${bad:?$v}; } 2>&1",
+            127,
+            "/usr/bin/bash: line 1: bad: abc\n",
+            "",
+            None,
+        ),
+        (
+            "(args ${bad:?$v}) 2>&1",
+            1,
+            "/usr/bin/bash: line 1: bad: abc\n",
+            "",
+            None,
+        ),
+    ] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("v", " abc ");
+        assert_eq!(rig.run(source), status, "{source}");
+        assert!(rig.calls.borrow().is_empty(), "{source}");
+        assert_eq!(rig.output.bytes(), stdout.as_bytes(), "{source}");
+        assert_eq!(rig.errors.bytes(), stderr.as_bytes(), "{source}");
+        assert_eq!(
+            rig.fs.read_file("/home/guest/errors").ok(),
+            file.map(|value| value.as_bytes().to_vec()),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn diagnostic_splitting_does_not_admit_oversized_raw_whitespace() {
+    for value in [" ".repeat(158), ":".repeat(158)] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: 256,
+            ..Limits::default()
+        });
+        rig.variable("IFS", " :");
+        rig.variable("v", &value);
+        // The target and diagnostic reserve leave 157 raw operand bytes.
+        assert_eq!(rig.run("args ${bad:?$v}"), 2);
+        assert!(rig.calls.borrow().is_empty());
+        assert!(rig.output.bytes().is_empty());
+        assert!(rig.errors.bytes().is_empty());
+    }
+}
+
+#[test]
 fn fatal_parameter_errors_stop_sequences_functions_and_conditions() {
     for (source, line, message) in [
         (

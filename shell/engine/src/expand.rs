@@ -345,7 +345,7 @@ impl Fields {
     }
 }
 
-/// Only a selected assignment/error operand is retained, before field splitting.
+/// Bounded scalar storage for assignment operands and joined diagnostics.
 /// Quote removal belongs to operand evaluation; assignment results inherit only
 /// the outer word's protection, as in Bash (unlike default/alternative results).
 struct Captured {
@@ -719,12 +719,13 @@ impl Expansion<'_> {
         let capacity = max_bytes.min(self.work.storage_remaining);
         let mut child = Expansion {
             segments: Segments::default(),
-            captured: Some(Captured {
+            captured: (!matches!(operator, ParameterOp::Error)).then_some(Captured {
                 value: String::new(),
                 max_bytes: capacity,
             }),
             pattern: None,
-            pattern_context: self.pattern_context,
+            // Diagnostics leave the pattern context, including in nested operands.
+            pattern_context: self.pattern_context && !matches!(operator, ParameterOp::Error),
             ifs: None,
             ifs_changed: false,
             work: self.work,
@@ -733,15 +734,11 @@ impl Expansion<'_> {
             raw_remaining: capacity,
             elements_remaining: self.elements_remaining,
         };
-        child
-            .operand(source, state, quoted, scalar, depth + 1, false)
-            .await?;
-        self.raw_remaining -= capacity - child.raw_remaining;
-        let ifs_changed = child.ifs_changed || name == "IFS";
-        let captured = child.captured.take().ok_or(2)?;
-        drop(child);
-        self.work.admit_storage(captured.value.len())?;
         if matches!(operator, ParameterOp::Error) {
+            let value = child.diagnostic_operand(source, state, depth + 1).await?;
+            self.raw_remaining -= capacity - child.raw_remaining;
+            drop(child);
+            self.work.admit_storage(value.len())?;
             let message = if source.is_empty() {
                 if colon {
                     "parameter null or not set"
@@ -750,7 +747,7 @@ impl Expansion<'_> {
                 }
                 .to_owned()
             } else {
-                captured.value
+                value
             };
             return Err(Error::Parameter {
                 line: None,
@@ -758,6 +755,14 @@ impl Expansion<'_> {
                 message,
             });
         }
+        child
+            .operand(source, state, quoted, scalar, depth + 1, false)
+            .await?;
+        self.raw_remaining -= capacity - child.raw_remaining;
+        let ifs_changed = child.ifs_changed || name == "IFS";
+        let captured = child.captured.take().ok_or(2)?;
+        drop(child);
+        self.work.admit_storage(captured.value.len())?;
         // A prefix frame may also retain the durable value it will restore.
         if state.borrow().prefix_saved(name) {
             self.work
@@ -776,6 +781,53 @@ impl Expansion<'_> {
             scalar || quoted,
         )
         .await
+    }
+    async fn diagnostic_operand(
+        &mut self,
+        source: &str,
+        state: &SharedState,
+        depth: usize,
+    ) -> Result<String, Error> {
+        // Bash expands error text independently of the surrounding context.
+        // Direct literals retain whitespace; unquoted expansions split on IFS.
+        if source.is_empty() {
+            self.work.checkpoint(self.cancel).await?;
+            return Ok(String::new());
+        }
+        let mut scanner = operand::Scanner::new(source, false, false, false);
+        while let Some(piece) = scanner.next(self.work, self.cancel).await? {
+            if let operand::Piece::Text { value, protected } = piece {
+                self.literal(value, state, protected).await?;
+                continue;
+            }
+            self.operand_piece(piece, state, false, false, depth)
+                .await?;
+        }
+        self.current_ifs(state).await?;
+        let fields = std::mem::take(&mut self.segments)
+            .split(
+                self.ifs.take().ok_or(2)?,
+                self.max_raw,
+                self.max_raw.saturating_add(1),
+                self.work,
+                self.cancel,
+            )
+            .await?;
+        let mut message = Captured {
+            value: String::new(),
+            max_bytes: self.max_raw,
+        };
+        for (index, field) in fields.into_iter().enumerate() {
+            self.work.checkpoint(self.cancel).await?;
+            if index != 0 {
+                message.append(" ")?;
+            }
+            for ch in field.chars() {
+                self.work.checkpoint(self.cancel).await?;
+                message.append(ch.encode_utf8(&mut [0; 4]))?;
+            }
+        }
+        Ok(message.value)
     }
     async fn operand(
         &mut self,
