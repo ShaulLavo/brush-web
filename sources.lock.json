@@ -187,9 +187,9 @@
       "note": "Initial metadata refined from nodeMajor 26 to the exact setup-node version; script bytes, classifications and GNU bash observations unchanged."
     },
     "baselineMeasurement": {
-      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38890920195",
-      "source": "ca47cdce0b2d4b46bbf95ac2a8d0afa2bc86b2c9",
-      "note": "Measured lazy scalar default/alternative and parser escape fixes: Oils305, Brush-suite322, Bashkit-suite479; 59 gains versus main and zero lost cases. Fixed input identity unchanged; fresh CI must match pass membership."
+      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38893861635",
+      "source": "03b34254983121b24e1ed520b10230d5833f90f0",
+      "note": "Measured scalar assignment/error slice: Oils311, Brush-suite328, Bashkit-suite492; 25 gains versus merged parent and zero lost cases. Fixed input identity unchanged; fresh CI must match pass membership after review fixes."
     }
   },
   "shellWords": {
