@@ -144,7 +144,7 @@ fn scalar_replace_adapted_prefix_suffix_paths() {
 fn scalar_replace_parser_boundaries_preserve_bare_braces_and_single_quotes() {
     check(
         r#"v=abc; args ${v/b/{}} next; args "${v/b/'a\'}" next"#,
-        &[&["a{c", "next"], &["aa\\c", "next"]],
+        &[&["a{c}", "next"], &["aa\\c", "next"]],
     );
 }
 
