@@ -279,7 +279,42 @@ fn scalar_assignments_and_declaration_operands() {
     );
     check(
         r#"v='a b'; n=export; $n x=$v; args "$x"; $missing export y=$v; args "$y""#,
-        &[&["a b"], &["a b"]],
+        &[&["a"], &["a"]],
+    );
+}
+
+#[test]
+fn declaration_syntax_requires_an_unquoted_literal_command_and_prefix() {
+    check_output(r#"v="a b"; n=export; $n x=$v; echo "<$x>""#, "<a>\n");
+    check_output(r#"v="a b"; export "x="$v; echo "<$x>""#, "<a>\n");
+    check(
+        r#"v='a b'; 'export' x=$v; args "$x"; export "y"=$v; args "$y"; export z\=$v; args "$z"; export plain=$v; args "$plain"; export quoted="$v"; args "$quoted""#,
+        &[&["a"], &["a"], &["a"], &["a b"], &["a b"]],
+    );
+    check(
+        r#"v='a b'; f() { n=local; $n x=$v; local "y="$v; local plain=$v; args "$x" "$y" "$plain"; }; f"#,
+        &[&["a", "a", "a b"]],
+    );
+}
+
+#[test]
+fn quoted_at_word_trims_a_leading_mixed_ifs_delimiter() {
+    check_output(r#"IFS=" :"; v=" :"; f(){ echo $v"$@"; }; f a b"#, "a b\n");
+    check(
+        r#"IFS=' :'; v=' :'; f() { args $v"$@"; }; f a b; f; f '' b; v=':'; f a b; v=' ::'; f a b; v=' :abc'; f a b; v='a :'; f a b"#,
+        &[
+            &["a", "b"],
+            &[],
+            &["", "b"],
+            &["", "a", "b"],
+            &["", "a", "b"],
+            &["abca", "b"],
+            &["a", "a", "b"],
+        ],
+    );
+    check(
+        r#"IFS=' :'; v=' :'; f() { args ""$v"$@"; args x$v"$@"; args $v"$*"; }; f a b"#,
+        &[&["", "a", "b"], &["x", "a", "b"], &["", "a b"]],
     );
 }
 
