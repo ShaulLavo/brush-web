@@ -326,3 +326,30 @@ changed. Versions and fixed measurement metadata remain coordinator-owned.
 The original integration also reserves actual matcher vector capacities and case
 result String capacities before allocation, including spare slots. Exact-budget
 unit controls reject before growth; this is not copied from Bashkit.
+
+Scalar indirection adapts Bashkit's `expand_word` `IndirectExpansion` branch
+(`crates/bashkit/src/interpreter/expansion.rs:655-717`), ordinary scalar checks in
+`indirect_target` (`2795-2860`) and indirect field-splitting classification
+(`1893-1912`) at revision `491c3281f668b76d64b15210b8f5d7bf97244be0`.
+Copyright 2024-2026 Everruns; the retained MIT license applies. The four scalar
+cases in `crates/bashkit/tests/spec_cases/bash/indirect-expansion.test.sh:1-31`
+and plain cases in `blackbox-exploration.test.sh:434-438`,
+`string-ops.test.sh:57-63` and `variables.test.sh:254-266` are adapted into
+`shell/engine/tests/words/indirect.rs`. Exact sources, destinations, classification
+and divergences are recorded under `shellParameterIndirect` in `sources.lock.json`.
+
+The direct resolver in `shell/engine/src/expand/indirect.rs`, shared budget
+integration in `expand.rs`/`expand/operand.rs`, fatal-error metadata in
+`interpreter.rs` and GNU Bash 5.3.15/engine regression controls are original
+adapters. Only identifier pointers to identifier scalars and the existing eight
+scalar conditional operators are included. Snapshots are admitted before bounded
+atomic copies; scans and validation share cooperative Work. Invalid indirection
+has fatal status 1; selected scalar errors keep the existing environment status
+and descriptor/source ownership. Nested error names are preserved separately from
+the outer `!pointer` label. The upstream `desugar_indirect` target-string reparse
+is inspected but not copied. No target value is parsed or evaluated. Positional
+and special names, arrays/namerefs, listings/options and generic indirect suffixes
+remain unsupported, including all subscript-bearing target values. Full invalid
+names fit the diagnostic limit or fail explicitly, rather than being truncated
+at upstream's 256-character diagnostic prefix. No parser, process, browser,
+filesystem, `mapfile` or output-buffering implementation is copied or changed.

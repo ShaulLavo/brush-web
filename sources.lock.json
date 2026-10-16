@@ -509,5 +509,63 @@
     "originalAdapters": "case.rs uses an explicit constant-size mapping for ASCII and Latin-1 input rather than Rust Unicode expansion. pattern.rs retains quoted-empty pattern presence, reuses the bounded matcher for single-character matching, and admits mapped storage/output. expand.rs shares the existing trim pattern-evaluation helper without changing its order or work charges; operand.rs admits the four selected nested operators. Existing parser AST/operators are reused unchanged. Integration correction: matcher Character/Atom vectors reserve and charge actual geometric capacity; matcher state vectors reserve their exact charged size; case result Strings charge spare capacity before growth. Focused unit tests establish the exact admission boundary without allocating on failure.",
     "localDivergence": "C/POSIX/default locales map ASCII only, preserving non-ASCII value characters and rejecting non-ASCII patterns to avoid claiming byte-oriented multibyte pattern matching. C.UTF-8 and C.utf8 map ASCII plus U+0080..U+00FF inputs, including unchanged sharp-s, micro-sign to Greek capital mu, and y-diaeresis to capital Y-diaeresis. Other locale names fail closed for set targets. In UTF-8 mode, selected characters outside Latin-1 return status2; unselected characters and first-form tails remain unchanged. Full Unicode, language-specific mappings, collation and byte-locale non-ASCII patterns are deferred. Named classes, extglob, collation/equivalence symbols, arrays, namerefs, positional/special targets, transformations, toggle, replacement, substring, arithmetic/substitution, pathname/tilde/brace expansion and process/browser/output-buffer changes are excluded. Unlike upstream, do not expand sharp-s to SS, and preserve quoted-empty versus unquoted-empty patterns. Frozen scorer/oracle/input/classification/exclusions/baseline and plan measurements are unchanged.",
     "verification": "GNU Bash 5.3.15 C.UTF-8 and C controls executed through the shared heavy-job runner: exhaustive 255 non-NUL Latin-1 inputs in each direction (510 mappings per locale), multicharacter Rust/Bash divergence examples, first/all forms, quote/escape protection, scalar nesting, IFS, and locale precedence. New Rust tests cover adapted examples plus original contexts, fail-closed boundaries, shared bounds, yield and cancellation/frame restoration. Native/WASI/corpus results are recorded only when actually executed; exact fixed-case membership and zero-loss comparison remain coordinator-owned CI."
+  },
+  "shellParameterIndirect": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "classification": "Adapted scalar indirect resolution and operator selection plus upstream scalar tests; original bounded async adapter and focused GNU Bash/engine controls.",
+    "implementationSources": [
+      {
+        "path": "crates/bashkit/src/interpreter/expansion.rs",
+        "items": [
+          "expand_word IndirectExpansion arm:655-717 (ordinary scalar branch only)",
+          "indirect_target:2795-2860 (unset versus invalid pointer and identifier validation only)",
+          "is_field_split_expansion:1893-1912 (indirect results split like other expansions)",
+          "desugar_indirect:2868-2940 inspected only; its target-string reparse is deliberately not ported",
+          "apply_parameter_op (reuse the previously adapted scalar default/alternative/assignment/error rules)"
+        ]
+      }
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/expand/indirect.rs",
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/expand/operand.rs",
+      "shell/engine/src/interpreter.rs"
+    ],
+    "testSources": [
+      "crates/bashkit/tests/spec_cases/bash/indirect-expansion.test.sh:1-31",
+      "crates/bashkit/tests/spec_cases/bash/blackbox-exploration.test.sh:434-438",
+      "crates/bashkit/tests/spec_cases/bash/string-ops.test.sh:57-63",
+      "crates/bashkit/tests/spec_cases/bash/variables.test.sh:254-266"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words/indirect.rs",
+      "shell/engine/src/expand/indirect.rs"
+    ],
+    "originalAdapters": [
+      "Direct scalar state lookup and pre-admitted pointer/value snapshots; no target-string desugaring or evaluation",
+      "Shared Work/storage/raw/field accounting and cooperative pointer/value/name scans; state borrows end before suspension",
+      "Selected-token whitelist extension using the existing bounded operand parser, with no parser/AST changes",
+      "Explicit fatal invalid-indirection error metadata using the existing source/descriptor/containment layer, with unconditional status 1",
+      "Separate optional diagnostic pointer spelling in existing scalar operators, preserving nested errors and charging the resolved assignment key",
+      "Original fixture bounds, exact snapshot/work/diagnostic-field boundaries, cancellation130, frame recovery and no-partial-dispatch controls"
+    ],
+    "strategy": "Resolve one ordinary identifier pointer to one ordinary identifier target. Preserve unset pointer versus empty/invalid pointer versus valid unset target. Reuse the existing quote-aware field path and lazy scalar -, :-, +, :+, =, :=, ?, :? dispatch. Assign through the resolved target, retain completed writes and post-expansion IFS behavior, and report !pointer for the outer selected error while nested errors keep their own names. Pointer/value snapshots are bounded by raw bytes and remaining work/storage before copying; the atomic copy is bounded by the existing command expansion ceiling and followed by cooperative byte scanning. Identifier validation checks every byte through shared Work. All recursive selected operands keep the existing 4096-byte token, cumulative parse-work and 32-level depth limits. No state borrow crosses await. Invalid indirection uses the existing diagnostic owner, source anchor and child containment, with status 1; selected ? errors retain the current environment-specific parameter-error status. Native/WASI fixtures include exact work/storage/field controls, lazy unsupported operands, diagnostics, side effects, frame restoration, cancellation and recovery. No process, filesystem, browser, parser or executor code is ported or changed.",
+    "localDivergence": "Only identifier pointers to identifier scalars are supported. Positional/special pointer names and targets, zero, arrays and namerefs, prefix listings, transformations/options and every generic IndirectSuffix (including indirect trim/case/replacement/substring) remain explicit status 2. All subscript-bearing target values, including malformed ones, are deliberately rejected as unsupported without interpreting their contents. Composability is through the AST scalar operators and nested operands/patterns/diagnostics/declarations; it is not a claim that indirect suffixes or indirect length work. Unlike upstream, never reparse a target string, insert sentinels, truncate an invalid-name diagnostic to 256 characters, or import accumulated output/mapfile logic. Bounded diagnostic failure uses the existing explicit limit status. The prior unsupported-operand assertion is retained with an array-pointer source (${!v[0]}) replacing its newly supported ordinary-pointer spelling; all earlier assertions and upstream parser/API/streaming files remain intact.",
+    "fixedOracleInspection": {
+      "identity": "unchanged committed docs/evidence/own-shell-oracle.json and own-shell-baseline.json",
+      "standaloneCandidateCases": [
+        "bashkit-suite:blackbox-exploration:434",
+        "bashkit-suite:indirect-expansion:1",
+        "bashkit-suite:indirect-expansion:9",
+        "bashkit-suite:indirect-expansion:17",
+        "bashkit-suite:indirect-expansion:25",
+        "bashkit-suite:string-ops:57",
+        "bashkit-suite:variables:254",
+        "bashkit-suite:variables:261"
+      ],
+      "bounds": "Candidates identified by source inspection only, not measured gains. Other failures combine unsupported arrays, namerefs, loops, options or generic indirect suffixes. Coordinator owns fresh CI, compatibility measurements and every version/baseline/score change."
+    }
   }
 }

@@ -10,6 +10,7 @@ use futures::{FutureExt, future::LocalBoxFuture};
 use shell_parser::parser::{ParameterOp, Word, WordPart};
 
 mod case;
+mod indirect;
 mod operand;
 mod pattern;
 use std::{borrow::Cow, collections::BTreeSet};
@@ -18,6 +19,11 @@ use std::{borrow::Cow, collections::BTreeSet};
 /// The interpreter supplies the shell environment's status and diagnostic line.
 pub(crate) enum Error {
     Status(i32),
+    Indirect {
+        name: String,
+        unset: bool,
+        line: Option<usize>,
+    },
     Parameter {
         name: String,
         message: String,
@@ -32,6 +38,7 @@ impl Error {
                 message,
                 line,
             },
+            Self::Indirect { name, unset, .. } => Self::Indirect { name, unset, line },
             status => status,
         }
     }
@@ -623,6 +630,27 @@ impl Expansion<'_> {
                         quoted,
                         scalar,
                         depth,
+                        None,
+                    )
+                    .await;
+            }
+            if let WordPart::IndirectExpansion {
+                name,
+                operator,
+                operand,
+                colon_variant,
+            } = part
+            {
+                return self
+                    .indirect(
+                        name,
+                        operator.as_ref(),
+                        operand,
+                        *colon_variant,
+                        state,
+                        quoted,
+                        scalar,
+                        depth,
                     )
                     .await;
             }
@@ -690,8 +718,9 @@ impl Expansion<'_> {
         quoted: bool,
         scalar: bool,
         depth: usize,
+        error_pointer: Option<&str>,
     ) -> Result<(), Error> {
-        if !operand::scalar_name(name) || depth >= operand::MAX_DEPTH {
+        if error_pointer.is_none() && !operand::scalar_name(name) || depth >= operand::MAX_DEPTH {
             return Err(2.into());
         }
         if let Some((prefix, longest)) = trim_mode(operator) {
@@ -727,7 +756,17 @@ impl Expansion<'_> {
             .is_none_or(|v| colon && v.is_empty());
         if absent && matches!(operator, ParameterOp::AssignDefault | ParameterOp::Error) {
             return self
-                .effect_operand(name, operator, operand, colon, state, quoted, scalar, depth)
+                .effect_operand(
+                    name,
+                    operator,
+                    operand,
+                    colon,
+                    state,
+                    quoted,
+                    scalar,
+                    depth,
+                    error_pointer,
+                )
                 .await;
         }
         if replacement != absent {
@@ -882,15 +921,16 @@ impl Expansion<'_> {
         quoted: bool,
         scalar: bool,
         depth: usize,
+        error_pointer: Option<&str>,
     ) -> Result<(), Error> {
         // Reserve target/diagnostic bytes before copying either name or value.
-        let overhead = name
-            .len()
-            .saturating_add(if matches!(operator, ParameterOp::Error) {
-                96
-            } else {
-                0
-            });
+        let diagnostic_bytes =
+            error_pointer.map_or(name.len(), |pointer| pointer.len().saturating_add(1));
+        let overhead = if matches!(operator, ParameterOp::Error) {
+            diagnostic_bytes.saturating_add(96)
+        } else {
+            name.len()
+        };
         let max_bytes = self.raw_remaining;
         self.work.admit_storage(overhead)?;
         let capacity = max_bytes.min(self.work.storage_remaining);
@@ -932,7 +972,8 @@ impl Expansion<'_> {
             };
             return Err(Error::Parameter {
                 line: None,
-                name: name.to_owned(),
+                name: error_pointer
+                    .map_or_else(|| name.to_owned(), |pointer| format!("!{pointer}")),
                 message,
             });
         }

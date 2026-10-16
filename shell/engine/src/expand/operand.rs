@@ -326,10 +326,12 @@ fn validate_token(token: &str) -> Result<(), Error> {
             Err(2.into())
         };
     };
-    if basic_name(body) {
+    let indirect = body.starts_with('!');
+    let body = body.strip_prefix('!').unwrap_or(body);
+    if basic_name(body) && (!indirect || scalar_name(body)) {
         return Ok(());
     }
-    if body.strip_prefix('#').is_some_and(length_name) {
+    if !indirect && body.strip_prefix('#').is_some_and(length_name) {
         return Ok(());
     }
     let name_end = body
@@ -339,7 +341,7 @@ fn validate_token(token: &str) -> Result<(), Error> {
     let suffix = &body[name_end..];
     let operator = suffix.strip_prefix(':').unwrap_or(suffix);
     let pattern = suffix.starts_with(['#', '%', '^', ',']);
-    if !scalar_name(name) || !(pattern || operator.starts_with(['-', '+', '=', '?'])) {
+    if !scalar_name(name) || !(!indirect && pattern || operator.starts_with(['-', '+', '=', '?'])) {
         return Err(2.into());
     }
     Ok(())
@@ -348,6 +350,9 @@ fn supported(part: &WordPart) -> bool {
     match part {
         WordPart::Variable(name) => basic_name(name),
         WordPart::Length(name) => length_name(name),
+        WordPart::IndirectExpansion { name, operator, .. } => {
+            scalar_name(name) && operator.as_ref().is_none_or(indirect_operator)
+        }
         WordPart::ParameterExpansion { name, operator, .. } => {
             scalar_name(name)
                 && matches!(
@@ -368,4 +373,15 @@ fn supported(part: &WordPart) -> bool {
         }
         _ => false,
     }
+}
+
+// The AST already separates these operators from arbitrary indirect suffixes.
+pub(super) fn indirect_operator(operator: &ParameterOp) -> bool {
+    matches!(
+        operator,
+        ParameterOp::UseDefault
+            | ParameterOp::UseReplacement
+            | ParameterOp::AssignDefault
+            | ParameterOp::Error
+    )
 }

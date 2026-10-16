@@ -1758,7 +1758,7 @@ fn selected_unsupported_operands_and_operator_targets_fail_without_dispatch() {
         "args ${u:-$((1+2))}",
         "args ${u:-$@}",
         "args ${u:-${PIPESTATUS[@]}}",
-        "args ${u:-${!v}}",
+        "args ${u:-${!v[0]}}",
         "args ${u:-${v/p/q}}",
         "args ${a[0]-x}",
         "args ${1-x}",
@@ -3660,3 +3660,6 @@ fn cancellation_during_redirect_target_keeps_effects_and_restores_frames() {
     assert_eq!(*rig.calls.borrow(), &[vec!["outer", "yes", "0"]]);
     assert_eq!(rig.output.bytes(), b"recovered\n");
 }
+
+#[path = "words/indirect.rs"]
+mod indirect;
