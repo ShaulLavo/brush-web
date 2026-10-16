@@ -81,7 +81,11 @@ quote protection and shared work limits. Scalar assignment operators (`=`, `:=`)
 store selected, quote-removed values without field splitting; their completed
 writes persist in the calling shell. Scalar error operators (`?`, `:?`) stop the
 containing shell, while subshells, pipeline stages and background jobs contain
-those failures. All eight forms currently require ordinary identifier targets.
+those failures. Error operands split unquoted expansions using IFS and join fields
+with ASCII spaces, preserving direct literal whitespace and inner quotes even
+when the error is selected inside a trim pattern. Surrounding quotes and scalar
+contexts do not suppress diagnostic splitting. All eight forms currently require
+ordinary identifier targets.
 Scalar length (`${#name}`) also supports ordinary identifiers, positive positional
 parameters, `$?` and `$#`; unset values have length zero. `C`/`POSIX` count bytes;
 recognized UTF-8 locales count Unicode scalar values, not grapheme clusters.

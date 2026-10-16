@@ -44,19 +44,22 @@ impl From<i32> for Error {
 /// Command-wide work accounting, including words that disappear and empty list
 /// elements. The caller supplies source + expansion + argument capacity as the
 /// step ceiling; every character, element and part also yields cooperatively.
+/// Diagnostics share the remaining command field capacity with argv/declarations.
 pub(crate) struct Work {
     remaining: usize,
     budget: Budget,
     parse_remaining: usize,
     storage_remaining: usize,
+    fields_remaining: usize,
 }
 impl Work {
-    pub(crate) fn new(steps: usize, storage: usize) -> Self {
+    pub(crate) fn new(steps: usize, storage: usize, fields: usize) -> Self {
         Self {
             remaining: steps,
             budget: Budget::default(),
             parse_remaining: steps,
             storage_remaining: storage,
+            fields_remaining: fields,
         }
     }
     fn admit_storage(&mut self, bytes: usize) -> Result<(), Error> {
@@ -65,6 +68,9 @@ impl Work {
         }
         self.storage_remaining -= bytes;
         Ok(())
+    }
+    pub(crate) fn consume_scalar_field(&mut self) {
+        self.fields_remaining = self.fields_remaining.saturating_sub(1);
     }
     async fn admit_parse(&mut self, bytes: usize, cancel: &Cancel) -> Result<(), Error> {
         if bytes > self.parse_remaining {
@@ -91,6 +97,18 @@ impl Work {
             .await
             .map_err(|_| Error::Status(130))
     }
+}
+
+fn admit_string_growth(value: &mut String, bytes: usize, work: &mut Work) -> Result<(), Error> {
+    let needed = value.len().checked_add(bytes).ok_or(2)?;
+    if needed <= value.capacity() {
+        return Ok(());
+    }
+    let capacity = needed.max(value.capacity().saturating_mul(2)).max(8);
+    work.admit_storage(capacity - value.capacity())?;
+    value
+        .try_reserve_exact(capacity - value.len())
+        .map_err(|_| Error::Status(2))
 }
 
 struct Ifs {
@@ -181,36 +199,86 @@ struct Segments {
     needs_split: bool,
     list_word: bool,
     split_space: bool,
+    account_storage: bool,
 }
 impl Segments {
-    fn character(&mut self, ch: char, protected: bool) {
+    fn admit_slot(&mut self, work: &mut Work) -> Result<(), Error> {
+        if !self.account_storage || self.parts.len() < self.parts.capacity() {
+            return Ok(());
+        }
+        let capacity = self.parts.capacity().saturating_mul(2).max(1);
+        let bytes = (capacity - self.parts.capacity())
+            .checked_mul(std::mem::size_of::<Segment>())
+            .ok_or(2)?;
+        work.admit_storage(bytes)?;
+        self.parts
+            .try_reserve_exact(capacity - self.parts.len())
+            .map_err(|_| Error::Status(2))
+    }
+    fn character(&mut self, ch: char, protected: bool, work: &mut Work) -> Result<(), Error> {
         if let Some(Segment::Text {
             value,
             protected: previous,
         }) = self.parts.last_mut()
             && *previous == protected
         {
+            if self.account_storage {
+                admit_string_growth(value, ch.len_utf8(), work)?;
+            }
             value.push(ch);
-            return;
+            return Ok(());
         }
-        self.parts.push(Segment::Text {
-            value: ch.to_string(),
-            protected,
-        });
+        self.admit_slot(work)?;
+        let value = if self.account_storage {
+            let mut value = String::new();
+            admit_string_growth(&mut value, ch.len_utf8(), work)?;
+            value.push(ch);
+            value
+        } else {
+            ch.to_string()
+        };
+        self.parts.push(Segment::Text { value, protected });
+        Ok(())
     }
-    fn empty(&mut self) {
+    fn empty(&mut self, work: &mut Work) -> Result<(), Error> {
         if !matches!(self.parts.last(), Some(Segment::Empty)) {
+            self.admit_slot(work)?;
             self.parts.push(Segment::Empty);
         }
+        Ok(())
     }
     async fn split(
         self,
-        mut ifs: Ifs,
+        ifs: Ifs,
         max_bytes: usize,
         max_fields: usize,
         work: &mut Work,
         cancel: &Cancel,
     ) -> Result<Vec<String>, Error> {
+        Ok(self
+            .collect(ifs, Fields::new(max_bytes, max_fields), work, cancel)
+            .await?
+            .out)
+    }
+    async fn join(
+        self,
+        ifs: Ifs,
+        max_bytes: usize,
+        max_fields: usize,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<String, Error> {
+        let mut fields = Fields::new(max_bytes, max_fields);
+        fields.joined = true;
+        Ok(self.collect(ifs, fields, work, cancel).await?.current)
+    }
+    async fn collect(
+        self,
+        mut ifs: Ifs,
+        mut fields: Fields,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<Fields, Error> {
         // @ uses spaces when the final IFS is empty. Positional unquoted *
         // expanded with empty IFS selects space splitting for the whole word.
         if !self.needs_split {
@@ -219,19 +287,21 @@ impl Segments {
             ifs.chars.clear();
             ifs.chars.insert(' ');
         }
-        let mut fields = Fields::new(max_bytes, max_fields);
         fields.list_word = self.list_word;
         for part in self.parts {
             fields.segment(part, &ifs, work, cancel).await?;
         }
-        fields.end_group()?;
-        Ok(fields.out)
+        fields.end_group(work)?;
+        fields.join_checkpoints(work, cancel).await?;
+        Ok(fields)
     }
 }
 
 /// Accumulates a single word's groups. IFS whitespace is deferred so an
 /// adjacent non-whitespace delimiter consumes it as one delimiter, including
 /// across segment boundaries. Empty protected segments act as text boundaries.
+/// Joined diagnostics retain all text in `current`, leaving `out` unallocated;
+/// their buffer growth and retained segments share Work's storage admission.
 struct Fields {
     out: Vec<String>,
     current: String,
@@ -242,6 +312,9 @@ struct Fields {
     bytes: usize,
     max_bytes: usize,
     max_fields: usize,
+    count: usize,
+    joined: bool,
+    join_work: usize,
 }
 impl Fields {
     fn new(max_bytes: usize, max_fields: usize) -> Self {
@@ -255,13 +328,22 @@ impl Fields {
             bytes: 0,
             max_bytes,
             max_fields,
+            count: 0,
+            joined: false,
+            join_work: 0,
         }
     }
-    fn push(&mut self) -> Result<(), Error> {
-        if self.out.len() >= self.max_fields {
+    fn push(&mut self, work: &mut Work) -> Result<(), Error> {
+        if self.count >= self.max_fields {
             return Err(2.into());
         }
-        self.out.push(std::mem::take(&mut self.current));
+        if self.joined {
+            self.start_field(work)?;
+            self.join_work += 1;
+        } else {
+            self.out.push(std::mem::take(&mut self.current));
+        }
+        self.count += 1;
         self.present = false;
         Ok(())
     }
@@ -275,11 +357,13 @@ impl Fields {
         let (value, protected) = match part {
             Segment::Empty => {
                 work.checkpoint(cancel).await?;
-                return self.text_boundary();
+                self.text_boundary(work)?;
+                return self.join_checkpoints(work, cancel).await;
             }
             Segment::ListSeparator(ch) => {
                 work.checkpoint(cancel).await?;
-                return self.character(ch, ifs.delimiter(ch));
+                self.character(ch, ifs.delimiter(ch), work)?;
+                return self.join_checkpoints(work, cancel).await;
             }
             Segment::Text { value, protected } => (value, protected),
         };
@@ -291,31 +375,44 @@ impl Fields {
             } else {
                 ifs.delimiter(ch)
             };
-            self.character(ch, delimiter)?;
+            self.character(ch, delimiter, work)?;
+            self.join_checkpoints(work, cancel).await?;
         }
         Ok(())
     }
-    fn text_boundary(&mut self) -> Result<(), Error> {
+    async fn join_checkpoints(&mut self, work: &mut Work, cancel: &Cancel) -> Result<(), Error> {
+        for _ in 0..std::mem::take(&mut self.join_work) {
+            work.checkpoint(cancel).await?;
+        }
+        Ok(())
+    }
+    fn text_boundary(&mut self, work: &mut Work) -> Result<(), Error> {
         if self.whitespace && self.present {
-            self.push()?;
+            self.push(work)?;
         }
         self.whitespace = false;
         self.leading = false;
-        if self.out.len() >= self.max_fields {
+        self.start_field(work)
+    }
+    fn start_field(&mut self, work: &mut Work) -> Result<(), Error> {
+        if self.count >= self.max_fields {
             return Err(2.into());
+        }
+        if self.joined && !self.present && self.count != 0 {
+            self.append(' ', work)?;
         }
         self.present = true;
         Ok(())
     }
-    fn character(&mut self, ch: char, delimiter: Delimiter) -> Result<(), Error> {
+    fn character(&mut self, ch: char, delimiter: Delimiter, work: &mut Work) -> Result<(), Error> {
         match delimiter {
             Delimiter::Whitespace => self.whitespace = true,
-            Delimiter::Other => self.non_whitespace()?,
-            Delimiter::Text => self.text(ch)?,
+            Delimiter::Other => self.non_whitespace(work)?,
+            Delimiter::Text => self.text(ch, work)?,
         }
         Ok(())
     }
-    fn non_whitespace(&mut self) -> Result<(), Error> {
+    fn non_whitespace(&mut self, work: &mut Work) -> Result<(), Error> {
         // Bash's list-word path trims leading IFS whitespace together
         // with its adjacent first delimiter. Protected empty prefixes are
         // text boundaries and have already ended the leading region.
@@ -323,29 +420,36 @@ impl Fields {
         self.leading = false;
         self.whitespace = false;
         if !trim {
-            self.push()?;
+            self.push(work)?;
         }
         Ok(())
     }
-    fn text(&mut self, ch: char) -> Result<(), Error> {
-        self.text_boundary()?;
+    fn text(&mut self, ch: char, work: &mut Work) -> Result<(), Error> {
+        self.text_boundary(work)?;
+        self.append(ch, work)
+    }
+    fn append(&mut self, ch: char, work: &mut Work) -> Result<(), Error> {
         if ch.len_utf8() > self.max_bytes.saturating_sub(self.bytes) {
             return Err(2.into());
+        }
+        if self.joined {
+            admit_string_growth(&mut self.current, ch.len_utf8(), work)?;
+            self.join_work += 1;
         }
         self.bytes += ch.len_utf8();
         self.current.push(ch);
         Ok(())
     }
-    fn end_group(&mut self) -> Result<(), Error> {
+    fn end_group(&mut self, work: &mut Work) -> Result<(), Error> {
         if self.present {
-            self.push()?;
+            self.push(work)?;
         }
         self.whitespace = false;
         Ok(())
     }
 }
 
-/// Only a selected assignment/error operand is retained, before field splitting.
+/// Selected assignment operands are captured before field splitting.
 /// Quote removal belongs to operand evaluation; assignment results inherit only
 /// the outer word's protection, as in Bash (unlike default/alternative results).
 struct Captured {
@@ -367,6 +471,8 @@ struct Expansion<'a> {
     captured: Option<Captured>,
     pattern: Option<pattern::Pattern>,
     pattern_context: bool,
+    // Diagnostics leave pattern syntax but retain enclosing snapshot charges.
+    pattern_snapshots: bool,
     ifs: Option<Ifs>,
     ifs_changed: bool,
     work: &'a mut Work,
@@ -392,7 +498,7 @@ impl Expansion<'_> {
         Ok(())
     }
     fn snapshot_max(&self) -> usize {
-        if !self.pattern_context {
+        if !self.pattern_snapshots {
             return self.raw_remaining;
         }
         self.raw_remaining
@@ -400,7 +506,7 @@ impl Expansion<'_> {
             .min(self.work.storage_remaining)
     }
     async fn admit_pattern_snapshot(&mut self, value: &str) -> Result<(), Error> {
-        if !self.pattern_context {
+        if !self.pattern_snapshots {
             return Ok(());
         }
         self.work.admit_storage(value.len())?;
@@ -410,7 +516,7 @@ impl Expansion<'_> {
         Ok(())
     }
     fn admit_pattern_length(&mut self, name: &str, state: &SharedState) -> Result<(), Error> {
-        if !self.pattern_context {
+        if !self.pattern_snapshots {
             return Ok(());
         }
         if !operand::length_name(name) {
@@ -437,8 +543,11 @@ impl Expansion<'_> {
         // assignment may make a previously ordinary literal a delimiter.
         for ch in value.chars() {
             self.work.checkpoint(self.cancel).await?;
-            self.segments
-                .character(ch, !matches!(ifs.delimiter(ch), Delimiter::Text));
+            self.segments.character(
+                ch,
+                !matches!(ifs.delimiter(ch), Delimiter::Text),
+                self.work,
+            )?;
         }
         Ok(())
     }
@@ -472,13 +581,14 @@ impl Expansion<'_> {
         if value.is_empty() {
             self.work.checkpoint(self.cancel).await?;
             if keeps_empty {
-                self.segments.empty();
+                self.segments.empty(self.work)?;
             }
             return Ok(());
         }
         for ch in value.chars() {
             self.work.checkpoint(self.cancel).await?;
-            self.segments.character(ch, protection.protects(ch));
+            self.segments
+                .character(ch, protection.protects(ch), self.work)?;
         }
         Ok(())
     }
@@ -668,6 +778,7 @@ impl Expansion<'_> {
             captured: None,
             pattern: Some(pattern::Pattern::default()),
             pattern_context: true,
+            pattern_snapshots: true,
             ifs: None,
             ifs_changed: false,
             work: self.work,
@@ -718,13 +829,19 @@ impl Expansion<'_> {
         self.work.admit_storage(overhead)?;
         let capacity = max_bytes.min(self.work.storage_remaining);
         let mut child = Expansion {
-            segments: Segments::default(),
-            captured: Some(Captured {
+            segments: Segments {
+                account_storage: matches!(operator, ParameterOp::Error),
+                ..Segments::default()
+            },
+            captured: (!matches!(operator, ParameterOp::Error)).then_some(Captured {
                 value: String::new(),
                 max_bytes: capacity,
             }),
             pattern: None,
-            pattern_context: self.pattern_context,
+            // Diagnostics leave the pattern context, including in nested operands.
+            pattern_context: self.pattern_context && !matches!(operator, ParameterOp::Error),
+            // Ordinary diagnostics also retain segments/output while snapshotting.
+            pattern_snapshots: self.pattern_snapshots || matches!(operator, ParameterOp::Error),
             ifs: None,
             ifs_changed: false,
             work: self.work,
@@ -733,15 +850,10 @@ impl Expansion<'_> {
             raw_remaining: capacity,
             elements_remaining: self.elements_remaining,
         };
-        child
-            .operand(source, state, quoted, scalar, depth + 1, false)
-            .await?;
-        self.raw_remaining -= capacity - child.raw_remaining;
-        let ifs_changed = child.ifs_changed || name == "IFS";
-        let captured = child.captured.take().ok_or(2)?;
-        drop(child);
-        self.work.admit_storage(captured.value.len())?;
         if matches!(operator, ParameterOp::Error) {
+            let value = child.diagnostic_operand(source, state, depth + 1).await?;
+            self.raw_remaining -= capacity - child.raw_remaining;
+            drop(child);
             let message = if source.is_empty() {
                 if colon {
                     "parameter null or not set"
@@ -750,7 +862,7 @@ impl Expansion<'_> {
                 }
                 .to_owned()
             } else {
-                captured.value
+                value
             };
             return Err(Error::Parameter {
                 line: None,
@@ -758,6 +870,14 @@ impl Expansion<'_> {
                 message,
             });
         }
+        child
+            .operand(source, state, quoted, scalar, depth + 1, false)
+            .await?;
+        self.raw_remaining -= capacity - child.raw_remaining;
+        let ifs_changed = child.ifs_changed || name == "IFS";
+        let captured = child.captured.take().ok_or(2)?;
+        drop(child);
+        self.work.admit_storage(captured.value.len())?;
         // A prefix frame may also retain the durable value it will restore.
         if state.borrow().prefix_saved(name) {
             self.work
@@ -776,6 +896,38 @@ impl Expansion<'_> {
             scalar || quoted,
         )
         .await
+    }
+    async fn diagnostic_operand(
+        &mut self,
+        source: &str,
+        state: &SharedState,
+        depth: usize,
+    ) -> Result<String, Error> {
+        // Bash expands error text independently of the surrounding context.
+        // Direct literals retain whitespace; unquoted expansions split on IFS.
+        if source.is_empty() {
+            self.work.checkpoint(self.cancel).await?;
+            return Ok(String::new());
+        }
+        let mut scanner = operand::Scanner::new(source, false, false, false);
+        while let Some(piece) = scanner.next(self.work, self.cancel).await? {
+            if let operand::Piece::Text { value, protected } = piece {
+                self.literal(value, state, protected).await?;
+                continue;
+            }
+            self.operand_piece(piece, state, false, false, depth)
+                .await?;
+        }
+        self.current_ifs(state).await?;
+        std::mem::take(&mut self.segments)
+            .join(
+                self.ifs.take().ok_or(2)?,
+                self.max_raw,
+                self.work.fields_remaining,
+                self.work,
+                self.cancel,
+            )
+            .await
     }
     async fn operand(
         &mut self,
@@ -867,7 +1019,7 @@ impl Expansion<'_> {
         };
         // Quoted '*' and every scalar context keep one field even for no values.
         if scalar || (quoted && !at) {
-            self.segments.empty();
+            self.segments.empty(self.work)?;
         }
         for index in 0..count {
             self.element_boundary(index, list, separator, quoted || scalar)
@@ -1003,6 +1155,7 @@ async fn expand(
         captured: None,
         pattern: None,
         pattern_context: false,
+        pattern_snapshots: false,
         ifs: None,
         ifs_changed: false,
         work,
@@ -1012,7 +1165,7 @@ async fn expand(
         elements_remaining: max_raw.saturating_add(max_fields),
     };
     if scalar {
-        expansion.segments.empty();
+        expansion.segments.empty(expansion.work)?;
     }
     // QuotedWord tokens set Word.quoted after parsing their unmarked text, so
     // an all-false part vector is not an override of whole-word quoting.
@@ -1055,10 +1208,13 @@ pub(crate) async fn fields(
     max_raw: usize,
     work: &mut Work,
 ) -> Result<Vec<String>, Error> {
-    expand(
+    work.fields_remaining = work.fields_remaining.min(max_fields);
+    let values = expand(
         word, state, cancel, max_bytes, max_fields, max_raw, false, work,
     )
-    .await
+    .await?;
+    work.fields_remaining = work.fields_remaining.saturating_sub(values.len());
+    Ok(values)
 }
 
 /// Assignments and redirects are scalar contexts, distinct from argv fields.
@@ -1073,4 +1229,86 @@ pub(crate) async fn word(
 ) -> Result<String, Error> {
     let values = expand(word, state, cancel, max, 1, max_raw, true, work).await?;
     Ok(values.into_iter().next().unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn join_with_storage(storage: usize, max_fields: usize) -> Result<(Fields, usize), Error> {
+        let mut work = Work::new(64, storage, max_fields);
+        let mut segments = Segments {
+            needs_split: true,
+            account_storage: true,
+            ..Segments::default()
+        };
+        for ch in "a:b".chars() {
+            segments.character(ch, false, &mut work)?;
+        }
+        let mut fields = Fields::new(3, max_fields);
+        fields.joined = true;
+        let cancel = Cancel::new();
+        let fields = segments
+            .collect(
+                Ifs {
+                    chars: BTreeSet::from([':']),
+                },
+                fields,
+                &mut work,
+                &cancel,
+            )
+            .now_or_never()
+            .expect("the tiny join uses fewer than 64 checkpoints")?;
+        Ok((fields, work.storage_remaining))
+    }
+
+    #[test]
+    fn diagnostic_join_admits_coexisting_storage_at_the_exact_boundary() {
+        // One retained segment slot and both eight-byte String capacities.
+        let storage = std::mem::size_of::<Segment>() + 8 + 8;
+        assert!(matches!(
+            join_with_storage(storage - 1, 2),
+            Err(Error::Status(2))
+        ));
+        let (fields, remaining) = join_with_storage(storage, 2)
+            .unwrap_or_else(|_| panic!("exactly admitted segment and output must fit"));
+        assert_eq!(fields.current, "a b");
+        assert_eq!(fields.count, 2);
+        assert_eq!(
+            fields.out.capacity(),
+            0,
+            "joined fields never allocate slots"
+        );
+        assert_eq!(remaining, 0);
+        assert!(matches!(
+            join_with_storage(storage, 1),
+            Err(Error::Status(2))
+        ));
+    }
+
+    #[test]
+    fn diagnostic_join_yields_and_cancels_without_returning_partial_text() {
+        let segments = Segments {
+            parts: vec![Segment::Text {
+                value: "a:".repeat(1024),
+                protected: false,
+            }],
+            needs_split: true,
+            ..Segments::default()
+        };
+        let cancel = Cancel::new();
+        let mut work = Work::new(16_384, 8192, 2048);
+        let mut join = Box::pin(segments.join(
+            Ifs {
+                chars: BTreeSet::from([':']),
+            },
+            8192,
+            2048,
+            &mut work,
+            &cancel,
+        ));
+        assert!(join.as_mut().now_or_never().is_none());
+        cancel.cancel();
+        assert!(matches!(join.now_or_never(), Some(Err(Error::Status(130)))));
+    }
 }
