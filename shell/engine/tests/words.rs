@@ -128,8 +128,8 @@ fn check_output(source: &str, expected: &str) {
 #[test]
 fn adapted_scalar_trim_examples() {
     check_output(
-        r#"x=abc; e=; echo "${x#*}|${x%*}|${x##*}|${x%%*}|[${e#*}]"; echo "${x#?}|${x%?}|${x#*?}|${x%?*}|${x##?}|${x#??}"; p=/a/b.c/d.tar.gz; echo "${p#*/*/}|${p##*.*.}|${p%/*/*}|${p#/?/}|${p%%.*}|${p##*/}""#,
-        "abc|abc|||[]\nbc|ab|bc|ab|bc|c\nb.c/d.tar.gz|gz|/a|b.c/d.tar.gz|/a/b|d.tar.gz\n",
+        r#"x=abc; e=; echo "${x#*}|${x%*}|${x##*}|${x%%*}|[${e#*}]"; echo "${x#?}|${x%?}|${x#*?}|${x%?*}|${x##?}|${x#??}"; p=/a/b.c/d.tar.gz; echo "${p#*/*/}|${p##*.*.}|${p%/*/*}|${p#/?/}|${p%%.*}|${p##*/}"; y='a*b'; q='*'; echo "${y#$q}|${y#"$q"}|${y%$q}""#,
+        "abc|abc|||[]\nbc|ab|bc|ab|bc|c\nb.c/d.tar.gz|gz|/a|b.c/d.tar.gz|/a/b|d.tar.gz\na*b|a*b|a*b\n",
     );
     check_output(
         r#"x=a.b.c; echo "${x#'a.'}" "${x%'.c'}" ${x##'a.'} "${x%%'.'*}"; X=hello.world.txt; echo ${X#*.} ${X##*.}; X=file.tar.gz; echo ${X%.*} ${X%%.*}"#,
@@ -267,6 +267,7 @@ fn unsupported_trim_targets_and_selected_patterns_fail_without_dispatch() {
             format!("args {form}"),
             format!("args ${{u:-{form}}}"),
             format!("args ${{u:={form}}}"),
+            format!("args ${{u:?{form}}}"),
         ] {
             let rig = Rig::new(Limits::default());
             rig.variable("v", "abc");
@@ -274,6 +275,15 @@ fn unsupported_trim_targets_and_selected_patterns_fail_without_dispatch() {
             assert!(rig.calls.borrow().is_empty(), "{source}");
             assert!(!rig.shell.state().borrow().variables.contains_key("u"));
         }
+    }
+    for pattern in ["@(a)", "[[:alpha:]]", "[[.a.]]", "[[=a=]]"] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("p", pattern);
+        rig.variable("v", &format!("{pattern}tail"));
+        assert_eq!(rig.run("args ${v#$p}"), 2);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.run(r#"args "${v#"$p"}""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["tail"]]);
     }
     for source in [
         "f() { args forbidden; }; X=${v#a} f",
@@ -305,6 +315,12 @@ fn trim_snapshots_patterns_results_and_fields_share_bounds() {
         ..Limits::default()
     });
     rig.variable("v", &"a".repeat(80));
+    rig.variable("n", &"x".repeat(200));
+    assert_eq!(
+        rig.run("args ${v#${#n}}"),
+        2,
+        "nested length snapshot storage"
+    );
     assert_eq!(rig.run("args ${v##*}"), 0);
     assert_eq!(
         rig.run("args ${v##*} ${v##*} ${v##*}"),
@@ -363,7 +379,10 @@ fn trim_matching_and_operand_reparsing_share_command_work() {
 
 #[test]
 fn trim_pattern_scanning_and_token_admission_yield_and_cancel() {
-    for pattern in ["$pattern".to_owned(), format!("${{{}}}", "x".repeat(3000))] {
+    for (pattern, polls) in [
+        ("$pattern".to_owned(), 4),
+        (format!("${{{}}}", "x".repeat(3000)), 80),
+    ] {
         let rig = Rig::new(Limits::default());
         rig.variable("v", "abc");
         rig.variable("scope", "outside");
@@ -375,6 +394,7 @@ fn trim_pattern_scanning_and_token_admission_yield_and_cancel() {
             ))
             .unwrap();
         rig.drive_until_variable("scope", "inside");
+        rig.ex.drive(polls);
         let peer = rig.ex.spawn(async { 42 });
         rig.ex.drive(4);
         assert!(peer.is_finished());

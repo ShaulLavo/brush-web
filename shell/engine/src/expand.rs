@@ -1,7 +1,7 @@
 //! Quote-aware fields adapted from Bashkit expansion.rs at the revision pinned
 //! in sources.lock.json. Protection and empty fields are structural, never data
 //! sentinels. Scalar parameter operands are lazy and bounded.
-//! Other operators, globbing and substitutions remain unsupported.
+//! Scalar trims use basic patterns; pathname globbing and substitutions remain unsupported.
 use crate::{
     executor::{Budget, Cancel},
     state::SharedState,
@@ -409,6 +409,18 @@ impl Expansion<'_> {
         }
         Ok(())
     }
+    fn admit_pattern_length(&mut self, name: &str, state: &SharedState) -> Result<(), Error> {
+        if !self.pattern_context {
+            return Ok(());
+        }
+        if !operand::length_name(name) {
+            return Err(2.into());
+        }
+        // A nested length retains its existing counting rules. Its transient
+        // input must also fit alongside the enclosing trim's snapshot.
+        self.work
+            .admit_storage(state.borrow().parameter(name).len())
+    }
     async fn literal(
         &mut self,
         value: &str,
@@ -501,6 +513,7 @@ impl Expansion<'_> {
                     .await;
             }
             if let WordPart::Length(name) = part {
+                self.admit_pattern_length(name, state)?;
                 return self.length(name, state, scalar || quoted, depth).await;
             }
             let value = scalar_value(part, state, self.snapshot_max())?;
