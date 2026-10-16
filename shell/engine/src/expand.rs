@@ -195,7 +195,6 @@ impl Segments {
         let mut fields = Fields::new(max_bytes, max_fields);
         fields.list_word = self.list_word;
         for part in self.parts {
-            work.checkpoint(cancel).await?;
             fields.segment(part, ifs, work, cancel).await?;
         }
         fields.end_group()?;
@@ -247,10 +246,17 @@ impl Fields {
         cancel: &Cancel,
     ) -> Result<(), Error> {
         let (value, protected) = match part {
-            Segment::Empty => return self.text_boundary(),
-            Segment::Group => return self.end_group(),
+            Segment::Empty => {
+                work.checkpoint(cancel).await?;
+                return self.text_boundary();
+            }
+            Segment::Group => {
+                work.checkpoint(cancel).await?;
+                return self.end_group();
+            }
             Segment::Text { value, protected } => (value, protected),
         };
+        // Text segments are nonempty; their first character pays for entry.
         for ch in value.chars() {
             work.checkpoint(cancel).await?;
             let delimiter = if protected {
@@ -353,12 +359,16 @@ impl Expansion<'_> {
         self.emit(value, protected, keeps_empty).await
     }
     async fn emit(&mut self, value: &str, protected: bool, keeps_empty: bool) -> Result<(), Error> {
-        self.work.checkpoint(self.cancel).await?;
         if let Some(captured) = &mut self.captured {
+            self.work.checkpoint(self.cancel).await?;
             return captured.append(value);
         }
-        if keeps_empty && value.is_empty() {
-            self.segments.empty();
+        if value.is_empty() {
+            self.work.checkpoint(self.cancel).await?;
+            if keeps_empty {
+                self.segments.empty();
+            }
+            return Ok(());
         }
         for ch in value.chars() {
             self.work.checkpoint(self.cancel).await?;
@@ -725,14 +735,9 @@ async fn expand(
     }
     for (index, part) in word.parts.iter().enumerate() {
         expansion.work.checkpoint(cancel).await?;
-        if part_quoted(word, index, has_part_quotes) && is_at(part) && !scalar {
-            expansion.segments.list_word = true;
-            break;
-        }
-    }
-    for (index, part) in word.parts.iter().enumerate() {
-        expansion.work.checkpoint(cancel).await?;
         let quoted = part_quoted(word, index, has_part_quotes);
+        // list_word is consumed only after collection, so no pre-scan is needed.
+        expansion.segments.list_word |= quoted && is_at(part) && !scalar;
         if is_list(part) {
             expansion.elements(part, state, quoted, scalar).await?;
             continue;

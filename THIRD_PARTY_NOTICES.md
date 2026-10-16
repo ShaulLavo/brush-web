@@ -125,7 +125,11 @@ protected-empty and list-group segments defer field splitting until all word
 expansions finish, so selected IFS assignments also govern earlier unquoted
 text. List joins read IFS at their expansion point. Coalesced text stays within
 the intermediate byte allowance, and collection and splitting share command
-work and cancellation checkpoints. Independent GNU Bash regressions cover these
+work and cancellation checkpoints. Original accounting records quoted-at in
+the existing part visit and uses the first character checkpoint for nonempty
+emission and split entry. Empty, captured and group-only paths keep explicit
+checkpoints; per-character work, the command ceiling and shared argv/redirect
+parser allowance are unchanged. Independent GNU Bash regressions cover these
 IFS writes with mixed quote/list boundaries and bounded cancellation. No upstream
 sentinel strings or flattened-string re-splitting are used. Assignment result
 protection,
