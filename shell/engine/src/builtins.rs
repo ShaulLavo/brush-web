@@ -149,40 +149,49 @@ pub(crate) async fn run(
         }
         "printf" => {
             let format = args.first().ok_or(2)?;
-            let mut chars = format.chars();
             let mut index = 1;
-            let mut buffer = String::new();
             let mut budget = Budget::default();
-            // Stream the format instead of creating an unbounded result buffer.
-            while let Some(ch) = chars.next() {
-                budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
-                match ch {
-                    '%' => match chars.next() {
-                        Some('s' | 'd') => {
-                            write(&fds, buffer.as_bytes(), &context).await?;
-                            buffer.clear();
-                            let arg = args.get(index).map(String::as_str).unwrap_or("");
-                            index += 1;
-                            write(&fds, arg.as_bytes(), &context).await?;
-                        }
-                        Some('%') => buffer.push('%'),
-                        _ => return Err(2),
-                    },
-                    '\\' => buffer.push(match chars.next() {
-                        Some('n') => '\n',
-                        Some('r') => '\r',
-                        Some('t') => '\t',
-                        Some('\\') => '\\',
-                        _ => return Err(2),
-                    }),
-                    _ => buffer.push(ch),
+            loop {
+                let mut chars = format.chars();
+                let mut buffer = String::new();
+                let mut consumed = false;
+                // Stream each format pass instead of creating an unbounded result buffer.
+                while let Some(ch) = chars.next() {
+                    budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
+                    match ch {
+                        '%' => match chars.next() {
+                            Some('s' | 'd') => {
+                                write(&fds, buffer.as_bytes(), &context).await?;
+                                buffer.clear();
+                                let arg = args.get(index).map(String::as_str).unwrap_or("");
+                                index += 1;
+                                consumed = true;
+                                write(&fds, arg.as_bytes(), &context).await?;
+                            }
+                            Some('%') => buffer.push('%'),
+                            _ => return Err(2),
+                        },
+                        '\\' => buffer.push(match chars.next() {
+                            Some('n') => '\n',
+                            Some('r') => '\r',
+                            Some('t') => '\t',
+                            Some('\\') => '\\',
+                            _ => return Err(2),
+                        }),
+                        _ => buffer.push(ch),
+                    }
+                    if buffer.len() >= 4096 {
+                        write(&fds, buffer.as_bytes(), &context).await?;
+                        buffer.clear();
+                    }
                 }
-                if buffer.len() >= 4096 {
-                    write(&fds, buffer.as_bytes(), &context).await?;
-                    buffer.clear();
+                write(&fds, buffer.as_bytes(), &context).await?;
+                // Bash repeats a format that consumes arguments, but a format with
+                // no consuming conversion is emitted only once.
+                if !consumed || index >= args.len() {
+                    break;
                 }
             }
-            write(&fds, buffer.as_bytes(), &context).await?;
         }
         "cat" => {
             if args.is_empty() {
