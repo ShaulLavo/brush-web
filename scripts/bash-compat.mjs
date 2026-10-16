@@ -8,19 +8,38 @@ import { availableParallelism, constants } from "node:os";
 import { basename, resolve } from "node:path";
 import { Worker } from "node:worker_threads";
 import { pythonHelpers } from "./bash-compat-helpers.mjs";
-import { bytesDigest, digest, sealOracle, verifyOracle, summarize, compareScores, validateScore } from "./shell-scoreboard.mjs";
+import { baseBranchBaseline } from "./shell-scoreboard-base.mjs";
+import {
+  bytesDigest,
+  compactResult,
+  digest,
+  sealOracle,
+  verifyOracle,
+  summarize,
+  compareScores,
+  validateScore,
+} from "./shell-scoreboard.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const pins = JSON.parse(await readFile(resolve(root, "sources.lock.json"), "utf8"));
 const mode = process.env.BASH_COMPAT_MODE ?? "live";
-if (!["live", "capture", "frozen"].includes(mode)) throw new Error(`Unknown compatibility mode: ${mode}`);
+if (!["live", "capture", "frozen"].includes(mode))
+  throw new Error(`Unknown compatibility mode: ${mode}`);
 const timeoutMs = Number(process.env.BASH_COMPAT_TIMEOUT_MS ?? 10000);
-const oracleFile = resolve(root, process.env.BASH_COMPAT_ORACLE ?? "docs/evidence/own-shell-oracle.json");
-const baselineFile = resolve(root, process.env.BASH_COMPAT_BASELINE ?? "docs/evidence/own-shell-baseline.json");
+const oracleFile = resolve(
+  root,
+  process.env.BASH_COMPAT_ORACLE ?? "docs/evidence/own-shell-oracle.json",
+);
+const baselineFile = resolve(
+  root,
+  process.env.BASH_COMPAT_BASELINE ?? "docs/evidence/own-shell-baseline.json",
+);
 const sourceFiles = {};
 const brushCorpus = resolve(root, process.env.BASH_COMPAT_BRUSH_DIR ?? "vendor/brush");
 const bashkitCorpus = resolve(root, process.env.BASH_COMPAT_BASHKIT_DIR ?? ".sources/bashkit");
-const jobs = Number(process.env.BASH_COMPAT_JOBS ?? Math.min(4, Math.max(2, availableParallelism() >> 1)));
+const jobs = Number(
+  process.env.BASH_COMPAT_JOBS ?? Math.min(4, Math.max(2, availableParallelism() >> 1)),
+);
 const onlyFiles = process.env.BASH_COMPAT_FILES?.split(",").filter(Boolean);
 const corpusNames = (process.env.BASH_COMPAT_CORPORA ?? "oils,brush-suite,bashkit-suite").split(
   ",",
@@ -34,7 +53,12 @@ const virtualTmp = "/tmp/spec";
 const virtualHome = "/home/user";
 
 const engines = {
-  "own-shell": { modulePath: resolve(root, process.env.BASH_COMPAT_SHELL_WASM ?? ".build/shell/wasm32-wasip1/release/shell-engine.wasm") },
+  "own-shell": {
+    modulePath: resolve(
+      root,
+      process.env.BASH_COMPAT_SHELL_WASM ?? ".build/shell/wasm32-wasip1/release/shell-engine.wasm",
+    ),
+  },
   brush: { modulePath: resolve(root, ".build/rust/wasm32-wasip1/release/brush-compat.wasm") },
   "bashkit-source": { modulePath: resolve(root, ".sources/bashkit/pkg") },
   "bashkit-published": { modulePath: resolve(root, "node_modules/@everruns/bashkit-wasm") },
@@ -42,12 +66,23 @@ const engines = {
   // Reference only: the same pinned Brush source built natively, with host processes.
   "brush-native": { binary: resolve(root, ".build/brush-native/release/brush") },
 };
-const engineNames = process.env.BASH_COMPAT_ENGINES?.split(",") ?? (mode === "live" ? Object.keys(engines) : ["own-shell"]);
+const engineNames =
+  process.env.BASH_COMPAT_ENGINES?.split(",") ??
+  (mode === "live" ? Object.keys(engines) : ["own-shell"]);
 if (!engineNames.length || engineNames.some((name) => !(name in engines)))
   throw new Error(`Unknown compatibility engines: ${engineNames.join(",")}`);
-if (!Number.isInteger(jobs) || jobs < 1 || jobs > 32 || !Number.isInteger(timeoutMs) || timeoutMs < 1)
+if (
+  !Number.isInteger(jobs) ||
+  jobs < 1 ||
+  jobs > 32 ||
+  !Number.isInteger(timeoutMs) ||
+  timeoutMs < 1
+)
   throw new Error("Set BASH_COMPAT_JOBS to 1..32 and BASH_COMPAT_TIMEOUT_MS to a positive integer");
-if (mode !== "live" && (onlyFiles || process.env.BASH_COMPAT_CORPORA || engineNames.join(",") !== "own-shell"))
+if (
+  mode !== "live" &&
+  (onlyFiles || process.env.BASH_COMPAT_CORPORA || engineNames.join(",") !== "own-shell")
+)
   throw new Error("Fixed scoreboard requires own-shell and the complete fixed case set");
 
 // Every non-YSH Oils spec file that compares against bash, grouped by subject.
@@ -312,14 +347,16 @@ const spotSetup =
   "printf 'apple\\nbanana\\ncherry\\nfig\\n' > fruits; printf 'apple,3\\nfig,2\\napple,5\\n' > prices; " +
   "mkdir -p d/e; printf 'fig\\n' > d/a.txt; printf 'fig\\n' > d/e/b.txt; printf 'x\\n' > d/c.md; ";
 
-const scratchRoot = process.env.BASH_COMPAT_SCRATCH ?? "/work/tmp";
+const scratchRoot = process.env.BASH_COMPAT_SCRATCH ?? process.env.RUNNER_TEMP ?? "/work/tmp";
 await mkdir(scratchRoot, { recursive: true });
 const scratch = await mkdtemp(resolve(scratchRoot, "brush-web-compat-"));
 const pools = [];
+const activeChildren = new Map();
 let finished = false;
 process.on("SIGINT", () => process.exit(130));
 process.on("SIGTERM", () => process.exit(143));
 process.on("exit", () => {
+  for (const kill of activeChildren.keys()) kill();
   if (!finished) execFileSync("rm", ["-rf", scratch]);
 });
 
@@ -456,9 +493,26 @@ async function prepareCorpus() {
 
 function prepareEngines() {
   if (engineNames.includes("own-shell") && process.env.BASH_COMPAT_SKIP_BUILD !== "1") {
-    execFileSync("cargo", ["build", "--locked", "--release", "--target", "wasm32-wasip1", "--manifest-path", "shell/Cargo.toml", "-p", "shell-engine", "-j2"], {
-      cwd: root, stdio: "inherit", env: { ...process.env, CARGO_TARGET_DIR: resolve(root, ".build/shell") },
-    });
+    execFileSync(
+      "cargo",
+      [
+        "build",
+        "--locked",
+        "--release",
+        "--target",
+        "wasm32-wasip1",
+        "--manifest-path",
+        "shell/Cargo.toml",
+        "-p",
+        "shell-engine",
+        "-j2",
+      ],
+      {
+        cwd: root,
+        stdio: "inherit",
+        env: { ...process.env, CARGO_TARGET_DIR: resolve(root, ".build/shell") },
+      },
+    );
   }
   if (engineNames.includes("brush")) {
     log("building the Brush compatibility driver");
@@ -559,7 +613,11 @@ async function loadOilsCases(corpus) {
   const cases = [];
   for (const [file, category] of listed) {
     if (onlyFiles && !onlyFiles.includes(file)) continue;
-    const text = await corpusText("oils", `spec/${file}.test.sh`, resolve(corpus, "spec", `${file}.test.sh`));
+    const text = await corpusText(
+      "oils",
+      `spec/${file}.test.sh`,
+      resolve(corpus, "spec", `${file}.test.sh`),
+    );
     for (const parsed of parseSpecFile(text))
       cases.push({
         corpus: "oils",
@@ -576,7 +634,6 @@ async function loadOilsCases(corpus) {
 // are used; cases with arguments, files, environment, terminals or skips are left out.
 async function loadBrushCases() {
   if (!corpusNames.includes("brush-suite")) return [];
-  const { parse } = await import("yaml");
   const directory = resolve(brushCorpus, "brush-shell/tests/cases/compat");
   const plain = new Set([
     "name",
@@ -590,6 +647,7 @@ async function loadBrushCases() {
   const files = (await readdir(directory, { recursive: true }))
     .filter((name) => name.endsWith(".yaml"))
     .sort();
+  const { parse } = await import("yaml");
   for (const file of files) {
     const suite = parse(await corpusText("brush-suite", file, resolve(directory, file)));
     for (const [index, entry] of (suite.cases ?? []).entries()) {
@@ -689,39 +747,95 @@ function parseSpecFile(text) {
   return cases.filter((item) => item.code);
 }
 
-function runShell(shell, code, path, sandbox = false) {
-  return new Promise(async (done) => {
-    const directory = await mkdtemp(resolve(scratch, "bash-"));
-    const tmp = resolve(directory, "tmp");
-    const home = resolve(directory, "home");
+async function runShell(shell, code, path, sandbox = false) {
+  const directory = await mkdtemp(resolve(scratch, "bash-"));
+  const tmp = resolve(directory, "tmp");
+  const home = resolve(directory, "home");
+  let kill = () => {};
+  try {
     await mkdir(tmp);
     await mkdir(home);
-    const sandboxArgs = ["--unshare-all", "--die-with-parent", "--new-session", "--ro-bind", "/usr", "/usr", "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--bind", directory, directory, "--ro-bind", resolve(scratch, "helpers"), resolve(scratch, "helpers"), "--chdir", tmp, "--", shell, "-c", code];
+    const sandboxArgs = [
+      "--unshare-all",
+      "--die-with-parent",
+      "--new-session",
+      "--ro-bind",
+      "/usr",
+      "/usr",
+      "--symlink",
+      "usr/lib",
+      "/lib",
+      "--symlink",
+      "usr/lib64",
+      "/lib64",
+      "--proc",
+      "/proc",
+      "--dev",
+      "/dev",
+      "--tmpfs",
+      "/tmp",
+      "--bind",
+      directory,
+      directory,
+      "--ro-bind",
+      resolve(scratch, "helpers"),
+      resolve(scratch, "helpers"),
+      "--ro-bind",
+      shell,
+      shell,
+      "--chdir",
+      tmp,
+      "--",
+      shell,
+      "-c",
+      code,
+    ];
     const child = spawn(sandbox ? "bwrap" : shell, sandbox ? sandboxArgs : ["-c", code], {
       cwd: tmp,
       env: { PATH: path, HOME: home, TMP: tmp, SH: "bash", LC_ALL: "C.UTF-8" },
       stdio: ["ignore", "pipe", "pipe"],
       detached: true,
     });
-    const stdout = [];
-    const stderr = [];
-    let timeout = false;
-    const kill = () => {
+    kill = () => {
       try {
         process.kill(-child.pid, "SIGKILL");
       } catch {}
     };
+    const running = collectShell(child, kill, tmp, home);
+    activeChildren.set(kill, running);
+    return await running;
+  } finally {
+    kill();
+    activeChildren.delete(kill);
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+function collectShell(child, kill, tmp, home) {
+  return new Promise((done, fail) => {
+    const stdout = [];
+    const stderr = [];
+    let timeout = false;
+    let outputLimit = false;
+    let bytes = 0;
     const timer = setTimeout(() => {
       timeout = true;
       kill();
     }, timeoutMs);
-    child.stdout.on("data", (chunk) => stdout.push(chunk));
-    child.stderr.on("data", (chunk) => stderr.push(chunk));
-    child.on("exit", () => setTimeout(kill, 200));
-    child.on("close", async (status, signal) => {
-      clearTimeout(timer);
+    const collect = (chunks, chunk) => {
+      bytes += chunk.length;
+      if (bytes <= 4 * 1024 * 1024) return chunks.push(chunk);
+      outputLimit = true;
       kill();
-      await rm(directory, { recursive: true, force: true });
+    };
+    child.stdout.on("data", (chunk) => collect(stdout, chunk));
+    child.stderr.on("data", (chunk) => collect(stderr, chunk));
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      fail(error);
+    });
+    child.once("exit", kill);
+    child.once("close", (status, signal) => {
+      clearTimeout(timer);
       done(
         normalize(
           {
@@ -729,6 +843,7 @@ function runShell(shell, code, path, sandbox = false) {
             stderr: Buffer.concat(stderr),
             status: status ?? 128 + (constants.signals[signal] ?? 0),
             timeout,
+            outputLimit,
           },
           [
             [tmp, "$TMP"],
@@ -964,7 +1079,8 @@ function buildEvidence({ bashVersion, cases, spots, inventories, inventoryNames 
     oilsFiles: categories,
     oilsExcludedFiles: excludedFiles,
     engines: {
-      "own-shell": "Original shell-engine CLI, wasm32-wasip1, in-process fixture ProcessHost on node:wasi; no browser integration",
+      "own-shell":
+        "Original shell-engine CLI, wasm32-wasip1, in-process fixture ProcessHost on node:wasi; no browser integration",
       brush: `Brush ${pins.brush.revision} with patches/brush-browser.patch, wasm32-wasip1 brush-compat driver (same brush-core, builtins and browser utilities as brush-browser.wasm) on node:wasi`,
       "bashkit-source": `Bashkit ${pins.bashkitTerminal.revision} source build (the bashkit-terminal engine's WASM), Bash.execute`,
       "bashkit-published": `@everruns/bashkit-wasm ${pins.bashkit.version}, Bash.execute`,
@@ -1067,8 +1183,6 @@ function log(message) {
   console.error(`[bash-compat] ${message}`);
 }
 
-
-
 async function corpusText(corpus, file, path) {
   const bytes = await readFile(path);
   (sourceFiles[corpus] ??= {})[file] = bytesDigest(bytes);
@@ -1082,108 +1196,213 @@ const packResult = (result) => ({
   stdout: result.stdout.toString("base64"),
   stderr: result.stderr.toString("base64"),
   ...(result.timeout ? { timeout: true } : {}),
+  ...(result.outputLimit ? { outputLimit: true } : {}),
   ...(result.crash ? { crash: result.crash } : {}),
 });
 function runtimeEnvironment() {
   return {
-    target: "wasm32-wasip1", runner: "node:wasi", nodeMajor: 26,
+    target: "wasm32-wasip1",
+    runner: "node:wasi",
+    nodeVersion: "v26.7.0",
     env: { HOME: virtualHome, TMP: virtualTmp, PWD: virtualTmp, SH: "bash", LC_ALL: "C.UTF-8" },
-    stdin: "empty", filesystem: "fresh MemoryFs, 16 MiB; no host preopens",
+    stdin: "empty",
+    filesystem: "fresh MemoryFs, 16 MiB; no host preopens",
     processHost: "InProcessHost, argv.py and printenv.py fixtures only",
-    timeoutMs, outputLimitBytes: 4 * 1024 * 1024,
-    normalization: [[virtualTmp, "$TMP"], [virtualHome, "$HOME"]],
+    timeoutMs,
+    outputLimitBytes: 4 * 1024 * 1024,
+    normalization: [
+      [virtualTmp, "$TMP"],
+      [virtualHome, "$HOME"],
+    ],
     scoring: "stdout bytes and exit status; stderr retained separately, not scored",
   };
 }
 async function captureOracle(cases, helperDirectory, bashVersion) {
+  if (process.version !== runtimeEnvironment().nodeVersion)
+    throw new Error(`Capture requires ${runtimeEnvironment().nodeVersion}, got ${process.version}`);
   if (!bashVersion.startsWith("GNU bash, version 5.3.15(1)-release"))
     throw new Error(`Expected GNU bash 5.3.15(1)-release, got ${bashVersion}`);
-  const previous = JSON.parse(await readFile(resolve(root, "docs/evidence/bash-compatibility.json"), "utf8"));
+  const previous = JSON.parse(
+    await readFile(resolve(root, "docs/evidence/bash-compatibility.json"), "utf8"),
+  );
   const classified = new Map(previous.cases.map((item) => [caseId(item), item]));
-  if (classified.size !== cases.length) throw new Error("Pinned corpus case count differs from published classification");
+  if (classified.size !== cases.length)
+    throw new Error("Pinned corpus case count differs from published classification");
   let done = 0;
-  const records = await Promise.all(cases.map(async (item) => {
-    const old = classified.get(caseId(item));
-    if (!old || old.name !== item.name || Boolean(old.excluded?.startsWith("needs Brush")) !== Boolean(item.excluded?.startsWith("needs Brush")))
-      throw new Error(`Pinned corpus case differs: ${caseId(item)}`);
-    return { id: caseId(item), corpus: item.corpus, file: item.file, line: item.line,
-      name: item.name, category: item.category ?? item.file, code: item.code,
-      ...(old.kind ? { kind: old.kind } : {}), ...(old.excluded ? { excluded: old.excluded } : {}),
-    };
-  }));
+  const records = await Promise.all(
+    cases.map(async (item) => {
+      const old = classified.get(caseId(item));
+      if (
+        !old ||
+        old.name !== item.name ||
+        Boolean(old.excluded?.startsWith("needs Brush")) !==
+          Boolean(item.excluded?.startsWith("needs Brush"))
+      )
+        throw new Error(`Pinned corpus case differs: ${caseId(item)}`);
+      return {
+        id: caseId(item),
+        corpus: item.corpus,
+        file: item.file,
+        line: item.line,
+        name: item.name,
+        category: item.category ?? item.file,
+        code: item.code,
+        ...(old.kind ? { kind: old.kind } : {}),
+        ...(old.excluded ? { excluded: old.excluded } : {}),
+        ...(old.needs ? { needs: old.needs } : {}),
+      };
+    }),
+  );
   const path = `${helperDirectory}:/usr/local/bin:/usr/bin:/bin`;
+  const preflight = await runShell(bashPath, "printf compat-oracle-ready", path, true);
+  if (preflight.status !== 0 || preflight.stdout.toString() !== "compat-oracle-ready")
+    throw new Error(`Oracle sandbox preflight failed: ${preflight.stderr.toString()}`);
   await mapLimit(records, jobs, async (item) => {
     if (item.excluded || item.kind !== "builtins-only") return;
     const first = await runShell(bashPath, item.code, path, true);
     const second = await runShell(bashPath, item.code, path, true);
     item.bash = packResult(first);
-    if (first.timeout || second.timeout) item.excluded = "fresh bash oracle timed out";
+    if (first.outputLimit || second.outputLimit)
+      item.excluded = "fresh bash oracle exceeded 4 MiB output limit";
+    else if (first.timeout || second.timeout) item.excluded = "fresh bash oracle timed out";
     else if (!same(first, second)) item.excluded = "fresh bash oracle output is not deterministic";
     if (++done % 250 === 0) log(`fresh bash oracle: ${done}`);
   });
   const oracle = sealOracle({
     schema: 1,
-    oracle: { version: bashVersion, executableSha256: bytesDigest(await readFile(bashPath)),
-      capturePlatform: process.platform, captureArch: process.arch,
-      sandbox: "bubblewrap unshare-all; /usr read-only; private case home/tmp; no network or owner files",
-      classification: "Published docs/evidence/bash-compatibility.json builtins-only membership, fresh observations; external and excluded cases retained as skips",
-      classificationSha256: bytesDigest(await readFile(resolve(root, "docs/evidence/bash-compatibility.json"))),
+    oracle: {
+      version: bashVersion,
+      executableSha256: bytesDigest(await readFile(bashPath)),
+      captureNode: process.version,
+      capturePlatform: process.platform,
+      captureArch: process.arch,
+      sandbox:
+        "bubblewrap unshare-all; /usr read-only; private case home/tmp; no network or owner files",
+      classification:
+        "Published docs/evidence/bash-compatibility.json builtins-only membership, fresh observations; external and excluded cases retained as skips",
+      classificationSha256: bytesDigest(
+        await readFile(resolve(root, "docs/evidence/bash-compatibility.json")),
+      ),
       helpersSha256: bytesDigest(await readFile(resolve(root, "scripts/bash-compat-helpers.mjs"))),
     },
     environment: runtimeEnvironment(),
     sources: {
       oils: { ...pins.oils, files: sourceFiles.oils },
       "brush-suite": { revision: pins.brush.revision, files: sourceFiles["brush-suite"] },
-      "bashkit-suite": { revision: pins.bashkitTerminal.revision, files: sourceFiles["bashkit-suite"] },
-    }, cases: records,
+      "bashkit-suite": {
+        revision: pins.bashkitTerminal.revision,
+        files: sourceFiles["bashkit-suite"],
+      },
+    },
+    cases: records,
   });
   verifyOracle(oracle);
   await writeRows(oracleFile, oracle);
   log(`wrote fresh oracle ${oracleFile}`);
-  console.log(JSON.stringify(summarize({ cases: records.map((item) => ({ ...item, outcome: item.excluded || item.kind !== "builtins-only" ? "skip" : "fail" })) }), null, 2));
+  console.log(
+    JSON.stringify(
+      summarize({
+        cases: records.map((item) => ({
+          ...item,
+          outcome: item.excluded || item.kind !== "builtins-only" ? "skip" : "fail",
+        })),
+      }),
+      null,
+      2,
+    ),
+  );
 }
 async function writeRows(path, value) {
   const rows = value.cases.map((item) => JSON.stringify(item)).join(",\n");
-  await writeFile(path, JSON.stringify({ ...value, cases: "CASES" }, null, 2).replace('"CASES"', () => `[\n${rows}\n]`) + "\n");
+  await writeFile(
+    path,
+    JSON.stringify({ ...value, cases: "CASES" }, null, 2).replace(
+      '"CASES"',
+      () => `[\n${rows}\n]`,
+    ) + "\n",
+  );
 }
 async function runFrozen() {
   const oracle = JSON.parse(await readFile(oracleFile, "utf8"));
   verifyOracle(oracle);
   if (pins.shellScoreboard?.oracleSha256 !== bytesDigest(await readFile(oracleFile)))
     throw new Error("Fixed oracle checksum differs from sources.lock.json");
-  if (oracle.sources.oils.revision !== pins.oils.revision || oracle.sources["brush-suite"].revision !== pins.brush.revision || oracle.sources["bashkit-suite"].revision !== pins.bashkitTerminal.revision)
+  if (
+    oracle.sources.oils.revision !== pins.oils.revision ||
+    oracle.sources["brush-suite"].revision !== pins.brush.revision ||
+    oracle.sources["bashkit-suite"].revision !== pins.bashkitTerminal.revision
+  )
     throw new Error("Fixed oracle source pins changed; recapture base and candidate together");
-  if (digest(oracle.environment) !== digest(runtimeEnvironment()) || Number(process.versions.node.split(".")[0]) !== oracle.environment.nodeMajor)
+  if (
+    digest(oracle.environment) !== digest(runtimeEnvironment()) ||
+    process.version !== oracle.environment.nodeVersion
+  )
     throw new Error("incomparable runtime environment");
+  const baselines = [];
+  if (process.env.BASH_COMPAT_RECORD !== "1") {
+    const committed = JSON.parse(await readFile(baselineFile, "utf8"));
+    baselines.push({ label: "committed baseline", score: committed, requireMembership: true });
+    const target = baseBranchBaseline(root, process.env.BASH_COMPAT_BASE_REF);
+    if (target) baselines.push({ label: "target branch baseline", score: target });
+    for (const baseline of baselines) validateScore(oracle, baseline.score);
+  }
   prepareEngines();
   const pool = new Pool("own-shell", jobs);
   pools.push(pool);
-  const cases = oracle.cases.map((item) => ({ id: item.id, corpus: item.corpus, category: item.category, outcome: "skip", ...(item.excluded ? { excluded: item.excluded } : {}) }));
+  const cases = oracle.cases.map((item) => ({
+    id: item.id,
+    corpus: item.corpus,
+    category: item.category,
+    kind: item.kind,
+    outcome: "skip",
+    ...(item.excluded ? { excluded: item.excluded } : {}),
+  }));
   let done = 0;
   await mapLimit(oracle.cases, jobs, async (item, index) => {
     if (item.excluded || item.kind !== "builtins-only") return;
     const actual = normalizeResult(await pool.run(item.code));
     const expected = { status: item.bash.status, stdout: Buffer.from(item.bash.stdout, "base64") };
-    const outcome = actual.timeout ? "timeout" : actual.crash ? "crash" : same(expected, actual) ? "pass" : "fail";
-    cases[index] = { ...cases[index], outcome, actual: packResult(actual) };
+    const outcome = actual.timeout
+      ? "timeout"
+      : actual.crash
+        ? "crash"
+        : same(expected, actual)
+          ? "pass"
+          : "fail";
+    cases[index] = {
+      ...cases[index],
+      outcome,
+      ...(outcome === "pass" ? {} : { actual: compactResult(actual) }),
+    };
     if (++done % 250 === 0) log(`own-shell: ${done}`);
   });
   await pool.close();
-  const score = { identity: oracle.identity, engine: "own-shell", cases };
+  const score = {
+    identity: oracle.identity,
+    engine: "own-shell",
+    counts: summarize({ cases }),
+    cases,
+  };
   validateScore(oracle, score);
   console.log(JSON.stringify({ identity: score.identity, counts: summarize(score) }, null, 2));
   if (process.env.BASH_COMPAT_OUT) await writeRows(output, score);
-  if (process.env.BASH_COMPAT_RECORD === "1") return;
-  const base = JSON.parse(await readFile(baselineFile, "utf8"));
-  validateScore(oracle, base);
-  const delta = compareScores(base, score);
-  console.log(JSON.stringify(delta, null, 2));
-  if (!delta.ok) throw new Error("own-shell corpus regression; see gained/lost/newlyFailing cases above");
+  let passed = true;
+  for (const baseline of baselines) {
+    const delta = compareScores(baseline.score, score);
+    console.log(JSON.stringify({ baseline: baseline.label, ...delta }, null, 2));
+    passed &&= delta.ok;
+    if (baseline.requireMembership)
+      compareScores(baseline.score, score, { requireMembership: true });
+  }
+  if (!passed)
+    throw new Error("own-shell corpus regression; see gained/lost/newlyFailing cases above");
 }
 
 try {
   await main();
 } finally {
+  for (const kill of activeChildren.keys()) kill();
+  await Promise.allSettled(activeChildren.values());
   for (const pool of pools) await pool.close();
   await rm(scratch, { recursive: true, force: true });
   finished = true;

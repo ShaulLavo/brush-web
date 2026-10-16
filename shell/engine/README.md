@@ -2,7 +2,8 @@
 
 This is plan 004's engine core, **not step 1's browser-worker gate**. Brush remains
 unchanged and is still the workbench default. The `shell-engine -c` executable is
-a native/WASI embedding and release-size harness; its process registry is empty.
+a native/WASI CLI and release-size harness; its process registry contains only
+the shared `argv.py` and `printenv.py` compatibility fixtures.
 It is not a new browser shell or a replacement external-command host.
 
 ## Execution contract
@@ -98,4 +99,5 @@ unwinding, inherited nonstandard descriptors, bounded captures and a slow termin
 All external programs are explicitly stand-ins. Real Bun children, Ctrl+C's
 shared interrupt word, worker exit acknowledgment, live shared files and cold
 browser startup remain step 1's unpassed gate; no browser acceptance score is
-claimed here. Step 2 will register this engine with the corpus scoreboard.
+claimed here. Step 2 registers `own-shell` with the fixed GNU bash corpus
+scoreboard through `npm run compat:shell`; see the workspace README.

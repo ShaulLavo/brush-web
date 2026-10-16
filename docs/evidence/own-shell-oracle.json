@@ -13,7 +13,6 @@
   "environment": {
     "target": "wasm32-wasip1",
     "runner": "node:wasi",
-    "nodeMajor": 26,
     "env": {
       "HOME": "/home/user",
       "TMP": "/tmp/spec",
@@ -36,7 +35,8 @@
         "$HOME"
       ]
     ],
-    "scoring": "stdout bytes and exit status; stderr retained separately, not scored"
+    "scoring": "stdout bytes and exit status; stderr retained separately, not scored",
+    "nodeVersion": "v26.7.0"
   },
   "sources": {
     "oils": {
@@ -9786,7 +9786,7 @@
     "schema": 1,
     "caseSet": "3c38e4fb351a85ad936d1d324fcd80d75321d20089535b947d23c406ab2b7c5a",
     "oracle": "2400cabaca2767307b326d625106d327d159cad9b6bf84279de5feebc9e4ba22",
-    "environment": "9b42d7797f401ffed5819d3e9981bd8cb47092dbbbf15953acbcd1ee5b66eb41",
+    "environment": "507eb1db0221423576b1a0daba7d79a7b2bc3fbbac1a5d86af3a00bc65b29e6a",
     "sources": "6da342fee1380a0932f51e9cbcd306595dee8b77ffda024c591486365372345d"
   }
 }

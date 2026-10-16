@@ -1,6 +1,6 @@
 {
   "name": "brush-web",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "private": true,
   "type": "module",
   "scripts": {
@@ -32,8 +32,10 @@
     "build:programs": "node scripts/build-programs.mjs",
     "measure:external": "node scripts/measure-external.mjs",
     "test:process": "node scripts/test-process-host.mjs",
-    "build:shell": "cargo build --locked --release --target wasm32-wasip1 --manifest-path shell/Cargo.toml --workspace",
-    "test:shell:wasi": "node scripts/test-shell-wasi.mjs"
+    "build:shell": "CARGO_TARGET_DIR=.build/shell cargo build --locked --release --target wasm32-wasip1 --manifest-path shell/Cargo.toml --workspace",
+    "test:shell:wasi": "node scripts/test-shell-wasi.mjs",
+    "test:shell:scoreboard": "node --test scripts/test-shell-scoreboard*.mjs scripts/test-compat-selection.mjs scripts/test-own-shell-runner.mjs",
+    "compat:shell": "BASH_COMPAT_MODE=frozen BASH_COMPAT_ENGINES=own-shell node scripts/bash-compat.mjs"
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "0.4.2",

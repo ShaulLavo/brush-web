@@ -66,12 +66,14 @@ function brushRunner() {
       let written = 0;
       let instance;
       const wasiImports = { ...wasi.wasiImport };
-      if (engine === "own-shell") wasiImports.fd_write = (fd, iovs, count, result) => {
-        const memory = new DataView(instance.exports.memory.buffer);
-        for (let index = 0; index < count; index++) written += memory.getUint32(iovs + index * 8 + 4, true);
-        if (written > 4 * 1024 * 1024) throw new Error("compatibility output limit exceeded");
-        return wasi.wasiImport.fd_write(fd, iovs, count, result);
-      };
+      if (engine === "own-shell")
+        wasiImports.fd_write = (fd, iovs, count, result) => {
+          const memory = new DataView(instance.exports.memory.buffer);
+          for (let index = 0; index < count; index++)
+            written += memory.getUint32(iovs + index * 8 + 4, true);
+          if (written > 4 * 1024 * 1024) throw new Error("compatibility output limit exceeded");
+          return wasi.wasiImport.fd_write(fd, iovs, count, result);
+        };
       instance = new WebAssembly.Instance(module, {
         wasi_snapshot_preview1: wasiImports,
         browser,

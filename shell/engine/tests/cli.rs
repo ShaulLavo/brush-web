@@ -28,6 +28,7 @@ fn cli_installs_shared_compatibility_helpers_and_environment() {
     let output = Command::new(env!("CARGO_BIN_EXE_shell-engine"))
         .args(["-c", "argv.py a 'b c'; printenv.py HOME MISSING"])
         .env("HOME", "/home/fixture")
+        .env_remove("MISSING")
         .output()
         .unwrap();
     assert!(output.status.success());
