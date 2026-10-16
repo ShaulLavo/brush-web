@@ -405,3 +405,26 @@ fn compound_redirect_lines_follow_the_grammar_and_survive_function_storage() {
         );
     }
 }
+
+#[test]
+fn replacement_operands_retain_nested_slashes_and_quotes() {
+    for source in [
+        r#"args ${v/${p:-a/b}/${r:-x/y}}tail"#,
+        r#"args "${v/'a/b'/'x/y'}"tail"#,
+    ] {
+        let word = argument(source);
+        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0] else {
+            panic!("lost replacement: {word:?}");
+        };
+        let ParameterOp::ReplaceFirst {
+            pattern,
+            replacement,
+        } = operator
+        else {
+            panic!("lost replacement operator: {word:?}");
+        };
+        assert!(pattern.contains("a/b"), "{word:?}");
+        assert!(replacement.contains("x/y"), "{word:?}");
+        assert!(matches!(word.parts.last(), Some(WordPart::Literal(tail)) if tail == "tail"));
+    }
+}

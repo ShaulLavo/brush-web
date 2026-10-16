@@ -338,7 +338,7 @@ fn validate_token(token: &str) -> Result<(), Error> {
     let name = &body[..name_end];
     let suffix = &body[name_end..];
     let operator = suffix.strip_prefix(':').unwrap_or(suffix);
-    let trim = suffix.starts_with(['#', '%']);
+    let trim = suffix.starts_with(['#', '%', '/']);
     if !scalar_name(name) || !(trim || operator.starts_with(['-', '+', '=', '?'])) {
         return Err(2.into());
     }
@@ -360,6 +360,8 @@ fn supported(part: &WordPart) -> bool {
                         | ParameterOp::RemovePrefixLong
                         | ParameterOp::RemoveSuffixShort
                         | ParameterOp::RemoveSuffixLong
+                        | ParameterOp::ReplaceFirst { .. }
+                        | ParameterOp::ReplaceAll { .. }
                 )
         }
         _ => false,

@@ -2,7 +2,7 @@
 //! and glob.rs::glob_match_steps at the pinned revision in sources.lock.json.
 //! This matcher advances all basic-glob states over borrowed character slices.
 //! It allocates no candidate strings and never treats exhausted work as a miss.
-use super::{Error, Protection, Work};
+use super::{Error, Protection, Work, admit_vec_slot};
 use crate::executor::Cancel;
 use std::mem::size_of;
 
@@ -24,7 +24,7 @@ impl Pattern {
         protection: Protection,
         work: &mut Work,
     ) -> Result<(), Error> {
-        work.admit_storage(size_of::<Character>())?;
+        admit_vec_slot(&mut self.chars, work)?;
         self.chars.push(Character {
             value,
             protected: protection.protects(value),
@@ -90,16 +90,57 @@ impl Pattern {
     }
     async fn compile(&mut self, work: &mut Work, cancel: &Cancel) -> Result<Vec<Atom>, Error> {
         self.normalize(work, cancel).await?;
+        self.atoms(0, work, cancel).await
+    }
+    async fn atoms(
+        &self,
+        mut index: usize,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<Vec<Atom>, Error> {
         let mut atoms = Vec::new();
-        let mut index = 0;
         while index < self.chars.len() {
             work.checkpoint(cancel).await?;
             let (atom, next) = self.atom(index, work, cancel).await?;
-            work.admit_storage(size_of::<Atom>())?;
+            admit_vec_slot(&mut atoms, work)?;
             atoms.push(atom);
             index = next;
         }
         Ok(atoms)
+    }
+    pub(super) async fn replacement(
+        mut self,
+        global: bool,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<Search, Error> {
+        self.normalize(work, cancel).await?;
+        let anchor = if !global && self.active(0, '#') {
+            Anchor::Start
+        } else if !global && self.active(0, '%') {
+            Anchor::End
+        } else {
+            Anchor::None
+        };
+        let atoms = self
+            .atoms(usize::from(anchor != Anchor::None), work, cancel)
+            .await?;
+        let count = atoms.len().checked_add(1).ok_or(2)?;
+        work.admit_storage(count.checked_mul(size_of::<bool>()).ok_or(2)?)?;
+        let mut states = Vec::new();
+        states
+            .try_reserve_exact(count)
+            .map_err(|_| Error::Status(2))?;
+        for _ in 0..count {
+            work.checkpoint(cancel).await?;
+            states.push(false);
+        }
+        Ok(Search {
+            pattern: self,
+            atoms,
+            states,
+            anchor,
+        })
     }
     async fn atom(
         &self,
@@ -197,6 +238,9 @@ impl Pattern {
         }
         let mut states = Vec::new();
         work.admit_storage(atoms.len().saturating_add(1))?;
+        states
+            .try_reserve_exact(atoms.len().saturating_add(1))
+            .map_err(|_| Error::Status(2))?;
         states.push(true);
         for atom in &atoms {
             work.checkpoint(cancel).await?;
@@ -238,9 +282,10 @@ impl Pattern {
         value: char,
         work: &mut Work,
         cancel: &Cancel,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let mut previous = states[0];
         states[0] = false;
+        let mut live = false;
         for (index, atom) in atoms.iter().enumerate() {
             work.checkpoint(cancel).await?;
             let old = states[index + 1];
@@ -250,8 +295,83 @@ impl Pattern {
                 previous && self.matches(atom, value, work, cancel).await?
             };
             previous = old;
+            live |= states[index + 1];
         }
-        Ok(())
+        Ok(live)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Anchor {
+    None,
+    Start,
+    End,
+}
+
+pub(super) struct Search {
+    pattern: Pattern,
+    atoms: Vec<Atom>,
+    states: Vec<bool>,
+    anchor: Anchor,
+}
+impl Search {
+    pub(super) fn anchored(&self) -> bool {
+        self.anchor != Anchor::None
+    }
+    pub(super) async fn find(
+        &mut self,
+        value: &str,
+        mut start: usize,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<Option<(usize, usize)>, Error> {
+        if self.atoms.is_empty() && self.anchor == Anchor::None {
+            return Ok(None);
+        }
+        loop {
+            work.checkpoint(cancel).await?;
+            if start == value.len() && !value.is_empty() && self.anchor != Anchor::End {
+                return Ok(None);
+            }
+            if let Some(end) = self.longest(value, start, work, cancel).await? {
+                return Ok(Some((start, end)));
+            }
+            if self.anchor == Anchor::Start || start == value.len() {
+                return Ok(None);
+            }
+            start += value[start..].chars().next().ok_or(2)?.len_utf8();
+        }
+    }
+    async fn longest(
+        &mut self,
+        value: &str,
+        start: usize,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<Option<usize>, Error> {
+        self.states[0] = true;
+        for (index, atom) in self.atoms.iter().enumerate() {
+            work.checkpoint(cancel).await?;
+            self.states[index + 1] = matches!(atom, Atom::Star) && self.states[index];
+        }
+        let mut matched = (self.states[self.atoms.len()]
+            && (self.anchor != Anchor::End || start == value.len()))
+        .then_some(start);
+        for (offset, ch) in value[start..].char_indices() {
+            work.checkpoint(cancel).await?;
+            let live = self
+                .pattern
+                .advance(&self.atoms, &mut self.states, ch, work, cancel)
+                .await?;
+            let end = start + offset + ch.len_utf8();
+            if self.states[self.atoms.len()] && (self.anchor != Anchor::End || end == value.len()) {
+                matched = Some(end);
+            }
+            if !live {
+                break;
+            }
+        }
+        Ok(matched)
     }
 }
 

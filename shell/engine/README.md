@@ -104,6 +104,22 @@ GNU Bash probes under `LC_ALL=C.UTF-8`. Byte-oriented non-UTF-8 matching and loc
 collation are deferred. Selected extglob, named classes and collating/equivalence
 symbols return status 2. The matcher allocates no candidate strings; snapshots,
 pattern/state storage and all matching steps share command bounds and cancellation.
+Scalar replacement supports `${v/p/r}`, `${v//p/r}`, `${v/#p/r}` and
+`${v/%p/r}` for ordinary identifiers and the same basic UTF-8 patterns. Matches
+are leftmost-longest. A leading unprotected `#`/`%` in an expanded first pattern
+anchors it; global patterns treat those characters literally. Unset targets
+skip operands, while set-empty targets evaluate them. Patterns expand before
+replacements, even when nothing matches. Inner pattern quotes protect matching;
+inner replacement quotes and escapes control Bash 5.3's default
+`patsub_replacement` ampersands. Outer quotes protect only the result, whose
+unquoted text uses final IFS. Assignment, declaration and redirect contexts
+retain scalar behavior. Matching allocates no candidate strings or range list;
+search, snapshots, replacement retention and output share command bounds and
+cancellation checkpoints. Exhaustion fails with status 2 before dispatch;
+cancellation returns 130. Arrays, namerefs, option changes, byte locales and
+locale collation are outside this subset. Selected unsupported syntax fails
+closed. Empty patterns are inert except first-replacement empty anchors;
+global empty matches advance without revisiting the end of nonempty input.
 Other parameter operators, pathname globbing, substitution, arrays, traps, aliases,
 `lastpipe`, directory validation and full utility option coverage are not
 implemented. Unsupported AST forms return status 2. Utility names/format options

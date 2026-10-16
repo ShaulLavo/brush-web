@@ -122,6 +122,238 @@ fn check_output(source: &str, expected: &str) {
     assert_eq!(rig.output.bytes(), expected.as_bytes(), "{source}");
 }
 
+// Scalar replacements adapt the pinned Bashkit specs; Bash 5.3 controls also
+// cover default patsub_replacement semantics and bounded engine behavior.
+#[test]
+fn scalar_replace_frozen_oracle_controls() {
+    check_output(
+        r#"v=abcde; echo ${v/c*/XX}; s=xx_xx_xx; echo ${s/xx?/yy_} ${s//xx?/yy_}; echo ${s/?xx/_yy} ${s/#?xx/_yy}; echo ${s/?xx/_yy} ${s/%?xx/_yy}; s=xx_xx; echo ${s/xx/yy} ${s//xx/yy} ${s/#xx/yy} ${s/%xx/yy}; s='begin <html></html> end'; echo ${s/<*>/[]}; x=abc; echo ${x/#a/X} ${x/%c/Y} ${x/b}; r='\0$1'; echo ${x/b/$r}; x=abab; echo ${x/b/X} ${x//b/X}"#,
+        "abXX\nyy_xx_xx yy_yy_xx\nxx_yy_xx xx_xx_xx\nxx_yy_xx xx_xx_yy\nyy_xx yy_yy yy_xx xx_yy\nbegin [] end\nXbc abY ac\na\\0$1c\naXab aXaX\n",
+    );
+}
+
+#[test]
+fn scalar_replace_adapted_prefix_suffix_paths() {
+    check_output(
+        r#"s=/usr/local/bin; echo "${s/#\/usr/PREFIX}"; s=hello.txt; echo "${s/%.txt/.md}""#,
+        "PREFIX/local/bin\nhello.md\n",
+    );
+}
+
+#[test]
+fn scalar_replace_quote_escape_and_ampersand_controls() {
+    check(
+        r#"v=abc; r='&'; args "${v/b/&}" "${v/b/\&}" "${v/b/"&"}" "${v/b/'&'}" "${v/b/\q}" "${v/b/\\&}" "${v/b/$r}" "${v/b/"$r"}"; r='\&'; args "${v/b/$r}" "${v/b/"$r"}"; args "${v/b/${q:-"&"}}" "${v/b/${s:='&'}}"; args ${v/b/'a b'} "${v/b/'a b'}""#,
+        &[
+            &["abc", "a&c", "a&c", "a&c", "aqc", "a\\bc", "abc", "a&c"],
+            &["a&c", "a\\&c"],
+            &["a&c", "abc"],
+            &["aa", "bc", "aa bc"],
+        ],
+    );
+}
+
+#[test]
+fn scalar_replace_escape_boundaries_and_empty_matches() {
+    check(
+        r#"v=abc; r='\'; args "${v/b/${r}'&'}" "${v/b/${r}"&"}" "${v/b/${r}&}" "${v/b/${r}\&}"; r='\q'; args "${v/b/$r}"; r='abc\'; args "${v/b/$r}"; args "${v//a*/X}" "${v//b*/X}" "${v//z*/X}" "${v/%*/X}" "${v/#*/X}"; e=; args "${e/*/X}" "${e//*/&X&}" "${e//''/X}"; v=; args "${v/${v:=a}/X}" "$v""#,
+        &[
+            &["a\\bc", "a\\bc", "a&c", "a\\bc"],
+            &["a\\qc"],
+            &["aabc\\c"],
+            &["X", "aX", "abc", "X", "X"],
+            &["X", "X", ""],
+            &["", "a"],
+        ],
+    );
+}
+
+#[test]
+fn scalar_replace_empty_unset_effects_and_lazy_controls() {
+    check(
+        r#"v=abc; args "${v/${p:=b}/${r:=$p}}" "$p" "$r"; args "${v/z/${side:=X}}" "$side"; e=; args "${e//*/X}" "${e/#/X}" "${e/%/X}" "${u//*/X}"; args "${e/${a:=b}/${b:=X}}" "$a" "$b" "${u/${c:=a}/${d:=Y}}" "$c" "$d"; args "${set:-${v/b/X}}" "${set+${v/$(args forbidden)/X}}" "${u/${bad:?forbidden}/X}""#,
+        &[
+            &["abc", "b", "b"],
+            &["abc", "X"],
+            &["X", "X", "X", ""],
+            &["", "b", "X", "", "", ""],
+            &["aXc", "", ""],
+        ],
+    );
+}
+
+#[test]
+fn scalar_replace_longest_anchors_and_basic_pattern_controls() {
+    check(
+        r#"v=xaYaZ; args "${v/a*/-}" "${v/a?/-}" "${v//a?/-}" "${v/[aY]/-}" "${v//[!a]/.}"; v=abc; p='#a'; args "${v/$p/X}" "${v/"$p"/X}" "${v/'#'a/X}" "${v/\#a/X}" "${v/#/X}" "${v/%/X}" "${v//#/X}" "${v//%/X}" "${v//''/X}" "${v//*/&-&}"; v='#abc'; args "${v//#a/X}"; v='a*b/c'; args "${v/'*'/X}" "${v/\*/X}" "${v/'/'/X}" "${v/"/"/X}"; v='/a/b'; args "${v////X}" "${v/\//X}"; v='é🙂é'; args "${v//?/X}" "${v/%[é]/X}""#,
+        &[
+            &["x-", "x-aZ", "x--", "x-YaZ", ".a.a."],
+            &[
+                "Xbc", "abc", "abc", "abc", "Xabc", "abcX", "abc", "abc", "abc", "abc-abc",
+            ],
+            &["Xbc"],
+            &["aXb/c", "aXb/c", "a*bXc", "a*bXc"],
+            &["XaXb", "Xa/b"],
+            &["XXX", "é🙂X"],
+        ],
+    );
+}
+
+#[test]
+fn scalar_replace_nested_slashes_scalar_contexts_and_final_ifs() {
+    check(
+        r#"v='a/b a/b'; args "${v/${p:-a/b}/${r:-x/y}}"; out=${v//a/X Y}; export declared=${v//a/X Y}; args "$out" "$declared"; v=abc; args "${v/b/sink}" >${v/b/file}; v='a:b:c'; IFS=; args ${v/b/${IFS:=:}}; args "${v/b/${q:-"&"}}"; f() { local target=${v/%c/X}; args "$target"; }; f"#,
+        &[
+            &["x/y a/b"],
+            &["X Y/b X Y/b", "X Y/b X Y/b"],
+            &["asinkc"],
+            &["a", "", "", "c"],
+            &["a:&:c"],
+            &["a:b:X"],
+        ],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run("v=abc; args ${v/b/${missing:?failed}}; args forbidden"),
+        127
+    );
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(
+        rig.errors.bytes(),
+        b"/usr/bin/bash: line 1: missing: failed\n"
+    );
+}
+
+#[test]
+fn scalar_replace_unsupported_selected_syntax_fails_without_dispatch() {
+    for source in [
+        "args ${1/a/b}",
+        "args ${v[0]/a/b}",
+        "args ${v/@(a)/b}",
+        "args ${v/[[:alpha:]]/b}",
+        "args ${v/[[.a.]]/b}",
+        "args ${v/a/$(args forbidden)}",
+        "args ${v/a/~}",
+    ] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("v", "abc");
+        assert_eq!(rig.run(source), 2, "{source}");
+        assert!(rig.calls.borrow().is_empty(), "{source}");
+        assert_eq!(rig.run("args recovered"), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["recovered"]]);
+    }
+}
+
+#[test]
+fn scalar_replace_snapshots_storage_raw_fields_and_work_are_shared() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 256,
+        ..Limits::default()
+    });
+    rig.variable("v", &"a".repeat(257));
+    assert_eq!(rig.run("args ${v//*/}"), 2);
+    rig.variable("v", "aaaa");
+    rig.variable("r", &"x".repeat(100));
+    assert_eq!(rig.run("args ${v//a/$r}"), 2);
+    rig.variable("r", "X");
+    rig.variable("p", &"a".repeat(40));
+    assert_eq!(rig.run("args ${v/$p/}"), 2);
+    assert!(rig.calls.borrow().is_empty());
+    let rig = Rig::new(Limits {
+        arguments: 3,
+        ..Limits::default()
+    });
+    rig.variable("v", "a a a");
+    assert_eq!(rig.run("args ${v//a/x}"), 2);
+    assert!(rig.calls.borrow().is_empty());
+    let rig = Rig::new(Limits {
+        source_bytes: 256,
+        expansion_bytes: 8192,
+        arguments: 16,
+        ..Limits::default()
+    });
+    rig.variable("v", &"a".repeat(1000));
+    assert_eq!(rig.run("args ${v/*z/}"), 2, "bounded unsuccessful search");
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.run("args recovered"), 0);
+}
+
+#[test]
+fn scalar_replace_repeated_results_and_redirects_share_snapshot_storage() {
+    let rig = Rig::new(Limits {
+        source_bytes: 8192,
+        expansion_bytes: 512,
+        arguments: 16,
+        ..Limits::default()
+    });
+    rig.variable("v", &"a".repeat(200));
+    assert_eq!(rig.run("args ${v//*/} ${v//*/}"), 0);
+    assert_eq!(rig.run("args ${v//*/} ${v//*/} ${v//*/}"), 2);
+    assert_eq!(rig.run("args ${v//*/} >${v//*/}sink ${v//*/}"), 2);
+    assert_eq!(*rig.calls.borrow(), &[Vec::<String>::new()]);
+    let rig = Rig::new(Limits::default());
+    rig.variable("v", &"a".repeat(12_001));
+    assert_eq!(rig.run("args ${v//a/X}"), 0, "no upstream 10000-match cap");
+    assert_eq!(*rig.calls.borrow(), &[vec!["X".repeat(12_001)]]);
+}
+
+#[test]
+fn scalar_replace_rhs_cancellation_restores_prefix_frames() {
+    for operand in ["${v//a/X}", "${u:-${v/a/X}}"] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("v", &"a".repeat(150_000));
+        rig.variable("result", "outside");
+        let job = rig
+            .shell
+            .start(&format!("TEMP=value result={operand} args"))
+            .unwrap();
+        rig.drive_until_variable("TEMP", "value");
+        let peer = rig.ex.spawn(async { 42 });
+        rig.ex.drive(4);
+        assert!(peer.is_finished());
+        assert!(!job.is_finished());
+        rig.shell.interrupt();
+        assert_eq!(rig.finish(job), 130);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.run(r#"args "${TEMP-unset}" "$result" "$#""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["unset", "outside", "0"]]);
+    }
+}
+
+#[test]
+fn scalar_replace_search_and_emission_yield_cancel_and_restore_frames() {
+    for (value, source, marker) in [
+        (
+            "a".repeat(6000),
+            "args ${v/${started:=z}*?*?*?*?*?*?*?/X}",
+            "z",
+        ),
+        ("a".repeat(6000), "args ${v//${started:=a}/&&&&}", "a"),
+        ("a".repeat(6000), "args ${v/a/${started:=X}$r}", "X"),
+    ] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("v", &value);
+        rig.variable("r", &"x".repeat(100_000));
+        rig.variable("scope", "outside");
+        let job = rig
+            .shell
+            .start(&format!(
+                "f() {{ local scope=inside; {source}; }}; f argument"
+            ))
+            .unwrap();
+        rig.drive_until_variable("started", marker);
+        let peer = rig.ex.spawn(async { 42 });
+        rig.ex.drive(4);
+        assert!(peer.is_finished());
+        assert!(!job.is_finished());
+        rig.shell.interrupt();
+        assert_eq!(rig.finish(job), 130);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.run(r#"args "$scope" "$#" "$1" "$started""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["outside", "0", "", marker]]);
+    }
+}
+
 // Scalar cases adapted from Bashkit 491c3281's remove-pattern-glob,
 // param-operand-quotes and variables specs. Other cases use focused GNU Bash
 // probes under LC_ALL=C.UTF-8, with engine-specific limit/cancellation checks.

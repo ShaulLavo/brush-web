@@ -4641,86 +4641,17 @@ impl<'a> Parser<'a> {
                         } else {
                             false
                         };
-                        let mut pattern = String::new();
-                        // `${x///}`, `${x////c}`: the pattern
-                        // cannot be empty, so a `/` right after
-                        // `//` is the pattern itself.
-                        if replace_all && chars.peek() == Some(&'/') {
+                        let slash_pattern = replace_all && chars.peek() == Some(&'/');
+                        if slash_pattern {
                             chars.next();
-                            pattern.push('/');
                         }
-                        let mut in_dq = false;
-                        while let Some(&ch) = chars.peek() {
-                            if ch == '\x00' {
-                                pattern.push(chars.next().unwrap());
-                                if let Some(n) = chars.next() {
-                                    pattern.push(n);
-                                }
-                                continue;
-                            }
-                            if ch == '"' {
-                                in_dq = !in_dq;
-                            } else if !in_dq && (ch == '/' || ch == '}') {
-                                break;
-                            }
-                            if ch == '\\' {
-                                chars.next();
-                                if let Some(&next) = chars.peek()
-                                    && next == '/'
-                                {
-                                    pattern.push(chars.next().unwrap());
-                                    continue;
-                                }
-                                pattern.push('\\');
-                                if let Some(n) = chars.next() {
-                                    pattern.push(n);
-                                }
-                                continue;
-                            }
-                            pattern.push(chars.next().unwrap());
+                        let mut pattern = self.read_replace_operand(chars, true);
+                        if slash_pattern {
+                            pattern.insert(0, '/');
                         }
                         let replacement = if chars.peek() == Some(&'/') {
                             chars.next();
-                            let mut repl = String::new();
-                            let mut in_dq = false;
-                            while let Some(&ch) = chars.peek() {
-                                if ch == '\x00' {
-                                    repl.push(chars.next().unwrap());
-                                    if let Some(n) = chars.next() {
-                                        repl.push(n);
-                                    }
-                                    continue;
-                                }
-                                if ch == '"' {
-                                    in_dq = !in_dq;
-                                } else if ch == '\'' && !in_dq {
-                                    // `"${y/b/'}'}"`: a single-quoted span
-                                    // hides `}`; the expansion quote-removes it.
-                                    repl.push(chars.next().unwrap());
-                                    for q in chars.by_ref() {
-                                        repl.push(q);
-                                        if q == '\'' {
-                                            break;
-                                        }
-                                    }
-                                    continue;
-                                } else if ch == '\\' {
-                                    repl.push(chars.next().unwrap());
-                                    if let Some(n) = chars.next() {
-                                        // `\/` is a literal slash, as in the
-                                        // pattern (bash removes the backslash).
-                                        if n == '/' {
-                                            repl.pop();
-                                        }
-                                        repl.push(n);
-                                    }
-                                    continue;
-                                } else if !in_dq && ch == '}' {
-                                    break;
-                                }
-                                repl.push(chars.next().unwrap());
-                            }
-                            repl
+                            self.read_replace_operand(chars, false)
                         } else {
                             String::new()
                         };
@@ -5056,7 +4987,45 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// Read operand for brace expansion (everything until closing brace)
+    /// A replacement delimiter belongs only to the outer, unquoted pattern.
+    /// Nested scalar/command operands keep their own slashes and quote context.
+    fn read_replace_operand(&self, chars: &mut WordChars<'_>, pattern: bool) -> String {
+        let mut out = String::new();
+        let mut depth = 0usize;
+        let mut quote = None;
+        while let Some(&ch) = chars.peek() {
+            if depth == 0 && quote.is_none() && (ch == '}' || pattern && ch == '/') {
+                break;
+            }
+            chars.next();
+            out.push(ch);
+            if matches!(ch, '\x00' | '\\') {
+                out.extend(chars.next());
+                continue;
+            }
+            if ch == '$' && chars.peek() == Some(&'(') {
+                out.push(chars.next().unwrap());
+                copy_replace_substitution(chars, &mut out);
+                continue;
+            }
+            if depth == 0 && quote == Some(ch) {
+                quote = None;
+                continue;
+            }
+            if depth == 0 && quote.is_none() && matches!(ch, '\'' | '"') {
+                quote = Some(ch);
+                continue;
+            }
+            if ch == '{' {
+                depth += 1;
+            } else if ch == '}' && depth > 0 {
+                depth -= 1;
+            }
+        }
+        out
+    }
+
+    /// Read operand for brace expansion (everything until closing brace).
     fn read_brace_operand(&self, chars: &mut WordChars<'_>) -> String {
         let mut operand = String::new();
         let mut depth = 1; // Track nested braces
@@ -5095,6 +5064,16 @@ impl<'a> Parser<'a> {
             }
         }
         operand
+    }
+}
+
+fn copy_replace_substitution(chars: &mut WordChars<'_>, out: &mut String) {
+    let mut scanner = subst_scan::SubstScanner::new();
+    for ch in chars.by_ref() {
+        out.push(ch);
+        if scanner.feed(ch) == subst_scan::Step::Close {
+            break;
+        }
     }
 }
 
