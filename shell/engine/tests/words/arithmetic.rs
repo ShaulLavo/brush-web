@@ -356,3 +356,12 @@ fn cancelling_positional_slice_emission_keeps_writes_and_unwinds_function_argume
     assert_eq!(rig.run("args \"$#\" \"$started\""), 0);
     assert_eq!(*rig.calls.borrow(), [vec!["0", "1"]]);
 }
+
+#[test]
+fn whole_script_parsing_preserves_empty_alias_arithmetic_compatibility() {
+    for name in ["a", "empty_word", "_drop7"] {
+        let source =
+            format!("shopt -s expand_aliases\nalias {name}=\n{name} (( value = 0 ))\necho done");
+        check_output(&source, "done\n");
+    }
+}

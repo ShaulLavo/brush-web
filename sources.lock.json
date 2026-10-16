@@ -193,6 +193,15 @@
         "classification": "Original bounded parser corrections in the owned Bashkit-derived parser; no additional upstream code copied.",
         "change": "Recognize ${#:offset:length} as substring of the scalar positional count, not length. Reject remaining same-line tokens after parse_command_list finishes a compound command or its redirects instead of silently accepting a second command without a separator. Retain every upstream assertion; add hash-slice and separator controls. Classify malformed special-parameter length spellings as delayed bad substitutions while retaining valid scalar hash trim and substring headers.",
         "reason": "Arithmetic slice foundations use the existing parser to validate Bash shell-word <(...)/>(...) boundaries; silently accepting (x)+(y) or (x)>=(y) would miss Bash fatal lexical errors. State scalar/special/positional interfaces remain the semantic source."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original explicit shell-body validation option and regression tests; no additional upstream implementation copied.",
+        "change": "Limit the arithmetic separator check to Parser::with_strict_command_separators. Captured shell-body validation opts in, and nested command parsers inherit the policy. Preserve the original public parse default and keep every strict separator assertion through the explicit entrypoint. Propagate process-substitution syntax failures only during strict validation. Add default-policy and nested command/process-substitution controls.",
+        "reason": "The engine parses a whole script before executing alias or shopt changes. Applying the new shell-body separator check globally rejected previously accepted scripts whose command boundaries can change through aliases. Localizing validation avoids introducing incomplete runtime alias support."
       }
     ],
     "removedUpstreamTests": []

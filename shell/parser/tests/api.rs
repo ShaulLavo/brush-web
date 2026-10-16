@@ -546,13 +546,19 @@ fn hash_scalar_substrings_are_not_length_expansions() {
 }
 
 #[test]
-fn compound_commands_require_separators_at_top_level() {
+fn shell_body_validation_requires_separators_at_top_level() {
     for source in [
         "(missing)+(2)",
         "(18446744073709551616)>=(64#_)",
         "(echo x) echo y",
     ] {
-        assert!(Parser::new(source).parse().is_err(), "{source}");
+        assert!(
+            Parser::new(source)
+                .with_strict_command_separators()
+                .parse()
+                .is_err(),
+            "{source}"
+        );
     }
     for source in [
         "(echo x); (echo y)",
@@ -560,6 +566,58 @@ fn compound_commands_require_separators_at_top_level() {
         "(echo x) | (echo y)",
         "(echo x) && (echo y)",
     ] {
+        assert!(
+            Parser::new(source)
+                .with_strict_command_separators()
+                .parse()
+                .is_ok(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn whole_script_defaults_preserve_original_separator_policy() {
+    for name in ["a", "empty_word", "_drop7"] {
+        let source =
+            format!("shopt -s expand_aliases\nalias {name}=\n{name} (( value = 0 ))\necho done");
+        assert!(Parser::new(&source).parse().is_ok(), "{source}");
+        assert!(
+            parse(&source, &ExecutionLimits::default()).is_ok(),
+            "{source}"
+        );
+        assert!(
+            Parser::new(&source)
+                .with_strict_command_separators()
+                .parse()
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn strict_separator_policy_reaches_nested_shell_bodies() {
+    for source in [
+        "echo $( (missing)+(2) )",
+        "echo $( (echo x) echo y )",
+        "echo <((missing)+(2))",
+    ] {
         assert!(Parser::new(source).parse().is_ok(), "{source}");
+        assert!(
+            Parser::new(source)
+                .with_strict_command_separators()
+                .parse()
+                .is_err(),
+            "{source}"
+        );
+    }
+    for source in ["echo $( (echo x); echo y )", "echo <((echo x); echo y)"] {
+        assert!(
+            Parser::new(source)
+                .with_strict_command_separators()
+                .parse()
+                .is_ok(),
+            "{source}"
+        );
     }
 }

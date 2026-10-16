@@ -169,8 +169,11 @@ Nested scalar operands have an explicit depth limit of 16, exercised through the
 deepest accepted level in both native and WASI tests.
 Other parameter operators, pathname globbing, command substitution, arrays, traps,
 aliases, `lastpipe`, directory validation and full utility option coverage are not
-implemented. Unsupported AST forms return status 2. Utility names/format options
-here are not claims of full Bash compatibility.
+implemented. Whole-script parsing retains the original separator policy. Captured
+shell bodies used by substring boundary validation explicitly request
+`Parser::with_strict_command_separators`; nested parsers inherit that policy.
+Unsupported AST forms return status 2. Utility names/format options here are not
+claims of full Bash compatibility.
 
 The scheduler, descriptors, process adapter and streaming execution are original
 implementations. Word expansion and its focused `tests/words.rs` cases adapt the

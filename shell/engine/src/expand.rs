@@ -1724,6 +1724,7 @@ fn bounded(value: Cow<'_, str>, max: usize) -> Result<String, Error> {
 #[inline(never)]
 fn slice_shell_grammar(source: &str) -> bool {
     shell_parser::parser::Parser::with_limits(source, operand::MAX_DEPTH, 4096 * 16)
+        .with_strict_command_separators()
         .parse()
         .is_ok()
 }

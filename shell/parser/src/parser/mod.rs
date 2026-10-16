@@ -120,6 +120,7 @@ pub struct Parser<'a> {
     execution_budget: Option<crate::limits::ExecutionBudget>,
     /// Shell options that change parsing (aliases, extglob).
     options: ParseOptions,
+    strict_command_separators: bool,
     /// The current token is a word with no quoting (alias candidate).
     current_plain: bool,
     /// The current token follows a blank-ending alias value.
@@ -204,6 +205,7 @@ impl<'a> Parser<'a> {
                 aliases: None,
                 extglob: true,
             },
+            strict_command_separators: false,
             current_plain,
             current_after_blank: false,
             prev_token_end: usize::MAX,
@@ -219,6 +221,14 @@ impl<'a> Parser<'a> {
     /// Parse with the shell's alias table and `extglob` setting.
     pub fn with_options(mut self, options: ParseOptions) -> Self {
         self.set_options(options);
+        self
+    }
+
+    /// Require separators between completed commands when validating a captured
+    /// shell body. Whole-script callers retain the original parser behavior.
+    /// Aliases may change command boundaries when the interpreter reads a unit.
+    pub fn with_strict_command_separators(mut self) -> Self {
+        self.strict_command_separators = true;
         self
     }
 
@@ -648,7 +658,7 @@ impl<'a> Parser<'a> {
             // parse_command_list consumes semicolon/background separators.
             // A remaining token on this line cannot silently start a second
             // command after a completed compound command or its redirections.
-            if parsed.is_some() && self.current_token.is_some()
+            if self.strict_command_separators && parsed.is_some() && self.current_token.is_some()
                 && !matches!(self.current_token, Some(tokens::Token::Newline)) {
                 return Err(self.error("unexpected token"));
             }
@@ -4068,6 +4078,7 @@ impl<'a> Parser<'a> {
                         self.timeout,
                     );
                     inner_parser.execution_budget = self.execution_budget.clone();
+                    inner_parser.strict_command_separators = self.strict_command_separators;
                     inner_parser.current_depth = self.current_depth + 1;
                     inner_parser.started_at = self.started_at;
                     let mut commands = Vec::new();
@@ -4082,7 +4093,7 @@ impl<'a> Parser<'a> {
                 self.fuel = remaining_fuel;
                 let commands = match parse_result {
                     Ok(commands) => commands,
-                    Err(err) if Self::is_parser_budget_error(&err) => return Err(err),
+                    Err(err) if self.strict_command_separators || Self::is_parser_budget_error(&err) => return Err(err),
                     Err(_) => Vec::new(),
                 };
 
@@ -4176,6 +4187,7 @@ impl<'a> Parser<'a> {
         parser.started_at = self.started_at;
         parser.execution_budget = self.execution_budget.clone();
         parser.set_options(self.options.clone());
+        parser.strict_command_separators = self.strict_command_separators;
         // `$( )` spans count from the outer word's line, so `$LINENO` and
         // error line numbers inside it match bash.
         let shift = self.current_span.start.line.saturating_sub(1);
