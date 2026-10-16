@@ -2,6 +2,8 @@
 
 Status: Approved (owner, 2026-10-15)
 
+Partly superseded (owner, 2026-10-16): the shell is our own, per [plan 004](004-own-shell.md). Brush stays the working shell until 004 step 6. The Decision, its fallback and steps 1b, 3 and 4 below are replaced by 004; step 2 continues as the shared runtime the new shell runs on.
+
 ## Goal
 
 A browser dev environment in the StackBlitz mould, built on the owner's bun-wasm (`/work/projects/bun-wasm`), needs a real shell. Humans type `bun install && bun dev`; agents use `grep -rn`, `find`, `sed -i`, pipes and loops. This repository is the proving ground. The product gets its own repository later.
