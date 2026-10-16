@@ -822,3 +822,11 @@ fn basic_special_and_positional_operands_remain_scalar() {
         &[&["1", "1"], &["0"], &["a b", "c", "d"]],
     );
 }
+
+#[test]
+fn literal_apostrophe_spans_and_substitution_lookalikes_keep_operand_meaning() {
+    check(
+        r#"u=; v=VALUE; args "${u:-'\$v'}" "${u:-'${v}'}" ${u:-"<("} "${u:-\`}""#,
+        &[&["'$v'", "'VALUE'", "<(", "`"]],
+    );
+}
