@@ -50,6 +50,37 @@ struct ContinuationFlags {
     error: Option<String>,
 }
 
+/// Only brackets in the parameter target are array subscripts. Each nested
+/// `${...}` gets its own header so operand brackets keep ordinary quote rules.
+#[derive(Default)]
+struct ParameterHeader {
+    name_started: bool,
+    operand: bool,
+    subscript: usize,
+}
+impl ParameterHeader {
+    fn character(&mut self, ch: char) {
+        if self.subscript > 0 {
+            match ch {
+                '[' => self.subscript += 1,
+                ']' => self.subscript -= 1,
+                _ => {}
+            }
+            return;
+        }
+        if self.operand {
+            return;
+        }
+        match ch {
+            '[' if self.name_started => self.subscript = 1,
+            ch if ch.is_ascii_alphanumeric() || ch == '_' => self.name_started = true,
+            '#' | '!' if !self.name_started => {}
+            '@' | '*' | '?' | '-' | '$' if !self.name_started => self.name_started = true,
+            _ => self.operand = true,
+        }
+    }
+}
+
 /// Bash parses a backquoted command when it runs, so a syntax error there
 /// fails only that substitution (status 2), unlike `$(...)` which fails the
 /// whole command at parse time. A body that does not parse becomes
@@ -1761,22 +1792,14 @@ impl<'a> Lexer<'a> {
                 word.push(ch);
             }
         }
-        let mut depth = 1usize;
         // Inside an array subscript (`${a['k']}`) quotes stay raw: subscript
-        // evaluation removes them itself.
-        let mut subscript = 0usize;
+        // evaluation removes them itself. Pattern brackets are operand syntax.
+        let mut parameters = vec![ParameterHeader::default()];
         while let Some(c) = self.peek_char() {
             self.advance();
+            parameters.last_mut().unwrap().character(c);
             match c {
-                '[' => {
-                    subscript += 1;
-                    word.push(c);
-                }
-                ']' => {
-                    subscript = subscript.saturating_sub(1);
-                    word.push(c);
-                }
-                '\'' if subscript > 0 => {
+                '\'' if parameters.last().unwrap().subscript > 0 => {
                     word.push(c);
                     while let Some(q) = self.peek_char() {
                         self.advance();
@@ -1867,10 +1890,10 @@ impl<'a> Lexer<'a> {
                 '$' if self.peek_char() == Some('{') => {
                     self.advance();
                     word.push_str("${");
-                    if depth >= self.max_subst_depth {
+                    if parameters.len() >= self.max_subst_depth {
                         return Err("parameter expansion nesting too deep".to_string());
                     }
-                    depth += 1;
+                    parameters.push(ParameterHeader::default());
                 }
                 // `${x:-$(echo })}`: braces inside a command substitution
                 // belong to it.
@@ -1883,8 +1906,8 @@ impl<'a> Lexer<'a> {
                 }
                 '}' => {
                     word.push('}');
-                    depth -= 1;
-                    if depth == 0 {
+                    parameters.pop();
+                    if parameters.is_empty() {
                         break;
                     }
                 }

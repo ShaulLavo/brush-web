@@ -229,3 +229,65 @@ Local length-target admission validates positive decimal syntax independently of
 machine index width, including leading zeros, retaining zero exclusion and the
 existing token cap. This original adapter correction leaves scalar assignment
 targets and parameter lookup unchanged.
+
+Scalar prefix/suffix pattern removal adapts Bashkit revision
+`491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT, Copyright 2024–2026 Everruns).
+The trim arms of `apply_parameter_op`, `expand_pattern_operand`, `remove_pattern`
+and `remove_pattern_glob` in `crates/bashkit/src/interpreter/expansion.rs`, and
+the basic wildcard/bracket rules in `glob_match_steps` and `match_bracket_expr`
+in `crates/bashkit/src/interpreter/glob.rs`, inform the adaptations in
+`shell/engine/src/expand.rs`, `expand/operand.rs` and `expand/pattern.rs`.
+`shell/engine/tests/words.rs` adapts the scalar cases in
+`remove-pattern-glob.test.sh`, `param-operand-quotes.test.sh` and
+`variables.test.sh`. Exact paths, ranges, destinations, classification and local
+divergences are recorded in `shellParameterTrim` in `sources.lock.json`.
+The retained MIT license is `shell/parser/LICENSE`.
+
+Only ordinary scalar identifier targets and literal, `*`, `?` and basic bracket
+patterns are included. Empty/unset values skip pattern evaluation, as verified
+with GNU Bash. Patterns keep structural quote protection independently of result
+protection; pattern writes use the existing scalar effects and final IFS rules.
+Selected nested scalar forms retain token, cumulative reparse and depth limits;
+skipped operands remain lazy. The original iterative async matcher advances
+basic-glob states over borrowed UTF-8 boundaries, reversing atoms and input
+traversal for suffixes. It copies no candidate strings, has no 10,000-call cap,
+and returns an explicit error on exhaustion instead of a partial result or a
+false match. Input snapshots are admitted before copying, and every scan,
+storage-building and matching loop uses shared command work/cancellation checks.
+No state borrow crosses an await. Snapshot, character, atom and state storage
+share the existing command storage ceiling, including vanished results.
+
+Unicode scalar matching and codepoint ranges are checked against focused GNU
+Bash probes under `LC_ALL=C.UTF-8`; byte-locale matching and locale collation are
+deferred. Extglob, named classes and collation/equivalence constructs fail closed
+when selected; quoted spellings are literal. Arrays, special/positional trim
+targets, replacements, substring/arithmetic, substitutions, tilde, pathname and
+brace expansion remain outside the slice. The parser correction below retains
+the license and all upstream assertions. No process-host, browser transport or output buffering code
+is copied or changed. Fixed oracle, scorer, cases, classifications, exclusions,
+baseline and plan scores remain unchanged; runtime and corpus results await the
+coordinator's CI.
+
+The trim review repairs are original adapters in `shell/engine/src/expand.rs`
+and `expand/operand.rs`, plus an original `ParameterHeader` helper in the
+Bashkit-derived `shell/parser/src/parser/lexer.rs`. The upstream source is
+`crates/bashkit/src/parser/lexer.rs::read_unquoted_param_body` at the same pinned
+revision. No additional upstream implementation is copied. A direct pattern
+source space retains protection before dynamic escape normalization; nested
+selected operand results retain their expansion and IFS protection instead.
+Source tabs/newlines and the existing empty-IFS space rule are unchanged.
+
+Each nested unquoted parameter tracks its target header and actual subscripts
+under the existing nesting ceiling. Basic pattern brackets now reuse ordinary
+single-quote handling, preserving quoted opening/closing braces inside the
+operand. Actual target subscripts retain raw quoting. Original escape metadata,
+quote emission, character budgets and upstream assertions are preserved; no
+sentinel or reparse path is added. The parser version is `0.0.4`; root and engine
+versions are unchanged. Original regressions in `shell/engine/tests/words.rs`
+and `shell/parser/tests/api.rs` use focused GNU Bash `C.UTF-8` controls for all
+four trims, scalar and lazy contexts, partial protection, malformed brackets,
+quoted error messages and unrelated parser paths. They also check that nested
+length inputs share snapshot storage while ordinary PR20 length behavior keeps
+its existing limits. `shellParser.changeLog` and
+`shellParameterTrim.reviewCorrections` classify the paths and local changes.
+Fresh runtime and corpus checks for these repairs remain coordinator-owned CI.

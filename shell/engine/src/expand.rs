@@ -1,7 +1,7 @@
 //! Quote-aware fields adapted from Bashkit expansion.rs at the revision pinned
 //! in sources.lock.json. Protection and empty fields are structural, never data
 //! sentinels. Scalar parameter operands are lazy and bounded.
-//! Other operators, globbing and substitutions remain unsupported.
+//! Scalar trims use basic patterns; pathname globbing and substitutions remain unsupported.
 use crate::{
     executor::{Budget, Cancel},
     state::SharedState,
@@ -10,6 +10,7 @@ use futures::{FutureExt, future::LocalBoxFuture};
 use shell_parser::parser::{ParameterOp, Word, WordPart};
 
 mod operand;
+mod pattern;
 use std::{borrow::Cow, collections::BTreeSet};
 
 /// Fatal parameter errors remain distinct from ordinary unsupported/limit errors.
@@ -364,6 +365,8 @@ impl Captured {
 struct Expansion<'a> {
     segments: Segments,
     captured: Option<Captured>,
+    pattern: Option<pattern::Pattern>,
+    pattern_context: bool,
     ifs: Option<Ifs>,
     ifs_changed: bool,
     work: &'a mut Work,
@@ -387,6 +390,36 @@ impl Expansion<'_> {
         }
         self.raw_remaining -= bytes;
         Ok(())
+    }
+    fn snapshot_max(&self) -> usize {
+        if !self.pattern_context {
+            return self.raw_remaining;
+        }
+        self.raw_remaining
+            .min(self.work.remaining)
+            .min(self.work.storage_remaining)
+    }
+    async fn admit_pattern_snapshot(&mut self, value: &str) -> Result<(), Error> {
+        if !self.pattern_context {
+            return Ok(());
+        }
+        self.work.admit_storage(value.len())?;
+        for _ in value.bytes() {
+            self.work.checkpoint(self.cancel).await?;
+        }
+        Ok(())
+    }
+    fn admit_pattern_length(&mut self, name: &str, state: &SharedState) -> Result<(), Error> {
+        if !self.pattern_context {
+            return Ok(());
+        }
+        if !operand::length_name(name) {
+            return Err(2.into());
+        }
+        // A nested length retains its existing counting rules. Its transient
+        // input must also fit alongside the enclosing trim's snapshot.
+        self.work
+            .admit_storage(state.borrow().parameter(name).len())
     }
     async fn literal(
         &mut self,
@@ -424,6 +457,14 @@ impl Expansion<'_> {
         protection: Protection,
         keeps_empty: bool,
     ) -> Result<(), Error> {
+        if let Some(pattern) = &mut self.pattern {
+            self.work.checkpoint(self.cancel).await?;
+            for ch in value.chars() {
+                self.work.checkpoint(self.cancel).await?;
+                pattern.push(ch, protection, self.work)?;
+            }
+            return Ok(());
+        }
         if let Some(captured) = &mut self.captured {
             self.work.checkpoint(self.cancel).await?;
             return captured.append(value);
@@ -472,9 +513,11 @@ impl Expansion<'_> {
                     .await;
             }
             if let WordPart::Length(name) = part {
+                self.admit_pattern_length(name, state)?;
                 return self.length(name, state, scalar || quoted, depth).await;
             }
-            let value = scalar_value(part, state, self.raw_remaining)?;
+            let value = scalar_value(part, state, self.snapshot_max())?;
+            self.admit_pattern_snapshot(&value).await?;
             self.segment(
                 &value,
                 Protection::expansion(scalar || quoted, state),
@@ -537,6 +580,19 @@ impl Expansion<'_> {
         if !operand::scalar_name(name) || depth >= operand::MAX_DEPTH {
             return Err(2.into());
         }
+        if let Some((prefix, longest)) = trim_mode(operator) {
+            return self
+                .trim(
+                    name,
+                    operand,
+                    state,
+                    scalar || quoted,
+                    depth,
+                    prefix,
+                    longest,
+                )
+                .await;
+        }
         let replacement = match operator {
             ParameterOp::UseDefault => false,
             ParameterOp::UseReplacement => true,
@@ -554,7 +610,7 @@ impl Expansion<'_> {
         }
         if replacement != absent {
             return self
-                .operand(operand, state, quoted, scalar, depth + 1)
+                .operand(operand, state, quoted, scalar, depth + 1, false)
                 .await;
         }
         let value = if replacement {
@@ -563,15 +619,81 @@ impl Expansion<'_> {
             let s = state.borrow();
             bounded(
                 Cow::Borrowed(s.scalar_parameter(name).unwrap_or("")),
-                self.raw_remaining,
+                self.snapshot_max(),
             )?
         };
+        self.admit_pattern_snapshot(&value).await?;
         self.segment(
             &value,
             Protection::expansion(scalar || quoted, state),
             scalar || quoted,
         )
         .await
+    }
+    async fn trim(
+        &mut self,
+        name: &str,
+        source: &str,
+        state: &SharedState,
+        protected: bool,
+        depth: usize,
+        prefix: bool,
+        longest: bool,
+    ) -> Result<(), Error> {
+        self.work.checkpoint(self.cancel).await?;
+        // Resolve before operand side effects. Admit storage and work before
+        // snapshotting, and release the state borrow before any suspension.
+        let value = {
+            let s = state.borrow();
+            let value = s.scalar_parameter(name).unwrap_or("");
+            let max = self.raw_remaining.min(self.work.remaining);
+            if value.len() > max {
+                return Err(2.into());
+            }
+            self.work.admit_storage(value.len())?;
+            value.to_owned()
+        };
+        // Bash does not evaluate a trim pattern for an unset or empty scalar.
+        if value.is_empty() {
+            return self
+                .segment("", Protection::expansion(protected, state), protected)
+                .await;
+        }
+        for _ in value.bytes() {
+            self.work.checkpoint(self.cancel).await?;
+        }
+        let capacity = self.raw_remaining;
+        let mut child = Expansion {
+            segments: Segments::default(),
+            captured: None,
+            pattern: Some(pattern::Pattern::default()),
+            pattern_context: true,
+            ifs: None,
+            ifs_changed: false,
+            work: self.work,
+            cancel: self.cancel,
+            max_raw: capacity,
+            raw_remaining: capacity,
+            elements_remaining: self.elements_remaining,
+        };
+        // A trim's pattern has its own quote context. Outer quotes protect
+        // only its returned value; quotes inside protect pattern characters.
+        child
+            .operand(source, state, false, false, depth + 1, true)
+            .await?;
+        self.raw_remaining -= capacity - child.raw_remaining;
+        let ifs_changed = child.ifs_changed;
+        let mut pattern = child.pattern.take().ok_or(2)?;
+        drop(child);
+        self.ifs_changed |= ifs_changed;
+        if ifs_changed {
+            self.ifs = None;
+        }
+        let result = pattern
+            .remove(&value, prefix, longest, self.work, self.cancel)
+            .await?;
+        self.segment(result, Protection::expansion(protected, state), protected)
+            .await
     }
     async fn effect_operand(
         &mut self,
@@ -601,6 +723,8 @@ impl Expansion<'_> {
                 value: String::new(),
                 max_bytes: capacity,
             }),
+            pattern: None,
+            pattern_context: self.pattern_context,
             ifs: None,
             ifs_changed: false,
             work: self.work,
@@ -610,7 +734,7 @@ impl Expansion<'_> {
             elements_remaining: self.elements_remaining,
         };
         child
-            .operand(source, state, quoted, scalar, depth + 1)
+            .operand(source, state, quoted, scalar, depth + 1, false)
             .await?;
         self.raw_remaining -= capacity - child.raw_remaining;
         let ifs_changed = child.ifs_changed || name == "IFS";
@@ -660,8 +784,10 @@ impl Expansion<'_> {
         quoted: bool,
         scalar: bool,
         depth: usize,
+        pattern_source: bool,
     ) -> Result<(), Error> {
-        let mut scanner = operand::Scanner::new(source, quoted);
+        let mut scanner =
+            operand::Scanner::new(source, quoted, self.pattern_context, pattern_source);
         while let Some(piece) = scanner.next(self.work, self.cancel).await? {
             self.operand_piece(piece, state, quoted, scalar, depth)
                 .await?;
@@ -777,6 +903,16 @@ impl Expansion<'_> {
     }
 }
 
+fn trim_mode(operator: &ParameterOp) -> Option<(bool, bool)> {
+    match operator {
+        ParameterOp::RemovePrefixShort => Some((true, false)),
+        ParameterOp::RemovePrefixLong => Some((true, true)),
+        ParameterOp::RemoveSuffixShort => Some((false, false)),
+        ParameterOp::RemoveSuffixLong => Some((false, true)),
+        _ => None,
+    }
+}
+
 fn utf8_locale(locale: &str) -> bool {
     // Recognize UTF-8 codeset suffixes without scanning or copying an arbitrary
     // locale value. C/POSIX, empty and other locales use the C byte-count path.
@@ -865,6 +1001,8 @@ async fn expand(
     let mut expansion = Expansion {
         segments: Segments::default(),
         captured: None,
+        pattern: None,
+        pattern_context: false,
         ifs: None,
         ifs_changed: false,
         work,

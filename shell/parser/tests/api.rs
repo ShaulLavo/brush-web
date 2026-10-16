@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use shell_parser::limits::{ExecutionBudget, ExecutionLimits, LimitExceeded};
 use shell_parser::{
-    AssignmentValue, Command, Error, ParseOptions, Parser, Script, Word, WordPart, parse,
-    parse_with_budget,
+    AssignmentValue, Command, Error, ParameterOp, ParseOptions, Parser, Script, Word, WordPart,
+    parse, parse_with_budget,
 };
 
 fn argument(source: &str) -> Word {
@@ -29,6 +29,94 @@ fn literal_characters(word: &Word) -> Vec<(char, bool)> {
             text.chars().map(move |ch| (ch, quoted))
         })
         .collect()
+}
+
+#[test]
+fn scalar_pattern_brackets_keep_quoted_braces_inside_the_operand() {
+    for (spelling, expected) in [
+        ("#", ParameterOp::RemovePrefixShort),
+        ("##", ParameterOp::RemovePrefixLong),
+        ("%", ParameterOp::RemoveSuffixShort),
+        ("%%", ParameterOp::RemoveSuffixLong),
+    ] {
+        for brace in ['{', '}'] {
+            let source = format!("args ${{v{spelling}['{brace}']}}tail");
+            let word = argument(&source);
+            let [
+                WordPart::ParameterExpansion {
+                    name,
+                    operator,
+                    operand,
+                    ..
+                },
+                WordPart::Literal(tail),
+            ] = word.parts.as_slice()
+            else {
+                panic!("lost operand boundary: {source}: {word:?}");
+            };
+            assert_eq!(name, "v");
+            assert_eq!(operator, &expected);
+            assert!(operand.starts_with('[') && operand.ends_with(']'));
+            assert!(operand.contains(brace));
+            assert_eq!(tail, "tail");
+        }
+    }
+}
+
+#[test]
+fn nested_and_malformed_bracket_patterns_keep_their_parameter_boundaries() {
+    for source in [
+        r#"args ${u:-${v#['}']}}tail"#,
+        r#"args ${u:=${v%%['{']}}tail"#,
+        r#"args ${v#['}'}tail"#,
+        r#"args ${v%%['{'}tail"#,
+    ] {
+        let word = argument(source);
+        assert_eq!(word.parts.len(), 2, "{source}");
+        assert!(matches!(
+            &word.parts[0],
+            WordPart::ParameterExpansion { .. }
+        ));
+        assert!(matches!(&word.parts[1], WordPart::Literal(tail) if tail == "tail"));
+    }
+    for source in [r#"args ${v#['}] }"#, r#"args ${v%['{] }"#] {
+        assert!(
+            Parser::new(source).parse().is_err(),
+            "unclosed quote: {source}"
+        );
+    }
+}
+
+#[test]
+fn pattern_bracket_fix_preserves_target_subscripts_and_literal_escape_metadata() {
+    for (source, expected_index) in [
+        (r#"args ${a['key']}tail"#, "key"),
+        (r#"args ${a[${i}]}tail"#, "${i}"),
+    ] {
+        let word = argument(source);
+        assert!(
+            matches!(&word.parts[0], WordPart::ArrayAccess { name, index }
+            if name == "a" && index == expected_index)
+        );
+        assert!(matches!(&word.parts[1], WordPart::Literal(tail) if tail == "tail"));
+    }
+    let word = argument("args ${#a[@]}tail");
+    assert!(matches!(&word.parts[0], WordPart::ArrayLength(name) if name == "a"));
+    assert!(matches!(&word.parts[1], WordPart::Literal(tail) if tail == "tail"));
+    let word = argument("args ${#a[0]}tail");
+    assert!(matches!(&word.parts[0], WordPart::Length(name) if name == "a[0]"));
+    assert!(matches!(&word.parts[1], WordPart::Literal(tail) if tail == "tail"));
+    let word = argument(r#"args ${v#['}']}a\:b${IFS:=:}"#);
+    assert_eq!(
+        literal_characters(&word),
+        [('a', false), (':', true), ('b', false)]
+    );
+    let word = argument(r#"args "${u:-'${v:-x}'}"tail"#);
+    assert!(
+        matches!(&word.parts[0], WordPart::ParameterExpansion { operand, .. }
+        if operand == "'${v:-x}'")
+    );
+    assert!(matches!(&word.parts[1], WordPart::Literal(tail) if tail == "tail"));
 }
 
 #[test]

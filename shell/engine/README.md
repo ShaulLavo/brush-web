@@ -89,7 +89,18 @@ Locale selection follows nonempty `LC_ALL`, `LC_CTYPE`, then `LANG`, defaulting 
 `C`; unrecognized locale names use bytes rather than claiming full locale emulation.
 List/array length and `${#0}` remain unsupported. Length reads and counting share
 the command's storage/work limits and cooperative cancellation checkpoints.
-Other parameter operators, globbing, substitution, arrays, traps, aliases,
+Scalar prefix/suffix removal supports ordinary identifiers with `#`, `##`, `%`
+and `%%`, using literals, `*`, `?` and basic bracket expressions, including
+ranges and negation. Patterns expand supported scalar operands lazily; empty
+and unset values skip the pattern. Outer quotes protect the returned value;
+quotes and escapes inside the pattern protect its metacharacters only. Pattern
+side effects participate in final IFS splitting and existing scalar contexts.
+Matching uses Unicode scalar values and codepoint ranges, checked against focused
+GNU Bash probes under `LC_ALL=C.UTF-8`. Byte-oriented non-UTF-8 matching and locale
+collation are deferred. Selected extglob, named classes and collating/equivalence
+symbols return status 2. The matcher allocates no candidate strings; snapshots,
+pattern/state storage and all matching steps share command bounds and cancellation.
+Other parameter operators, pathname globbing, substitution, arrays, traps, aliases,
 `lastpipe`, directory validation and full utility option coverage are not
 implemented. Unsupported AST forms return status 2. Utility names/format options
 here are not claims of full Bash compatibility.

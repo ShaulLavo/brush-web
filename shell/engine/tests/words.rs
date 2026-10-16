@@ -122,6 +122,458 @@ fn check_output(source: &str, expected: &str) {
     assert_eq!(rig.output.bytes(), expected.as_bytes(), "{source}");
 }
 
+// Scalar cases adapted from Bashkit 491c3281's remove-pattern-glob,
+// param-operand-quotes and variables specs. Other cases use focused GNU Bash
+// probes under LC_ALL=C.UTF-8, with engine-specific limit/cancellation checks.
+#[test]
+fn adapted_scalar_trim_examples() {
+    check_output(
+        r#"x=abc; e=; echo "${x#*}|${x%*}|${x##*}|${x%%*}|[${e#*}]"; echo "${x#?}|${x%?}|${x#*?}|${x%?*}|${x##?}|${x#??}"; p=/a/b.c/d.tar.gz; echo "${p#*/*/}|${p##*.*.}|${p%/*/*}|${p#/?/}|${p%%.*}|${p##*/}"; y='a*b'; q='*'; echo "${y#$q}|${y#"$q"}|${y%$q}""#,
+        "abc|abc|||[]\nbc|ab|bc|ab|bc|c\nb.c/d.tar.gz|gz|/a|b.c/d.tar.gz|/a/b|d.tar.gz\na*b|a*b|a*b\n",
+    );
+    check_output(
+        r#"x=a.b.c; echo "${x#'a.'}" "${x%'.c'}" ${x##'a.'} "${x%%'.'*}"; X=hello.world.txt; echo ${X#*.} ${X##*.}; X=file.tar.gz; echo ${X%.*} ${X%%.*}"#,
+        "b.c a.b b.c a\nworld.txt txt\nfile.tar file\n",
+    );
+}
+
+#[test]
+fn trim_source_spaces_preserve_escape_boundaries() {
+    check(
+        r#"p='\'; s=' '; v=' abc '; args "${v#${p} }" "${v##${p} }" "${v%${p} }" "${v%%${p} }"; args "${v#${p}$s}" "${v##${p}$s}" "${v%${p}$s}" "${v%%${p}$s}"; IFS=; args "${v#${p} }" "${v#${p}$s}"; args "${v#${p}${u:- }}" "${v#${p}${u:-$s}}""#,
+        &[
+            &[" abc ", " abc ", " abc ", " abc "],
+            &["abc ", "abc ", " abc", " abc"],
+            &[" abc ", " abc "],
+            &[" abc ", " abc "],
+        ],
+    );
+    check(
+        r#"p='\'; s=' '; v=' abc '; IFS=:; args "${v#${p} }" "${v##${p}$s}" "${v%${p} }" "${v%%${p}$s}"; args "${v#${p}${u:- }}" "${v#${p}${u:-$s}}""#,
+        &[&[" abc ", "abc ", " abc ", " abc"], &["abc ", "abc "]],
+    );
+    check(
+        r#"p='\'; s=' '; v=' abc '; args "${v#${p}${u:- }}" "${v#${p}${u:-' '}}" "${v#${p}${u:=$s}}" "$u""#,
+        &[&["abc ", " abc ", "abc ", " "]],
+    );
+}
+
+#[test]
+fn trim_source_space_controls_reach_scalars_and_lazy_operands() {
+    check(
+        r#"p='\'; s=' '; v=' abc '; a=${v#${p} }; b=${v##${p} }; c=${v%${p} }; d=${v%%${p} }; args "$a" "$b" "$c" "$d"; args "${u:-${v#${p} }}" "${u:-${v##${p} }}" "${u:-${v%${p} }}" "${u:-${v%%${p} }}"; a=${u:=${v#${p} }}; args "$a" "$u"; set=yes; args "${set:-${v#$(args forbidden)}}" "${missing+${v#${bad:?forbidden}}}""#,
+        &[
+            &[" abc ", " abc ", " abc ", " abc "],
+            &[" abc ", " abc ", " abc ", " abc "],
+            &[" abc ", " abc "],
+            &["yes", ""],
+        ],
+    );
+}
+
+#[test]
+fn trim_source_tabs_and_newlines_remain_distinct_from_source_spaces() {
+    for whitespace in ["\t", "\n"] {
+        let source = r#"p='\'; s='WS'; v='WSabcWS'; args "${v#${p}WS}" "${v##${p}WS}" "${v%${p}WS}" "${v%%${p}WS}"; IFS=; args "${v#${p}$s}""#.replace("WS", whitespace);
+        let prefix = format!("abc{whitespace}");
+        let suffix = format!("{whitespace}abc");
+        check(
+            &source,
+            &[
+                &[
+                    prefix.as_str(),
+                    prefix.as_str(),
+                    suffix.as_str(),
+                    suffix.as_str(),
+                ],
+                &[prefix.as_str()],
+            ],
+        );
+    }
+}
+
+#[test]
+fn trim_bracket_braces_keep_quote_boundaries_and_partial_protection() {
+    check(
+        r#"v='}ab}'; args ${v#['}']} ${v##['}']} ${v%['}']} ${v%%['}']}; v='{ab{'; args ${v#['{']} ${v##['{']} ${v%['{']} ${v%%['{']}; v='-ab-'; args ${v#['}'"-"a]} ${v##['}'"-"a]} ${v%['}'"-"a]} ${v%%['}'"-"a]}; v='}ab}'; a=${v#['}']*}; b=${v##['}']*}; c=${v%*['}']}; d=${v%%*['}']}; args "$a" "$b" "$c" "$d"; args "${v#['}']}" "${v##['}']}" "${v%['}']}" "${v%%['}']}""#,
+        &[
+            &["ab}", "ab}", "}ab", "}ab"],
+            &["ab{", "ab{", "{ab", "{ab"],
+            &["ab-", "ab-", "-ab", "-ab"],
+            &["ab}", "", "}ab", ""],
+            &["ab}", "ab}", "}ab", "}ab"],
+        ],
+    );
+}
+
+#[test]
+fn trim_bracket_braces_reach_lazy_operands_and_literal_malformed_classes() {
+    check(
+        r#"v='}ab}'; a=${u:-${v#['}']}}; b=${u:-${v##['}']}}; c=${u:-${v%['}']}}; d=${u:-${v%%['}']}}; args "$a" "$b" "$c" "$d"; a=${saved:=${v#['}']}}; args "$a" "$saved"; v='[}ab[}'; args ${v#['}'} ${v##['}'} ${v%['}'} ${v%%['}'}; v='[{ab[{'; args ${v#['{'} ${v##['{'} ${v%['{'} ${v%%['{'}"#,
+        &[
+            &["ab}", "ab}", "}ab", "}ab"],
+            &["ab}", "ab}"],
+            &["ab[}", "ab[}", "[}ab", "[}ab"],
+            &["ab[{", "ab[{", "[{ab", "[{ab"],
+        ],
+    );
+}
+
+#[test]
+fn trim_review_controls_preserve_selected_error_messages() {
+    for (source, expected) in [
+        (
+            r#"p='\'; v=' abc '; args ${bad:?"${v#${p} }"}; args forbidden"#,
+            "/usr/bin/bash: line 1: bad:  abc \n",
+        ),
+        (
+            r#"v='}abc'; args ${bad:?${v#['}']}}; args forbidden"#,
+            "/usr/bin/bash: line 1: bad: abc\n",
+        ),
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 127);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.errors.bytes(), expected.as_bytes());
+    }
+}
+
+#[test]
+fn trim_nested_length_input_cannot_bypass_shared_snapshot_storage() {
+    for operand in ["${v#${#p}}", "${u:-${v#${#p}}}"] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: 256,
+            ..Limits::default()
+        });
+        rig.variable("v", "abc");
+        rig.variable("p", &"x".repeat(256));
+        assert_eq!(rig.run(&format!("args \"{operand}\"")), 2);
+        assert!(rig.calls.borrow().is_empty());
+        // Ordinary length retains PR20's input bound and counting behavior.
+        assert_eq!(rig.run("args ${#p}"), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["256"]]);
+    }
+}
+
+#[test]
+fn scalar_trims_distinguish_empty_unset_no_match_and_zero_length_matches() {
+    check(
+        r#"v=abc; e=; args "${u#*}" "${u##?}" "${u%a}" "${u%%*}" "${e#?}" "${e%%}"; args "${v#}" "${v##}" "${v%}" "${v%%}" "${v#z*}" "${v%%z}"; args ${u#*} ${e%%?} ${v##*}; args "${v#*}" "${v%*}" "${v##*}" "${v%%*}" "$v" "${u+set}"; args "${u#${side:=bad}}" "${e%%$(args forbidden)}" "${side-unset}""#,
+        &[
+            &["", "", "", "", "", ""],
+            &["abc", "abc", "abc", "abc", "abc", "abc"],
+            &[],
+            &["abc", "abc", "", "", "abc", ""],
+            &["", "", "unset"],
+        ],
+    );
+}
+
+#[test]
+fn scalar_trim_pattern_quotes_and_escapes_do_not_protect_the_result() {
+    check(
+        r#"p='\'; q='?'; v='?abc'; args "${v#$p"$q"}" "${v#$p$q}" "${v#[$p"$q"]}"; q=a; v=aabc; args "${v#$p"$q"}" "${v#$p$q}""#,
+        &[&["?abc", "abc", "abc"], &["aabc", "abc"]],
+    );
+    check(
+        r#"v='a*b?c'; p='*'; args "${v#a\*}" "${v##$p}" "${v##"$p"}" "${v#'a*'}" "${v#a\?}"; v='a b c'; args ${v#'a '} "${v#'a '}"; v='a?b'; p='a\?'; args "${v#$p}" "${v#"$p"}"; v='a*b'; args "${v#${u:-'a*'}}" "${v#"${u:-'a*'}"}""#,
+        &[
+            &["b?c", "", "a*b?c", "b?c", "a*b?c"],
+            &["b", "c", "b c"],
+            &["b", "a?b"],
+            &["b", "a*b"],
+        ],
+    );
+    check(
+        r#"v='}x'; args "${v#'}'}" "${v#\}}"; v='a*b'; args "${v#"a*"}" "${v#'a*'}"; v='$q tail'; args "${v#'$q '}""#,
+        &[&["x", "x"], &["b", "b"], &["tail"]],
+    );
+}
+
+#[test]
+fn scalar_trims_match_basic_brackets_and_unicode_scalars() {
+    check(
+        r#"LC_ALL=C.UTF-8; v=abc; args "${v#[a-c]}" "${v#[!b]}" "${v#[^b]}" "${v#[z-a]}" "${v#[a\-c]}" "${v%[bc]}" "${v%%[bc]*}"; v=']-x'; args "${v#[]-]}"; v='[x'; args "${v#[}" "${v#[[]}"; v='é🙂abc'; args "${v#?}" "${v%???}" "${v#[é]}"; v='é🙂'; args "${v#?}" "${v%?}" "${v##??}""#,
+        &[
+            &["bc", "bc", "bc", "abc", "bc", "ab", "a"],
+            &["-x"],
+            &["x", "x"],
+            &["🙂abc", "é🙂", "🙂abc"],
+            &["́🙂", "é", "🙂"],
+        ],
+    );
+}
+
+#[test]
+fn scalar_trims_select_nested_default_assignment_and_error_operands_lazily() {
+    check(
+        r#"v=abc; set=yes; args ${u:-${v#a}} ${set:+${v%c}} ${assigned:=${v#?}} "$assigned"; args ${set:-${1#*}} ${u+${v#$(args forbidden)}} ${set:=${v#~}} ${set:?${v#[[:alpha:]]}}; args "${v#${pattern:=a*}}" "$pattern"; args "${absent#${absent:=abc}}" "$absent"; args "${v#${u:-${v%c}}}""#,
+        &[
+            &["bc", "ab", "bc", "bc"],
+            &["yes", "yes", "yes"],
+            &["bc", "a*"],
+            &["", ""],
+            &["c"],
+        ],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("v=abc; args ${u:?${v#a}}; args forbidden"), 127);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.errors.bytes(), b"/usr/bin/bash: line 1: u: bc\n");
+}
+
+#[test]
+fn scalar_trim_effects_use_final_ifs_and_scalar_contexts() {
+    check(
+        r#"IFS=; v='a:x:y'; args ${v#a}${IFS:=:}; IFS=; args ${v#${IFS:=:}}; IFS=; args "${v#${IFS:=:}}"; v='a b c'; x=${v#'a '}; export y=${v#'a '}; f() { local z=${v#'a '}; args "$z" "$1"; }; f argument; args "$x" "$y""#,
+        &[
+            &["", "x", "y"],
+            &["a", "x", "y"],
+            &["a:x:y"],
+            &["b c", "argument"],
+            &["b c", "b c"],
+        ],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("v='prefix-file name'; args >${v#prefix-}"), 0);
+    assert!(
+        rig.fs
+            .read_file("/home/guest/file name")
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(rig.run(r#"v=outside; f() { local v=inside; args "${v#in}" "$1"; }; f arg; args "$v" "$#" "$1"; TEMP=${v#out} RESULT=${saved:=${TEMP#s}} args; args "${TEMP-unset}" "${RESULT-unset}" "$saved""#), 0);
+    assert_eq!(
+        *rig.calls.borrow(),
+        &[
+            vec![],
+            vec!["side", "arg"],
+            vec!["outside", "0", ""],
+            vec![],
+            vec!["unset", "unset", "ide"]
+        ]
+    );
+}
+
+#[test]
+fn unsupported_trim_targets_and_selected_patterns_fail_without_dispatch() {
+    for form in [
+        "${1#x}",
+        "${@#x}",
+        "${*%x}",
+        "${?#x}",
+        "${##x}",
+        "${a[0]#x}",
+        "${PIPESTATUS[@]%%x}",
+        "${!v#x}",
+        "${v#$(args forbidden)}",
+        "${v#`args forbidden`}",
+        "${v#$((1+2))}",
+        "${v#~}",
+        "${v#@(a)}",
+        "${v#?(a)}",
+        "${v#*(a)}",
+        "${v#!(a)}",
+        "${v#[[:alpha:]]}",
+        "${v#[[.a.]]}",
+        "${v#[[=a=]]}",
+        "${v#${v/a/b}}",
+        "${v#${v:1}}",
+        "${v#$@}",
+    ] {
+        for source in [
+            format!("args {form}"),
+            format!("args ${{u:-{form}}}"),
+            format!("args ${{u:={form}}}"),
+            format!("args ${{u:?{form}}}"),
+        ] {
+            let rig = Rig::new(Limits::default());
+            rig.variable("v", "abc");
+            assert_eq!(rig.run(&source), 2, "{source}");
+            assert!(rig.calls.borrow().is_empty(), "{source}");
+            assert!(!rig.shell.state().borrow().variables.contains_key("u"));
+        }
+    }
+    for pattern in ["@(a)", "[[:alpha:]]", "[[.a.]]", "[[=a=]]"] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("p", pattern);
+        rig.variable("v", &format!("{pattern}tail"));
+        assert_eq!(rig.run("args ${v#$p}"), 2);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.run(r#"args "${v#"$p"}""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["tail"]]);
+    }
+    for source in [
+        "f() { args forbidden; }; X=${v#a} f",
+        "X=${v#a} echo forbidden",
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 2);
+        assert!(rig.calls.borrow().is_empty());
+        assert!(rig.output.bytes().is_empty());
+    }
+}
+
+#[test]
+fn trim_snapshots_patterns_results_and_fields_share_bounds() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 128,
+        ..Limits::default()
+    });
+    rig.variable("v", &"a".repeat(129));
+    assert_eq!(rig.run("args ${v##*}"), 2);
+    rig.variable("v", "abc");
+    rig.variable("p", &"*".repeat(129));
+    assert_eq!(rig.run("args ${v##$p}"), 2);
+    rig.variable("p", "aaaaaaaa");
+    assert_eq!(rig.run("args ${v#$p}"), 2, "compiled pattern storage");
+    assert!(rig.calls.borrow().is_empty());
+    let rig = Rig::new(Limits {
+        expansion_bytes: 256,
+        ..Limits::default()
+    });
+    rig.variable("v", &"a".repeat(80));
+    rig.variable("n", &"x".repeat(200));
+    assert_eq!(
+        rig.run("args ${v#${#n}}"),
+        2,
+        "nested length snapshot storage"
+    );
+    assert_eq!(rig.run("args ${v##*}"), 0);
+    assert_eq!(
+        rig.run("args ${v##*} ${v##*} ${v##*}"),
+        2,
+        "even vanished results share snapshot storage"
+    );
+    assert_eq!(rig.calls.borrow().len(), 1);
+    let source = format!("args {}${{v#x}}", "p".repeat(250));
+    assert_eq!(rig.run(&source), 2, "aggregate output bytes");
+    let rig = Rig::new(Limits {
+        arguments: 3,
+        ..Limits::default()
+    });
+    rig.variable("v", "xa b c");
+    assert_eq!(rig.run("args ${v#x}"), 2);
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn trim_matching_and_operand_reparsing_share_command_work() {
+    let rig = Rig::new(Limits {
+        source_bytes: 256,
+        expansion_bytes: 512,
+        arguments: 16,
+        ..Limits::default()
+    });
+    rig.variable("v", "ab");
+    assert_eq!(rig.run(&format!("args {}", "${u:-${v#a}} ".repeat(11))), 2);
+    assert!(rig.calls.borrow().is_empty(), "cumulative token admission");
+    let rig = Rig::new(Limits {
+        source_bytes: 256,
+        expansion_bytes: 8192,
+        arguments: 16,
+        ..Limits::default()
+    });
+    rig.variable("v", &"a".repeat(1000));
+    assert_eq!(rig.run("args ${v##*} ${v##*}"), 0);
+    assert_eq!(rig.run("args ${v##*} ${v##*} ${v##*}"), 2);
+    assert_eq!(
+        rig.run("args ${v##*} ${v##*} >${v##*}sink"),
+        2,
+        "redirects share matching work"
+    );
+    assert_eq!(rig.calls.borrow().len(), 1);
+    let rig = Rig::new(Limits::default());
+    let oversized = format!("args ${{u:-${{v#{}}}}}", "x".repeat(4096));
+    assert_eq!(rig.run(&oversized), 2);
+    let deep = format!("args {}${{v#x}}{}", "${u:-".repeat(34), "}".repeat(34));
+    assert_eq!(rig.run(&deep), 2);
+    assert!(rig.calls.borrow().is_empty());
+    // More than upstream's 10,000 candidate cap, with no partial result.
+    rig.variable("v", &"a".repeat(12_000));
+    assert_eq!(rig.run(r#"args "${v##*?}" "${v%%?*}""#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["", ""]]);
+}
+
+#[test]
+fn trim_pattern_scanning_and_token_admission_yield_and_cancel() {
+    for (pattern, polls) in [
+        ("$pattern".to_owned(), 4),
+        (format!("${{{}}}", "x".repeat(3000)), 80),
+    ] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("v", "abc");
+        rig.variable("scope", "outside");
+        rig.variable("pattern", &"[a-z]".repeat(20_000));
+        let job = rig
+            .shell
+            .start(&format!(
+                "f() {{ local scope=inside; args ${{v#{pattern}}}; }}; f argument"
+            ))
+            .unwrap();
+        rig.drive_until_variable("scope", "inside");
+        rig.ex.drive(polls);
+        let peer = rig.ex.spawn(async { 42 });
+        rig.ex.drive(4);
+        assert!(peer.is_finished());
+        assert!(!job.is_finished());
+        rig.variable("peer", "ran");
+        rig.shell.interrupt();
+        assert_eq!(rig.finish(job), 130);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.run(r#"args "$scope" "$#" "$1""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["outside", "0", ""]]);
+    }
+}
+
+#[test]
+fn trim_matching_yields_cancels_and_restores_local_and_positional_frames() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("v", &"a".repeat(6000));
+    rig.variable("scope", "outside");
+    let job = rig
+        .shell
+        .start(
+            "f() { local scope=inside; args ${v%%${started:=a}*?*?*?*?*?*?*?*?*?*?}; }; f argument",
+        )
+        .unwrap();
+    rig.drive_until_variable("started", "a");
+    let peer = rig.ex.spawn(async { 42 });
+    rig.ex.drive(4);
+    assert!(peer.is_finished());
+    assert!(!job.is_finished(), "matching remains cooperative");
+    rig.variable("peer", "ran");
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.run(r#"args "$scope" "$#" "$1" "$started""#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["outside", "0", "", "a"]]);
+}
+
+#[test]
+fn trim_rhs_cancellation_restores_valid_external_prefix_frames() {
+    for operand in ["${v##*?}", "${u:-${v%%?*}}"] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("v", &"é".repeat(150_000));
+        rig.variable("result", "outside");
+        let job = rig
+            .shell
+            .start(&format!("TEMP=value result={operand} args"))
+            .unwrap();
+        rig.drive_until_variable("TEMP", "value");
+        let peer = rig.ex.spawn(async { 42 });
+        rig.ex.drive(4);
+        assert!(peer.is_finished());
+        assert!(!job.is_finished());
+        rig.variable("peer", "ran");
+        rig.shell.interrupt();
+        assert_eq!(rig.finish(job), 130);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.run(r#"args "${TEMP-unset}" "$result" "$#""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["unset", "outside", "0"]]);
+    }
+}
+
 // Scalar length cases adapted from Bashkit 491c3281's variables, string-ops,
 // unicode, bashbox-utf8 and c-locale-length specs. Bounds are engine-specific.
 #[test]
