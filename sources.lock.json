@@ -163,6 +163,15 @@
         "classification": "Original parser boundary correction and regression tests in the owned Bashkit-derived replacement operand scanner.",
         "change": "Stop replacement operands at the outer closing brace while nesting only nested ${...} operands, and keep backslashes literal inside single-quoted spans. Add parser regressions for bare braces and escaped single-quote boundaries with following words. Preserve existing quote, escape, slash and upstream parser behavior.",
         "reason": "Bash replacement operands do not treat bare braces as nested syntax, and backslashes have no escape role inside single quotes. Counting either incorrectly swallows the replacement boundary and can silently change argv or reject a command that Bash accepts."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original quoted-parameter lexer correction and regression tests in the owned Bashkit-derived lexer.",
+        "change": "Track each nested quoted parameter header with the existing bounded ParameterHeader stack. Bare braces stay literal rather than consuming nesting depth. Apostrophes in replacement and pattern operands protect dollars and backslashes, while ordinary default operands retain literal-apostrophe expansion behavior. Add quoted bare-brace and literal ${ / $( boundary regressions; preserve existing depth ceilings and upstream assertions.",
+        "reason": "The quoted lexer must agree with replacement operand parsing: only ${ starts a nested parameter, and single-quoted replacement text must not invoke substitution scanners or swallow the outer double quote. Operator-specific quote handling preserves ordinary default-operand behavior."
       }
     ],
     "removedUpstreamTests": []

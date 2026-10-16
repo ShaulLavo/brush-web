@@ -431,7 +431,13 @@ fn replacement_operands_retain_nested_slashes_and_quotes() {
 
 #[test]
 fn replacement_operands_keep_bare_braces_and_single_quote_backslashes_bounded() {
-    for source in [r#"args ${v/b/{}} next"#, r#"args "${v/b/'a\'}" next"#] {
+    for source in [
+        r#"args ${v/b/{}} next"#,
+        r#"args "${v/b/'a\'}" next"#,
+        r#"args "${v/b/{}" next"#,
+        r#"args "${v/b/'${x'}" next"#,
+        r#"args "${v/b/'$(x'}" next"#,
+    ] {
         let script = Parser::new(source).parse().unwrap();
         let Command::Simple(command) = script.commands.into_iter().next().unwrap() else {
             panic!("expected a simple command: {source}");

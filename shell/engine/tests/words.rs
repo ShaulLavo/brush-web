@@ -149,6 +149,20 @@ fn scalar_replace_parser_boundaries_preserve_bare_braces_and_single_quotes() {
 }
 
 #[test]
+fn scalar_replace_double_quoted_lexer_boundaries() {
+    check(
+        r#"v=abc; args "${v/b/{}" next; args "${v/b/'${x'}" next; args "${v/b/'$(x'}" next; args "${v/b/'a\'}" next; x=ok; args "${u:-'${x}'}" next"#,
+        &[
+            &["a{c", "next"],
+            &["a${xc", "next"],
+            &["a$(xc", "next"],
+            &["aa\\c", "next"],
+            &["'ok'", "next"],
+        ],
+    );
+}
+
+#[test]
 fn scalar_replace_quote_escape_and_ampersand_controls() {
     check(
         r#"v=abc; r='&'; args "${v/b/&}" "${v/b/\&}" "${v/b/"&"}" "${v/b/'&'}" "${v/b/\q}" "${v/b/\\&}" "${v/b/$r}" "${v/b/"$r"}"; r='\&'; args "${v/b/$r}" "${v/b/"$r"}"; args "${v/b/${q:-"&"}}" "${v/b/${s:='&'}}"; args ${v/b/'a b'} "${v/b/'a b'}""#,

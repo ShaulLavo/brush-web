@@ -56,6 +56,7 @@ struct ContinuationFlags {
 struct ParameterHeader {
     name_started: bool,
     operand: bool,
+    single_quotes: bool,
     subscript: usize,
 }
 impl ParameterHeader {
@@ -76,7 +77,10 @@ impl ParameterHeader {
             ch if ch.is_ascii_alphanumeric() || ch == '_' => self.name_started = true,
             '#' | '!' if !self.name_started => {}
             '@' | '*' | '?' | '-' | '$' if !self.name_started => self.name_started = true,
-            _ => self.operand = true,
+            _ => {
+                self.operand = true;
+                self.single_quotes = matches!(ch, '/' | '#' | '%' | '^' | ',');
+            }
         }
     }
 }
@@ -2611,26 +2615,19 @@ impl<'a> Lexer<'a> {
     /// THREAT[TM-DOS-045]: track nested `${...}` iteratively. This lexer runs
     /// before parser fuel is checked, so recursion here can overflow the host stack.
     fn read_param_expansion_into(&mut self, content: &mut String) -> Result<(), String> {
-        let mut depth = 1usize;
+        let mut parameters = vec![ParameterHeader::default()];
         while let Some(c) = self.peek_char() {
+            parameters.last_mut().unwrap().character(c);
             match c {
-                '{' => {
-                    if depth >= self.max_subst_depth {
-                        return Err("parameter expansion nesting too deep".to_string());
-                    }
-                    depth += 1;
-                    content.push(c);
-                    self.advance();
-                }
                 '}' => {
-                    depth -= 1;
+                    parameters.pop();
                     self.advance();
                     content.push('}');
-                    if depth == 0 {
+                    if parameters.is_empty() {
                         break;
                     }
                 }
-                '"' | '\'' => self.read_param_quoted_span(content, c, depth)?,
+                '"' | '\'' => self.read_param_quoted_span(content, c, &mut parameters)?,
                 '\\' => {
                     // Keep operand escapes raw. The expansion scanner owns
                     // quote removal, including inside literal apostrophe spans.
@@ -2646,15 +2643,16 @@ impl<'a> Lexer<'a> {
                         self.advance();
                         self.read_command_subst_into(content);
                     } else if self.peek_char() == Some('{') {
-                        if depth >= self.max_subst_depth {
+                        if parameters.len() >= self.max_subst_depth {
                             return Err("parameter expansion nesting too deep".to_string());
                         }
-                        depth += 1;
+                        parameters.push(ParameterHeader::default());
                         content.push('{');
                         self.advance();
                     }
                 }
                 _ => {
+                    // Only `${` opens another parameter; bare `{` is data.
                     content.push(c);
                     self.advance();
                 }
@@ -2664,23 +2662,22 @@ impl<'a> Lexer<'a> {
     }
 
     /// Quotes inside an outer double-quoted parameter retain their spelling.
-    /// Bare braces cannot end the operand, but nested `${...}` stays structural
-    /// even inside literal apostrophe spans.
+    /// Apostrophes quote pattern operands, but remain literal characters in
+    /// default operands, where nested `${...}` and `$(...)` stay structural.
     fn read_param_quoted_span(
         &mut self,
         content: &mut String,
         quote: char,
-        enclosing_depth: usize,
+        parameters: &mut Vec<ParameterHeader>,
     ) -> Result<(), String> {
-        // A nested parameter owns its quote context. Once it closes, resume
-        // the enclosing quoted span rather than treating its quotes as ours.
-        // This explicit stack also includes the enclosing parameter in limits.
+        // A nested parameter owns its quote/operator context. Once it closes,
+        // resume the enclosing span. Both stacks share the substitution ceiling.
         let ansi_c = quote == '\'' && content.ends_with('$');
-        let mut quotes = vec![(quote, ansi_c, enclosing_depth)];
-        let mut depth = enclosing_depth;
+        let mut quotes = vec![(quote, ansi_c, parameters.len())];
         content.push(quote);
         self.advance();
         while let Some(c) = self.advance() {
+            let depth = parameters.len();
             let active = quotes.last().copied().filter(|frame| frame.2 == depth);
             if active.is_some_and(|frame| c == frame.0) {
                 content.push(c);
@@ -2689,6 +2686,20 @@ impl<'a> Lexer<'a> {
                     return Ok(());
                 }
                 continue;
+            }
+            if active.is_some_and(|(quote, ansi_c, _)| {
+                quote == '\'' && !ansi_c && parameters.last().unwrap().single_quotes
+            }) {
+                // Real single quotes in replacement/pattern operands protect
+                // dollars and backslashes too, not only their braces.
+                if matches!(c, '{' | '}') {
+                    content.push('\x00');
+                }
+                content.push(c);
+                continue;
+            }
+            if active.is_none() {
+                parameters.last_mut().unwrap().character(c);
             }
             if c == '\\'
                 && active.is_none_or(|(quote, ansi_c, _)| {
@@ -2709,7 +2720,7 @@ impl<'a> Lexer<'a> {
                 if depth >= self.max_subst_depth {
                     return Err("parameter expansion nesting too deep".to_string());
                 }
-                depth += 1;
+                parameters.push(ParameterHeader::default());
                 self.advance();
                 content.push_str("${");
                 continue;
@@ -2719,13 +2730,8 @@ impl<'a> Lexer<'a> {
             } else if matches!(c, '{' | '}') {
                 if active.is_some() {
                     content.push('\x00');
-                } else if c == '{' {
-                    if depth >= self.max_subst_depth {
-                        return Err("parameter expansion nesting too deep".to_string());
-                    }
-                    depth += 1;
-                } else {
-                    depth -= 1;
+                } else if c == '}' {
+                    parameters.pop();
                 }
             }
             content.push(c);
