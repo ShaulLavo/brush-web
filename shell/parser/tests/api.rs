@@ -101,7 +101,10 @@ fn pattern_bracket_fix_preserves_target_subscripts_and_literal_escape_metadata()
         assert!(matches!(&word.parts[1], WordPart::Literal(tail) if tail == "tail"));
     }
     let word = argument("args ${#a[@]}tail");
-    assert!(matches!(&word.parts[0], WordPart::Length(name) if name == "a[@]"));
+    assert!(matches!(&word.parts[0], WordPart::ArrayLength(name) if name == "a"));
+    assert!(matches!(&word.parts[1], WordPart::Literal(tail) if tail == "tail"));
+    let word = argument("args ${#a[0]}tail");
+    assert!(matches!(&word.parts[0], WordPart::Length(name) if name == "a[0]"));
     assert!(matches!(&word.parts[1], WordPart::Literal(tail) if tail == "tail"));
     let word = argument(r#"args ${v#['}']}a\:b${IFS:=:}"#);
     assert_eq!(
