@@ -56,6 +56,12 @@ impl State {
                 .unwrap_or(Cow::Borrowed("")),
         }
     }
+    pub(crate) fn scalar_parameter(&self, name: &str) -> Option<&str> {
+        if name == "PWD" {
+            return Some(&self.cwd);
+        }
+        self.variables.get(name).map(String::as_str)
+    }
     pub(crate) fn environment(&self) -> BTreeMap<String, String> {
         self.exported
             .iter()

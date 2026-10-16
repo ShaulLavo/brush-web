@@ -59,3 +59,34 @@ iterator, retaining other quotes and escapes. An original engine adapter uses
 the unchanged lexer's public raw-capture API within bounded command spans when
 `Word.raw` is absent outside function bodies. Escaped declaration spellings
 are corrected against GNU Bash; no parser files are modified.
+
+Scalar default and alternative parameter operators are adapted from Bashkit's
+`crates/bashkit/src/interpreter/expansion.rs` at the same pinned revision
+`491c3281f668b76d64b15210b8f5d7bf97244be0`, under the retained MIT license,
+Copyright 2024–2026 Everruns. This takes the scalar `ParameterExpansion` dispatch,
+`resolve_param_expansion_name`, the `UseDefault` and `UseReplacement` arms of
+`apply_parameter_op`, and quote/operand rules from `expand_operand`,
+`parse_marked_operand`, `strip_operand_quotes_with_count`, `operand_word`,
+`quoted_operand_used` and `split_word_segments`. Adaptations live in
+`shell/engine/src/expand.rs`, `shell/engine/src/expand/operand.rs` and
+`shell/engine/src/state.rs`, with shared-work wiring in `interpreter.rs`. The
+scanner follows the unchanged quote/escape contract of `read_unquoted_param_body`
+and `read_param_expansion_into` in `crates/bashkit/src/parser/lexer.rs` and adapts
+opaque substitution boundaries from `read_brace_operand` in
+`crates/bashkit/src/parser/mod.rs`. Its `parse_word_string_with_limits` API is
+called only after engine admission. Additional cases in `shell/engine/tests/words.rs`
+adapt `var-op-test.test.sh`, `variables.test.sh`, `string-ops.test.sh`,
+`param-operand-quotes.test.sh` and `word-split.test.sh` from
+`crates/bashkit/tests/spec_cases/bash/`; exact ranges and destinations are recorded
+under `shellParameterDefaults` in `sources.lock.json`.
+
+Local operand handling streams structural protection into the existing field
+splitter instead of inserting upstream quote markers. Only selected scalar
+operands are scanned or reparsed. Each synchronous scalar-token reparse is
+admitted at 4,096 bytes, with cumulative token-byte/work accounting, cooperative
+checkpoints, a 32-level operator limit and a parsed-shape check. The parser stays
+byte-identical. Assignment and error operators, list operands, arrays,
+indirection, patterns, pathname/tilde/brace expansion,
+arithmetic and substitutions are not ported. The original async engine keeps
+its aggregate bounds and cancellation guards; no `mapfile` or output-buffering
+code is included.
