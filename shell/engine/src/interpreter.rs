@@ -551,13 +551,24 @@ async fn execute_compound_body(
 
 async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Context) -> Outcome {
     let CommandError { error, stderr } = error;
-    let (name, message, line) = match error {
+    let (name, message, line, status) = match error {
         expand::Error::Status(code) => return Outcome::status(code),
         expand::Error::Parameter {
             name,
             message,
             line,
-        } => (name, message, line),
+        } => (name, message, line, context.parameter_error_status),
+        expand::Error::Indirect { name, unset, line } => (
+            name,
+            if unset {
+                "invalid indirect expansion"
+            } else {
+                "invalid variable name"
+            }
+            .to_owned(),
+            line,
+            1,
+        ),
     };
     // The expansion adapter reserves diagnostic space before owning these
     // strings. Check the complete spelling before format allocates its copy.
@@ -582,7 +593,7 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
         return Outcome::status(130);
     }
     Outcome {
-        code: context.parameter_error_status,
+        code: status,
         flow: Flow::Exit,
     }
 }
