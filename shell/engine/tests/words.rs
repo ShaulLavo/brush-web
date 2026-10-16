@@ -886,6 +886,9 @@ fn escaped_backticks_and_operand_delimiters_stay_literal() {
 
 #[test]
 fn inner_quoted_backslashes_and_nested_apostrophe_spans_keep_context() {
-    check(r#"u=; args ${u:-"a\}b"} "${u:-"a\}b"}""#, &[&["a\\}b", "a}b"]]);
+    check(
+        r#"u=; args ${u:-"a\}b"} "${u:-"a\}b"}""#,
+        &[&["a\\}b", "a}b"]],
+    );
     check(r#"u=; v=; args "${u:-'${v:-'a'}'}""#, &[&["''a''"]]);
 }
