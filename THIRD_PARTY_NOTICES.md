@@ -176,3 +176,12 @@ and all source-anchor assertions are retained. Additional original cases in
 `shell/engine/tests/words.rs` follow bounded GNU Bash routing/status observations
 and check frame restoration and cancellation. No parser or expansion-field
 implementation is changed by these corrections.
+
+The startup IFS follow-on is an original shell-state initialization adapter in
+`shell/engine/src/state.rs`, verified against clean GNU Bash 5.3.15 startup.
+It seeds nonexported IFS once with space/tab/newline. Later empty, changed and
+removed values retain ordinary state representation, without expansion-time
+reinitialization. Original state and scalar-operator regressions check startup,
+export exclusion, lookup and local restoration. The existing seeded-IFS
+cancellation regression remains unchanged. This adapter copies no additional
+upstream implementation.
