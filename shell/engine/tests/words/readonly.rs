@@ -145,3 +145,18 @@ fn resource_failure_restores_local_attributes_after_completed_declarations() {
     );
     assert_eq!(*rig.calls.borrow(), [vec!["1", "after", "7", "0"]]);
 }
+
+#[test]
+fn rejected_writes_discard_the_read_unit_and_keep_readonly_state() {
+    for command in ["x=2", "args $((x=2))", "args ${x:=2}"] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(
+            rig.run(&format!(
+                "readonly x; {command}; args forbidden\nargs after=$? ${{x-unset}}"
+            )),
+            0
+        );
+        assert_eq!(*rig.calls.borrow(), [vec!["after=1", "unset"]]);
+        assert!(rig.shell.state().borrow().readonly.contains("x"));
+    }
+}

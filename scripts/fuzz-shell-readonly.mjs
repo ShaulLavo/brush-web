@@ -69,6 +69,9 @@ function fixedCases() {
     "readonly x=1; export x; printf '<%s>\\n' x=$x",
     "readonly x=1; ((x+=2)); printf '<%s>\\n' status=$? x=$x",
     "f() { readonly y; local x=3 y=$((x+2)); printf '<%s>\\n' status=$? y=$y; }; f",
+    'readonly x=1; echo "$((x=2))"; echo skipped\nprintf "%s\\n" after=$? x=$x',
+    'readonly x=1; x=2; echo skipped\nprintf "%s\\n" after=$? x=$x',
+    'readonly x; echo "${x:=2}"; echo skipped\nprintf "%s\\n" after=$? "${x-unset}"',
   ];
   return scripts.map((script, index) => ({ id: `fixed-${index}`, script }));
 }

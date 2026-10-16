@@ -617,7 +617,10 @@ async fn arithmetic_command(
 
 async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Context) -> Outcome {
     let CommandError { error, stderr } = error;
-    let flow = if matches!(error, expand::Error::Arithmetic { .. }) {
+    let flow = if matches!(
+        error,
+        expand::Error::Arithmetic { .. } | expand::Error::Readonly { .. }
+    ) {
         Flow::DiscardReadUnit
     } else {
         Flow::Exit

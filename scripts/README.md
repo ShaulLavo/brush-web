@@ -56,7 +56,7 @@ both `UNSUPPORTED` and every status or byte difference as a failure, exiting non
 
 `npm run fuzz:shell-readonly` checks readonly declarations, rejected local and
 arithmetic writes, nested local shadowing, and assignment expansion errors against
-GNU Bash 5.3.15. It includes 256 deterministic generated cases and eight fixed
+GNU Bash 5.3.15. It includes 256 deterministic generated cases and eleven fixed
 regressions. Supply an existing native binary with `--shell PATH`.
 
 Record the oracle with `--record scripts/fixtures/shell-readonly-seed-17.json`.
