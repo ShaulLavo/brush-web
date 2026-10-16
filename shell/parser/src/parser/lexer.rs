@@ -50,40 +50,7 @@ struct ContinuationFlags {
     error: Option<String>,
 }
 
-/// Only brackets in the parameter target are array subscripts. Each nested
-/// `${...}` gets its own header so operand brackets keep ordinary quote rules.
-#[derive(Default)]
-struct ParameterHeader {
-    name_started: bool,
-    operand: bool,
-    single_quotes: bool,
-    subscript: usize,
-}
-impl ParameterHeader {
-    fn character(&mut self, ch: char) {
-        if self.subscript > 0 {
-            match ch {
-                '[' => self.subscript += 1,
-                ']' => self.subscript -= 1,
-                _ => {}
-            }
-            return;
-        }
-        if self.operand {
-            return;
-        }
-        match ch {
-            '[' if self.name_started => self.subscript = 1,
-            ch if ch.is_ascii_alphanumeric() || ch == '_' => self.name_started = true,
-            '#' | '!' if !self.name_started => {}
-            '@' | '*' | '?' | '-' | '$' if !self.name_started => self.name_started = true,
-            _ => {
-                self.operand = true;
-                self.single_quotes = matches!(ch, '/' | '#' | '%' | '^' | ',');
-            }
-        }
-    }
-}
+use super::parameter_scan::ParameterHeader;
 
 /// Bash parses a backquoted command when it runs, so a syntax error there
 /// fails only that substitution (status 2), unlike `$(...)` which fails the
@@ -1897,7 +1864,7 @@ impl<'a> Lexer<'a> {
                     if parameters.len() >= self.max_subst_depth {
                         return Err("parameter expansion nesting too deep".to_string());
                     }
-                    parameters.push(ParameterHeader::default());
+                    parameters.push(parameters.last().unwrap().nested());
                 }
                 // `${x:-$(echo })}`: braces inside a command substitution
                 // belong to it.
@@ -2646,7 +2613,7 @@ impl<'a> Lexer<'a> {
                         if parameters.len() >= self.max_subst_depth {
                             return Err("parameter expansion nesting too deep".to_string());
                         }
-                        parameters.push(ParameterHeader::default());
+                        parameters.push(parameters.last().unwrap().nested());
                         content.push('{');
                         self.advance();
                     }
@@ -2720,7 +2687,7 @@ impl<'a> Lexer<'a> {
                 if depth >= self.max_subst_depth {
                     return Err("parameter expansion nesting too deep".to_string());
                 }
-                parameters.push(ParameterHeader::default());
+                parameters.push(parameters.last().unwrap().nested());
                 self.advance();
                 content.push_str("${");
                 continue;

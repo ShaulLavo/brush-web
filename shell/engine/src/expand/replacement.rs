@@ -88,6 +88,13 @@ impl Expansion<'_> {
         if self.segments.account_storage {
             return Ok(());
         }
+        if let Some(captured) = &self.captured
+            && !self.pattern_snapshots
+        {
+            // Earlier assignment text predates replacement output accounting.
+            // Pattern snapshots already admitted this capture's capacity.
+            self.work.admit_storage(captured.value.capacity())?;
+        }
         if self.pattern.is_some() || self.replacement.is_some() || self.captured.is_some() {
             self.segments.account_storage = true;
             return Ok(());
@@ -190,5 +197,63 @@ impl Expansion<'_> {
             }
         }
         self.segment(&value[last..], protection, protected).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{executor::Cancel, expand::Captured};
+    use futures::FutureExt;
+
+    fn capture_storage(storage: usize, snapshots: bool) -> Result<usize, Error> {
+        let mut value = String::with_capacity(16);
+        value.push('a');
+        let mut work = Work::new(64, storage, 1);
+        if snapshots {
+            work.admit_storage(value.capacity())?;
+        }
+        let cancel = Cancel::new();
+        let mut expansion = Expansion {
+            segments: Segments::default(),
+            captured: Some(Captured {
+                value,
+                max_bytes: 64,
+            }),
+            pattern: None,
+            replacement: None,
+            pattern_context: snapshots,
+            pattern_snapshots: snapshots,
+            ifs: None,
+            ifs_changed: false,
+            work: &mut work,
+            cancel: &cancel,
+            max_raw: 64,
+            raw_remaining: 64,
+            elements_remaining: 1,
+        };
+        for _ in 0..2 {
+            expansion
+                .admit_replacement_output()
+                .now_or_never()
+                .expect("capture admission does not suspend")?;
+        }
+        assert!(expansion.segments.account_storage);
+        Ok(work.storage_remaining)
+    }
+
+    #[test]
+    fn captured_replacement_storage_is_admitted_once_at_the_exact_capacity() {
+        for snapshots in [false, true] {
+            assert!(matches!(
+                capture_storage(15, snapshots),
+                Err(Error::Status(2))
+            ));
+            assert_eq!(
+                capture_storage(16, snapshots)
+                    .unwrap_or_else(|_| panic!("the existing capture capacity must fit")),
+                0,
+            );
+        }
     }
 }

@@ -470,3 +470,36 @@ fn quoted_replacement_substitution_lookalikes_stay_inside_single_quotes() {
         );
     }
 }
+
+#[test]
+fn nested_replacements_keep_enclosing_operand_and_word_boundaries() {
+    for source in [
+        r#"args "${u:-${v/b/{}}" next"#,
+        r#"args "${u:-${v/b/'$(x'}}" next"#,
+        r#"args "${v/b/${w/y/'$(x'}}" next"#,
+        r#"args "${v/b/${w/y/{}}" next"#,
+        r#"args "${v/b/${u:-'$(x'}}" next"#,
+    ] {
+        let script = Parser::new(source).parse().unwrap();
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("{source}");
+        };
+        assert_eq!(command.args.len(), 2, "{source}");
+        assert_eq!(
+            command.args[0].parts.len(),
+            1,
+            "{source}: {:?}",
+            command.args[0]
+        );
+        assert!(
+            matches!(
+                command.args[0].parts[0],
+                WordPart::ParameterExpansion { .. }
+            ),
+            "{source}"
+        );
+        assert!(
+            matches!(command.args[1].parts.as_slice(), [WordPart::Literal(next)] if next == "next")
+        );
+    }
+}

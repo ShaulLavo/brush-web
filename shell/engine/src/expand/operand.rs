@@ -2,6 +2,7 @@
 //! parse_marked_operand. Unlike upstream, protection never enters string data.
 use super::{Error, Work};
 use crate::executor::Cancel;
+use shell_parser::parser::parameter_scan::{ParameterScan, Step};
 use shell_parser::parser::{ParameterOp, Parser, WordPart};
 
 pub(super) const MAX_DEPTH: usize = 32;
@@ -203,22 +204,24 @@ impl<'a> Scanner<'a> {
     async fn braced(&mut self, work: &mut Work, cancel: &Cancel) -> Result<(), Error> {
         let start = self.cursor - 1;
         self.take();
-        let mut depth: usize = 1;
+        let mut scanner = ParameterScan::<MAX_DEPTH>::new(
+            self.outer_quoted || self.quote == Quote::Double,
+            self.pattern || self.pattern_source,
+        );
         while let Some(value) = self.take() {
             work.checkpoint(cancel).await?;
             if self.cursor - start > MAX_TOKEN_BYTES {
                 return Err(2.into());
             }
-            if value == "$" && self.peek() == Some('(') {
-                self.skip_command(start, work, cancel).await?;
-                continue;
-            }
-            self.brace_step(value, &mut depth)?;
-            if depth > MAX_DEPTH {
-                return Err(2.into());
-            }
-            if depth == 0 {
-                return Ok(());
+            match scanner.feed(value.chars().next().ok_or(2)?, self.peek()) {
+                Step::Copy => {}
+                Step::Escape | Step::Open => {
+                    work.checkpoint(cancel).await?;
+                    self.take().ok_or(2)?;
+                }
+                Step::Command => self.skip_command(start, work, cancel).await?,
+                Step::Closed => return Ok(()),
+                Step::Limit => return Err(2.into()),
             }
         }
         Err(2.into())
@@ -293,17 +296,6 @@ impl<'a> Scanner<'a> {
             }
         }
         Err(2.into())
-    }
-    fn brace_step(&mut self, value: &str, depth: &mut usize) -> Result<(), Error> {
-        match value {
-            "\0" | "\\" => {
-                self.take().ok_or(2)?;
-            }
-            "{" => *depth += 1,
-            "}" => *depth -= 1,
-            _ => {}
-        }
-        Ok(())
     }
 }
 

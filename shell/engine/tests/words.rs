@@ -163,6 +163,21 @@ fn scalar_replace_double_quoted_lexer_boundaries() {
 }
 
 #[test]
+fn scalar_replace_nested_operand_boundaries() {
+    check(
+        r#"u=; v=abc; w=xyz; args "${u:-${v/b/{}}" next; args "${u:-${v/b/'$(x'}}" next; args "${v/b/${w/y/'$(x'}}" next; args "${v/b/${w/y/{}}" next; args "${v/b/${u:-'$(x'}}" next; args ${u:-${v/b/'$(x'}} next"#,
+        &[
+            &["a{c", "next"],
+            &["a$(xc", "next"],
+            &["ax$(xzc", "next"],
+            &["ax{zc", "next"],
+            &["a$(xc", "next"],
+            &["a$(xc", "next"],
+        ],
+    );
+}
+
+#[test]
 fn scalar_replace_quote_escape_and_ampersand_controls() {
     check(
         r#"v=abc; r='&'; args "${v/b/&}" "${v/b/\&}" "${v/b/"&"}" "${v/b/'&'}" "${v/b/\q}" "${v/b/\\&}" "${v/b/$r}" "${v/b/"$r"}"; r='\&'; args "${v/b/$r}" "${v/b/"$r"}"; args "${v/b/${q:-"&"}}" "${v/b/${s:='&'}}"; args ${v/b/'a b'} "${v/b/'a b'}""#,
@@ -251,6 +266,9 @@ fn scalar_replace_unsupported_selected_syntax_fails_without_dispatch() {
     for source in [
         "args ${1/a/b}",
         "args ${v[0]/a/b}",
+        "args ${PIPESTATUS/0/X}",
+        "args \"${PIPESTATUS//0/$(args forbidden)}\"",
+        "args ${PIPESTATUS/0/${side:=forbidden}}",
         "args ${v/@(a)/b}",
         "args ${v/[[:alpha:]]/b}",
         "args ${v/[[.a.]]/b}",
@@ -261,6 +279,7 @@ fn scalar_replace_unsupported_selected_syntax_fails_without_dispatch() {
         rig.variable("v", "abc");
         assert_eq!(rig.run(source), 2, "{source}");
         assert!(rig.calls.borrow().is_empty(), "{source}");
+        assert!(!rig.shell.state().borrow().variables.contains_key("side"));
         assert_eq!(rig.run("args recovered"), 0);
         assert_eq!(*rig.calls.borrow(), &[vec!["recovered"]]);
     }
@@ -298,6 +317,36 @@ fn scalar_replace_snapshots_storage_raw_fields_and_work_are_shared() {
     assert_eq!(rig.run("args ${v/*z/}"), 2, "bounded unsuccessful search");
     assert!(rig.calls.borrow().is_empty());
     assert_eq!(rig.run("args recovered"), 0);
+
+    for (source, rejected_bytes, expected) in [
+        // Replacement enables accounting after the first capture allocation.
+        (
+            "args ${x:=$long${v/a/b}}",
+            2000,
+            format!("{}b", "x".repeat(400)),
+        ),
+        // A later assignment capture inherits replacement output accounting.
+        (
+            "args ${v/a/b}${x:=$long}",
+            1800,
+            format!("b{}", "x".repeat(400)),
+        ),
+    ] {
+        for (bytes, status) in [(rejected_bytes, 2), (4096, 0)] {
+            let rig = Rig::new(Limits {
+                expansion_bytes: bytes,
+                ..Limits::default()
+            });
+            rig.variable("v", "a");
+            rig.variable("long", &"x".repeat(400));
+            assert_eq!(rig.run(source), status, "{source}, bytes={bytes}");
+            if status == 0 {
+                assert_eq!(*rig.calls.borrow(), &[vec![expected.clone()]]);
+            } else {
+                assert!(rig.calls.borrow().is_empty());
+            }
+        }
+    }
 }
 
 #[test]

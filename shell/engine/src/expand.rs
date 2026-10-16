@@ -787,6 +787,9 @@ impl Expansion<'_> {
             replacement,
         } = operator
         {
+            if name == "PIPESTATUS" {
+                return Err(2.into());
+            }
             return self
                 .replace(
                     name,
@@ -1019,7 +1022,8 @@ impl Expansion<'_> {
         let capacity = max_bytes.min(self.work.storage_remaining);
         let mut child = Expansion {
             segments: Segments {
-                account_storage: matches!(operator, ParameterOp::Error),
+                account_storage: self.segments.account_storage
+                    || matches!(operator, ParameterOp::Error),
                 ..Segments::default()
             },
             captured: (!matches!(operator, ParameterOp::Error)).then_some(Captured {
