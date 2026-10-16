@@ -516,7 +516,12 @@ impl Expansion<'_> {
             // scalar, including combining marks; C/POSIX count every byte.
             count += usize::from(!utf8 || byte & 0xc0 != 0x80);
         }
-        self.segment(&count.to_string(), protected, protected).await
+        self.segment(
+            &count.to_string(),
+            Protection::expansion(protected, state),
+            protected,
+        )
+        .await
     }
     async fn parameter(
         &mut self,
