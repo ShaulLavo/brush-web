@@ -2679,7 +2679,7 @@ impl<'a> Lexer<'a> {
                         break;
                     }
                 }
-                '"' | '\'' => self.read_param_quoted_span(content, c)?,
+                '"' | '\'' => self.read_param_quoted_span(content, c, depth)?,
                 '\\' => {
                     // Keep operand escapes raw. The expansion scanner owns
                     // quote removal, including inside literal apostrophe spans.
@@ -2715,34 +2715,67 @@ impl<'a> Lexer<'a> {
     /// Quotes inside an outer double-quoted parameter retain their spelling.
     /// Bare braces cannot end the operand, but nested `${...}` stays structural
     /// even inside literal apostrophe spans.
-    fn read_param_quoted_span(&mut self, content: &mut String, quote: char) -> Result<(), String> {
+    fn read_param_quoted_span(
+        &mut self,
+        content: &mut String,
+        quote: char,
+        enclosing_depth: usize,
+    ) -> Result<(), String> {
+        // A nested parameter owns its quote context. Once it closes, resume
+        // the enclosing quoted span rather than treating its quotes as ours.
+        // This explicit stack also includes the enclosing parameter in limits.
         let ansi_c = quote == '\'' && content.ends_with('$');
+        let mut quotes = vec![(quote, ansi_c, enclosing_depth)];
+        let mut depth = enclosing_depth;
         content.push(quote);
         self.advance();
-        let mut inner = 0usize;
         while let Some(c) = self.advance() {
-            if c == quote {
+            let active = quotes.last().copied().filter(|frame| frame.2 == depth);
+            if active.is_some_and(|frame| c == frame.0) {
                 content.push(c);
-                return Ok(());
+                quotes.pop();
+                if quotes.is_empty() {
+                    return Ok(());
+                }
+                continue;
             }
-            if c == '\\' && (quote != '\'' || ansi_c || self.peek_char() != Some('\'')) {
+            if c == '\\'
+                && active.is_none_or(|(quote, ansi_c, _)| {
+                    quote != '\'' || ansi_c || self.peek_char() != Some('\'')
+                })
+            {
                 content.push(c);
                 content.extend(self.advance());
                 continue;
             }
+            if c == '$' && self.peek_char() == Some('(') {
+                content.push_str("$(");
+                self.advance();
+                self.read_command_subst_into(content);
+                continue;
+            }
             if c == '$' && self.peek_char() == Some('{') {
-                inner = inner
-                    .checked_add(1)
-                    .filter(|&depth| depth <= self.max_subst_depth)
-                    .ok_or_else(|| "parameter expansion nesting too deep".to_string())?;
+                if depth >= self.max_subst_depth {
+                    return Err("parameter expansion nesting too deep".to_string());
+                }
+                depth += 1;
                 self.advance();
                 content.push_str("${");
                 continue;
             }
-            if c == '}' && inner > 0 {
-                inner -= 1;
+            if active.is_none() && matches!(c, '\'' | '"') {
+                quotes.push((c, c == '\'' && content.ends_with('$'), depth));
             } else if matches!(c, '{' | '}') {
-                content.push('\x00');
+                if active.is_some() {
+                    content.push('\x00');
+                } else if c == '{' {
+                    if depth >= self.max_subst_depth {
+                        return Err("parameter expansion nesting too deep".to_string());
+                    }
+                    depth += 1;
+                } else {
+                    depth -= 1;
+                }
             }
             content.push(c);
         }

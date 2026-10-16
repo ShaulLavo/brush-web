@@ -120,10 +120,11 @@
       {
         "paths": [
           "shell/parser/src/parser/lexer.rs",
-          "shell/parser/src/parser/mod.rs"
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/tests/api.rs"
         ],
-        "change": "Keep double-quoted parameter operand backslashes raw, preserve nested ${...} inside literal apostrophe spans, and treat raw escapes and existing lexer protection as indivisible when matching operand and quoted-word boundaries. Share the double-quote and literal-apostrophe span scanner. No upstream tests removed or changed.",
-        "reason": "The engine needs the original escape and quote context to distinguish escaped dollars/backticks and braced variables from literal text without context-specific decoding state."
+        "change": "Keep double-quoted parameter operand backslashes raw, preserve nested ${...} inside literal apostrophe spans, and treat raw escapes and existing lexer protection as indivisible when matching operand and quoted-word boundaries. Share the double-quote and literal-apostrophe span scanner. No upstream tests removed or changed. An explicit quote-context stack resumes outer spans after nested parameters and includes enclosing depth in the substitution ceiling. Original API regressions check the configured limit.",
+        "reason": "The engine needs the original escape and quote context to distinguish escaped dollars/backticks and braced variables from literal text without context-specific decoding state. Nested parameter quotes must not close the enclosing span or reset its depth accounting."
       }
     ],
     "removedUpstreamTests": []
@@ -176,9 +177,9 @@
       "note": "Initial metadata refined from nodeMajor 26 to the exact setup-node version; script bytes, classifications and GNU bash observations unchanged."
     },
     "baselineMeasurement": {
-      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38889591844",
-      "source": "0522b2a36f4e79f20a9ec0b45785bbc3d14ba3cf",
-      "note": "Measured lazy scalar default/alternative outcomes: Oils304, Brush-suite321, Bashkit-suite478; 56 gains and zero lost cases. Oracle, classification and environment identity unchanged. Fresh CI must match this pass membership."
+      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38890920195",
+      "source": "ca47cdce0b2d4b46bbf95ac2a8d0afa2bc86b2c9",
+      "note": "Measured lazy scalar default/alternative and parser escape fixes: Oils305, Brush-suite322, Bashkit-suite479; 59 gains versus main and zero lost cases. Fixed input identity unchanged; fresh CI must match pass membership."
     }
   },
   "shellWords": {

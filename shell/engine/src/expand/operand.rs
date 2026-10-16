@@ -114,7 +114,10 @@ impl<'a> Scanner<'a> {
     fn escape(&mut self, slash: &'a str) -> Result<Piece<'a>, i32> {
         let next = self.peek().ok_or(2)?;
         let double = self.outer_quoted || self.quote == Quote::Double;
-        if double && !matches!(next, '$' | '`' | '"' | '\\' | '}' | '\n') {
+        if double
+            && !matches!(next, '$' | '`' | '"' | '\\' | '\n')
+            && !(self.outer_quoted && next == '}')
+        {
             return Ok(self.text(slash, true));
         }
         let value = self.take().ok_or(2)?;
