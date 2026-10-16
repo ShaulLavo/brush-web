@@ -124,7 +124,9 @@ all 255 non-NUL Latin-1 characters in both directions against GNU Bash 5.3.15
 under `C.UTF-8` and `C`. Rust's full Unicode expansion is not used. Full Unicode,
 other locales, collation and byte-locale non-ASCII matching remain deferred.
 Case matching reuses the iterative matcher with one compiled pattern and state
-vector, shared work/storage/output bounds and cancellation checkpoints.
+vector, shared work/storage/output bounds and cancellation checkpoints. Matcher
+vector capacities and mapped String capacity are admitted before allocation,
+including spare slots rather than only the characters written.
 
 Other parameter operators, pathname globbing, substitution, arrays, traps, aliases,
 `lastpipe`, directory validation and full utility option coverage are not
