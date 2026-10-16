@@ -144,19 +144,42 @@ enum Delimiter {
     Other,
 }
 
-/// Retain protection and group boundaries until all parameter writes finish.
-/// Text is bounded by raw_remaining; empty/group events consume shared Work.
+#[derive(Clone, Copy)]
+enum Protection {
+    None,
+    Spaces,
+    All,
+}
+impl Protection {
+    fn expansion(quoted: bool, state: &SharedState) -> Self {
+        if quoted {
+            return Self::All;
+        }
+        if Ifs::separator(state).is_none() {
+            return Self::Spaces;
+        }
+        Self::None
+    }
+    fn protects(self, ch: char) -> bool {
+        matches!(self, Self::All) || (matches!(self, Self::Spaces) && ch == ' ')
+    }
+}
+
+/// Retain protection and list separators until all parameter writes finish.
+/// Text and separators are bounded by raw_remaining; empty events consume Work.
 /// Adjacent text with identical protection shares one allocation, including
 /// the operand scanner's character-sized pieces.
 enum Segment {
     Text { value: String, protected: bool },
     Empty,
-    Group,
+    ListSeparator(char),
 }
 #[derive(Default)]
 struct Segments {
     parts: Vec<Segment>,
+    needs_split: bool,
     list_word: bool,
+    split_space: bool,
 }
 impl Segments {
     fn character(&mut self, ch: char, protected: bool) {
@@ -179,23 +202,26 @@ impl Segments {
             self.parts.push(Segment::Empty);
         }
     }
-    fn end_group(&mut self) {
-        if !matches!(self.parts.last(), Some(Segment::Group)) {
-            self.parts.push(Segment::Group);
-        }
-    }
     async fn split(
         self,
-        ifs: &Ifs,
+        mut ifs: Ifs,
         max_bytes: usize,
         max_fields: usize,
         work: &mut Work,
         cancel: &Cancel,
     ) -> Result<Vec<String>, Error> {
+        // @ uses spaces when the final IFS is empty. Positional unquoted *
+        // expanded with empty IFS selects space splitting for the whole word.
+        if !self.needs_split {
+            ifs.chars.clear();
+        } else if self.split_space || (self.list_word && ifs.chars.is_empty()) {
+            ifs.chars.clear();
+            ifs.chars.insert(' ');
+        }
         let mut fields = Fields::new(max_bytes, max_fields);
         fields.list_word = self.list_word;
         for part in self.parts {
-            fields.segment(part, ifs, work, cancel).await?;
+            fields.segment(part, &ifs, work, cancel).await?;
         }
         fields.end_group()?;
         Ok(fields.out)
@@ -250,9 +276,9 @@ impl Fields {
                 work.checkpoint(cancel).await?;
                 return self.text_boundary();
             }
-            Segment::Group => {
+            Segment::ListSeparator(ch) => {
                 work.checkpoint(cancel).await?;
-                return self.end_group();
+                return self.character(ch, ifs.delimiter(ch));
             }
             Segment::Text { value, protected } => (value, protected),
         };
@@ -289,7 +315,7 @@ impl Fields {
         Ok(())
     }
     fn non_whitespace(&mut self) -> Result<(), Error> {
-        // Bash's quoted-@ word path trims leading IFS whitespace together
+        // Bash's list-word path trims leading IFS whitespace together
         // with its adjacent first delimiter. Protected empty prefixes are
         // text boundaries and have already ended the leading region.
         let trim = self.list_word && self.leading && self.whitespace;
@@ -338,27 +364,66 @@ impl Captured {
 struct Expansion<'a> {
     segments: Segments,
     captured: Option<Captured>,
+    ifs: Option<Ifs>,
+    ifs_changed: bool,
     work: &'a mut Work,
     cancel: &'a Cancel,
+    max_raw: usize,
     /// Also bound intermediate expansion bytes, even if IFS removes them all.
     raw_remaining: usize,
     /// Empty array/positional elements consume work even when they emit no text.
     elements_remaining: usize,
 }
 impl Expansion<'_> {
+    async fn current_ifs(&mut self, state: &SharedState) -> Result<(), Error> {
+        if self.ifs.is_none() {
+            self.ifs = Some(Ifs::new(state, self.cancel, self.max_raw, self.work).await?);
+        }
+        Ok(())
+    }
+    fn admit_raw(&mut self, bytes: usize) -> Result<(), Error> {
+        if bytes > self.raw_remaining {
+            return Err(2.into());
+        }
+        self.raw_remaining -= bytes;
+        Ok(())
+    }
+    async fn literal(
+        &mut self,
+        value: &str,
+        state: &SharedState,
+        protected: bool,
+    ) -> Result<(), Error> {
+        if protected || self.captured.is_some() || value.is_empty() {
+            return self.segment(value, Protection::All, protected).await;
+        }
+        self.admit_raw(value.len())?;
+        self.current_ifs(state).await?;
+        let ifs = self.ifs.as_ref().ok_or(2)?;
+        // Bash protects literal IFS characters when emitting them. A later
+        // assignment may make a previously ordinary literal a delimiter.
+        for ch in value.chars() {
+            self.work.checkpoint(self.cancel).await?;
+            self.segments
+                .character(ch, !matches!(ifs.delimiter(ch), Delimiter::Text));
+        }
+        Ok(())
+    }
     async fn segment(
         &mut self,
         value: &str,
-        protected: bool,
+        protection: Protection,
         keeps_empty: bool,
     ) -> Result<(), Error> {
-        if value.len() > self.raw_remaining {
-            return Err(2.into());
-        }
-        self.raw_remaining -= value.len();
-        self.emit(value, protected, keeps_empty).await
+        self.admit_raw(value.len())?;
+        self.emit(value, protection, keeps_empty).await
     }
-    async fn emit(&mut self, value: &str, protected: bool, keeps_empty: bool) -> Result<(), Error> {
+    async fn emit(
+        &mut self,
+        value: &str,
+        protection: Protection,
+        keeps_empty: bool,
+    ) -> Result<(), Error> {
         if let Some(captured) = &mut self.captured {
             self.work.checkpoint(self.cancel).await?;
             return captured.append(value);
@@ -372,7 +437,7 @@ impl Expansion<'_> {
         }
         for ch in value.chars() {
             self.work.checkpoint(self.cancel).await?;
-            self.segments.character(ch, protected);
+            self.segments.character(ch, protection.protects(ch));
         }
         Ok(())
     }
@@ -385,6 +450,7 @@ impl Expansion<'_> {
         depth: usize,
     ) -> LocalBoxFuture<'a, Result<(), Error>> {
         async move {
+            self.segments.needs_split |= !scalar && !quoted;
             if let WordPart::ParameterExpansion {
                 name,
                 operator,
@@ -406,8 +472,12 @@ impl Expansion<'_> {
                     .await;
             }
             let value = scalar_value(part, state, self.raw_remaining)?;
-            self.segment(&value, scalar || quoted, scalar || quoted)
-                .await
+            self.segment(
+                &value,
+                Protection::expansion(scalar || quoted, state),
+                scalar || quoted,
+            )
+            .await
         }
         .boxed_local()
     }
@@ -454,8 +524,12 @@ impl Expansion<'_> {
                 self.raw_remaining,
             )?
         };
-        self.segment(&value, scalar || quoted, scalar || quoted)
-            .await
+        self.segment(
+            &value,
+            Protection::expansion(scalar || quoted, state),
+            scalar || quoted,
+        )
+        .await
     }
     async fn effect_operand(
         &mut self,
@@ -485,8 +559,11 @@ impl Expansion<'_> {
                 value: String::new(),
                 max_bytes: capacity,
             }),
+            ifs: None,
+            ifs_changed: false,
             work: self.work,
             cancel: self.cancel,
+            max_raw: capacity,
             raw_remaining: capacity,
             elements_remaining: self.elements_remaining,
         };
@@ -494,6 +571,7 @@ impl Expansion<'_> {
             .operand(source, state, quoted, scalar, depth + 1)
             .await?;
         self.raw_remaining -= capacity - child.raw_remaining;
+        let ifs_changed = child.ifs_changed || name == "IFS";
         let captured = child.captured.take().ok_or(2)?;
         drop(child);
         self.work.admit_storage(captured.value.len())?;
@@ -522,8 +600,16 @@ impl Expansion<'_> {
         state
             .borrow_mut()
             .assign_parameter(name.to_owned(), captured.value.clone());
-        self.emit(&captured.value, scalar || quoted, scalar || quoted)
-            .await
+        self.ifs_changed |= ifs_changed;
+        if ifs_changed {
+            self.ifs = None;
+        }
+        self.emit(
+            &captured.value,
+            Protection::expansion(scalar || quoted, state),
+            scalar || quoted,
+        )
+        .await
     }
     async fn operand(
         &mut self,
@@ -539,7 +625,7 @@ impl Expansion<'_> {
                 .await?;
         }
         // An outer quoted expansion exists even when its selected operand is empty.
-        self.segment("", scalar || quoted, scalar || quoted).await
+        self.segment("", Protection::None, scalar || quoted).await
     }
     async fn operand_piece(
         &mut self,
@@ -553,7 +639,7 @@ impl Expansion<'_> {
             operand::Piece::Text { value, protected } => {
                 self.segment(
                     value,
-                    scalar || quoted || protected,
+                    Protection::expansion(scalar || quoted || protected, state),
                     scalar || quoted || protected,
                 )
                 .await
@@ -566,7 +652,12 @@ impl Expansion<'_> {
     }
     async fn separator(&mut self, ch: Option<char>, protected: bool) -> Result<(), Error> {
         if let Some(ch) = ch {
-            self.segment(ch.encode_utf8(&mut [0; 4]), protected, false)
+            let protection = if protected {
+                Protection::All
+            } else {
+                Protection::None
+            };
+            self.segment(ch.encode_utf8(&mut [0; 4]), protection, false)
                 .await?;
         }
         Ok(())
@@ -591,9 +682,18 @@ impl Expansion<'_> {
         }
         self.elements_remaining -= count;
         let ifs_separator = Ifs::separator(state);
-        let groups = !scalar && ((quoted && at) || (!quoted && ifs_separator.is_none()));
+        let list = !scalar && (at || !quoted);
+        self.segments.needs_split |= list;
+        self.segments.list_word |= list;
+        self.segments.split_space |= !scalar
+            && !quoted
+            && !at
+            && matches!(part, WordPart::Variable(_))
+            && ifs_separator.is_none();
         let separator = if scalar && at {
             Some(' ')
+        } else if list {
+            ifs_separator.or(Some(' '))
         } else {
             ifs_separator
         };
@@ -602,18 +702,22 @@ impl Expansion<'_> {
             self.segments.empty();
         }
         for index in 0..count {
-            self.element_boundary(index, groups, separator, quoted || scalar)
+            self.element_boundary(index, list, separator, quoted || scalar)
                 .await?;
             let value = list_value(part, state, index, self.raw_remaining)?;
-            self.segment(&value, quoted || scalar, quoted || scalar)
-                .await?;
+            self.segment(
+                &value,
+                Protection::expansion(quoted || scalar, state),
+                quoted || scalar,
+            )
+            .await?;
         }
         Ok(())
     }
     async fn element_boundary(
         &mut self,
         index: usize,
-        groups: bool,
+        list: bool,
         separator: Option<char>,
         protected: bool,
     ) -> Result<(), Error> {
@@ -621,8 +725,10 @@ impl Expansion<'_> {
         if index == 0 {
             return Ok(());
         }
-        if groups {
-            self.segments.end_group();
+        if list {
+            let ch = separator.ok_or(2)?;
+            self.admit_raw(ch.len_utf8())?;
+            self.segments.parts.push(Segment::ListSeparator(ch));
             return Ok(());
         }
         self.separator(separator, protected).await
@@ -693,14 +799,6 @@ fn part_quoted(word: &Word, index: usize, has_part_quotes: bool) -> bool {
     word.quoted
 }
 
-fn is_at(part: &WordPart) -> bool {
-    match part {
-        WordPart::Variable(name) => name == "@",
-        WordPart::ArrayAccess { name, index } => name == "PIPESTATUS" && index == "@",
-        _ => false,
-    }
-}
-
 async fn expand(
     word: &Word,
     state: &SharedState,
@@ -714,8 +812,11 @@ async fn expand(
     let mut expansion = Expansion {
         segments: Segments::default(),
         captured: None,
+        ifs: None,
+        ifs_changed: false,
         work,
         cancel,
+        max_raw,
         raw_remaining: max_raw,
         elements_remaining: max_raw.saturating_add(max_fields),
     };
@@ -736,22 +837,21 @@ async fn expand(
     for (index, part) in word.parts.iter().enumerate() {
         expansion.work.checkpoint(cancel).await?;
         let quoted = part_quoted(word, index, has_part_quotes);
-        // list_word is consumed only after collection, so no pre-scan is needed.
-        expansion.segments.list_word |= quoted && is_at(part) && !scalar;
         if is_list(part) {
             expansion.elements(part, state, quoted, scalar).await?;
             continue;
         }
         if let WordPart::Literal(value) = part {
-            expansion.segment(value, true, scalar || quoted).await?;
+            expansion.literal(value, state, scalar || quoted).await?;
             continue;
         }
         expansion.part(part, state, quoted, scalar, 0).await?;
     }
-    let ifs = Ifs::new(state, cancel, max_raw, expansion.work).await?;
+    expansion.current_ifs(state).await?;
+    let ifs = expansion.ifs.take().ok_or(2)?;
     expansion
         .segments
-        .split(&ifs, max_bytes, max_fields, expansion.work, cancel)
+        .split(ifs, max_bytes, max_fields, expansion.work, cancel)
         .await
 }
 

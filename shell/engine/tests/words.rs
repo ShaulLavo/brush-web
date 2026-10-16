@@ -933,6 +933,17 @@ fn ifs_assignment_splits_the_entire_expanded_word_with_the_new_value() {
     // Independent GNU Bash observations, including text emitted before the write.
     for (source, expected) in [
         (r#"IFS=; args ${IFS:=:}a:b"#, vec!["", "a:b"]),
+        (r#"IFS=; args a:b${IFS:=:}"#, vec!["a", "b"]),
+        (r#"IFS=; args a:b"${IFS:=:}""#, vec!["a:b:"]),
+        (r#"IFS=; args a:b"${IFS:=:}"${empty}"#, vec!["a", "b:"]),
+        (r#"IFS=; args a:b${u:-""}"${IFS:=:}""#, vec!["a", "b:"]),
+        (
+            r#"IFS=; args a:b${u:-"a:b"}"${IFS:=:}""#,
+            vec!["a", "ba:b:"],
+        ),
+        (r#"IFS=; args a:b${u:=${IFS:=:}}a:b"#, vec!["a", "b", "a:b"]),
+        (r#"IFS=; args 'a:b'${IFS:=:}"#, vec!["a:b"]),
+        (r#"IFS=; args a\:b${IFS:=:}"#, vec!["a:b"]),
         (r#"IFS=; x=a:b; args ${x}${IFS:=:}"#, vec!["a", "b"]),
         (r#"IFS=; x=a:b; args "${x}"${IFS:=:}"#, vec!["a:b"]),
         (r#"IFS=; x=a:b; args ${x}"${IFS:=:}""#, vec!["a", "b:"]),
@@ -979,6 +990,281 @@ fn ifs_assignment_preserves_quote_and_list_boundaries() {
     ] {
         check(source, &[&expected]);
     }
+}
+
+#[test]
+fn later_ifs_assignment_resolves_list_separators_without_unquoting_elements() {
+    // Independent GNU Bash observations. Generated separators and element
+    // spaces have different protection, even within the same list expansion.
+    check(
+        r#"f() { IFS=; args "$@"${IFS:=:}; }; f one two"#,
+        &[&["one two"]],
+    );
+    check(
+        r#"f() { IFS=; args a:b"${IFS:=:}""$@"; }; f"#,
+        &[&["a", "b:"]],
+    );
+    check(r#"f() { IFS=; args a:b"${IFS:=:}""$*"; }; f"#, &[&["a:b:"]]);
+    for (word, expected) in [
+        (r#""$@"${IFS:=:}"#, vec!["a:b  c:d"]),
+        (r#""$@""${IFS:=:}""#, vec!["a:b  c:d:"]),
+        (r#"$@${IFS:=:}"#, vec!["a", "b  c", "d"]),
+        (r#"$*${IFS:=:}"#, vec!["a:b", "c:d:"]),
+        (r#""$*"${IFS:=:}"#, vec!["a:bc:d"]),
+        (r#""${@}"${IFS:=:}"#, vec!["a:b  c:d"]),
+        (r#"${@}${IFS:=:}"#, vec!["a", "b  c", "d"]),
+        (r#"${*}${IFS:=:}"#, vec!["a:b", "c:d:"]),
+        (r#""${*}"${IFS:=:}"#, vec!["a:bc:d"]),
+        (r#""$@"${IFS:=}"#, vec!["a:b", "", "c:d"]),
+        (r#""$@"${empty}"#, vec!["a:b", "", "c:d"]),
+        (r#"$@${IFS:=}"#, vec!["a:b", "c:d"]),
+        (r#"$*${IFS:=}"#, vec!["a:b", "c:d"]),
+        (r#""$@"${IFS:= }"#, vec!["a:b", "", "c:d"]),
+        (r#"$@${IFS:= :}"#, vec!["a", "b", "c", "d"]),
+        (r#""$@"${IFS:=x }"#, vec!["a:b", "", "c:d"]),
+        (r#""$@"${IFS:=ç}"#, vec!["a:b  c:d"]),
+        (r#""$@"${IFS:=:}"$@""#, vec!["a:b  c:d", "a:b", "", "c:d"]),
+        (
+            r#"$@${IFS:=:}$@"#,
+            vec!["a", "b  c", "d", "a", "b", "", "c", "d"],
+        ),
+        (r#"$*${IFS:=:}"$@""#, vec!["a:b", "c:d:a:b::c:d"]),
+        (r#"p:"$@"${IFS:=:}":s""#, vec!["p", "a:b  c:d", ":s"]),
+        (r#""p:""$@"${IFS:=:}":s""#, vec!["p:a:b  c:d", ":s"]),
+        (r#"p:"$@""${IFS:=:}""#, vec!["p", "a:b  c:d:"]),
+    ] {
+        check(
+            &format!("f() {{ IFS=; args {word}; }}; f a:b '' c:d"),
+            &[&expected],
+        );
+    }
+}
+
+#[test]
+fn ifs_assignment_handles_zero_and_empty_list_elements_in_both_orders() {
+    let cases: &[(&str, &[&[&str]])] = &[
+        (
+            r#""$@"${IFS:=:}"#,
+            &[&[""], &[""], &[" "], &["a:b"], &[" a:b "]],
+        ),
+        (
+            r#"$@${IFS:=:}"#,
+            &[&[""], &[""], &[" "], &["a", "b"], &[" a", "b "]],
+        ),
+        (
+            r#"$*${IFS:=:}"#,
+            &[&[":"], &[":"], &[":"], &["a:b:"], &["a:b", ":"]],
+        ),
+        (
+            r#""$*"${IFS:=:}"#,
+            &[&[""], &[""], &[""], &["a:b"], &["a:b"]],
+        ),
+        (
+            r#"${IFS:=:}"$@""#,
+            &[
+                &[""],
+                &["", ""],
+                &["", "", ""],
+                &["", "a:b"],
+                &["", "", "a:b", ""],
+            ],
+        ),
+        (
+            r#"${IFS:=:}$@"#,
+            &[
+                &[""],
+                &[""],
+                &["", ""],
+                &["", "a", "b"],
+                &["", "", "a", "b"],
+            ],
+        ),
+        (
+            r#"${IFS:=:}$*"#,
+            &[
+                &[""],
+                &[""],
+                &["", ""],
+                &["", "a", "b"],
+                &["", "", "a", "b"],
+            ],
+        ),
+        (
+            r#"${IFS:=:}"$*""#,
+            &[
+                &["", ""],
+                &["", ""],
+                &["", ":"],
+                &["", "a:b"],
+                &["", ":a:b:"],
+            ],
+        ),
+        (
+            r#""$@"${IFS:=}"#,
+            &[&[], &[""], &["", ""], &["a:b"], &["", "a:b", ""]],
+        ),
+        (
+            r#""$@"${empty}"#,
+            &[&[], &[""], &["", ""], &["a:b"], &["", "a:b", ""]],
+        ),
+        (r#"$@${IFS:=}"#, &[&[], &[], &[], &["a:b"], &["a:b"]]),
+        (r#"$*${IFS:=}"#, &[&[], &[], &[], &["a:b"], &["a:b"]]),
+    ];
+    for (word, expected) in cases {
+        check(
+            &format!("f() {{ IFS=; args {word}; }}; f; f ''; f '' ''; f a:b; f '' a:b ''"),
+            expected,
+        );
+    }
+}
+
+#[test]
+fn deferred_list_splitting_distinguishes_element_spaces_and_word_split_mode() {
+    for (word, expected) in [
+        (r#""$@"${IFS:=: }"#, vec!["a:b x", "", "y c:d"]),
+        (r#"$@${IFS:=: }"#, vec!["a", "b x", "y c", "d"]),
+        (r#"$*${IFS:=: }"#, vec!["a:b x", "y c:d:"]),
+        (r#"$*$v${IFS:=:}"#, vec!["a:b x", "y c:dp:q r:"]),
+        (r#"$*${IFS:=:}$v"#, vec!["a:b x", "y c:d:p:q", "r"]),
+        (r#""$@"${IFS:=:}$v"#, vec!["a:b x  y c:d", "p", "q r"]),
+    ] {
+        check(
+            &format!("f() {{ IFS=; v='p:q r'; args {word}; }}; f 'a:b x' '' 'y c:d'"),
+            &[&expected],
+        );
+    }
+    for (word, expected) in [
+        ("$v${IFS:= \t\n:}", vec!["a b", "c", "d", "e"]),
+        ("${u:-$v}${IFS:= \t\n:}", vec!["a b", "c", "d", "e"]),
+        ("${u:=$v}${IFS:= \t\n:}", vec!["a b", "c", "d", "e"]),
+    ] {
+        check(&format!("IFS=; v='a b\tc\nd:e'; args {word}"), &[&expected]);
+    }
+    // An initially unset IFS joins with spaces, but does not protect data spaces.
+    check(
+        r#"f() { args "$@"${IFS:=:}; }; f a:b '' c:d"#,
+        &[&["a:b  c:d"]],
+    );
+    check(
+        r#"f() { args $*${IFS:=:}; }; f a:b '' c:d"#,
+        &[&["a", "b  c", "d"]],
+    );
+    check(
+        r#"f() { v='a b'; args $v"$@"${IFS:=}; }; f"#,
+        &[&["a", "b"]],
+    );
+}
+
+#[test]
+fn ifs_assignment_keeps_list_word_leading_mixed_delimiter_rules() {
+    for word in [
+        r#""$@"${IFS:=' :'}"#,
+        r#"$@${IFS:=' :'}"#,
+        r#"${IFS:=' :'}"$@""#,
+        r#"${IFS:=' :'}$@"#,
+        r#"${IFS:=' :'}$*"#,
+    ] {
+        check(&format!("f() {{ IFS=; args {word}; }}; f"), &[&[]]);
+    }
+    check(r#"IFS=; args ${IFS:=' :'}"#, &[&[""]]);
+    check(r#"f() { IFS=; args $*${IFS:=' :'}; }; f"#, &[&[":"]]);
+}
+
+#[test]
+fn later_ifs_assignment_resolves_pipestatus_list_separators() {
+    for (word, expected) in [
+        (r#""${PIPESTATUS[@]}"${IFS:=:}"#, vec!["1 0"]),
+        (r#"${PIPESTATUS[@]}${IFS:=:}"#, vec!["1 0"]),
+        (r#"${PIPESTATUS[*]}${IFS:=:}"#, vec!["1 0"]),
+        (r#""${PIPESTATUS[*]}"${IFS:=:}"#, vec!["10"]),
+        (r#"${IFS:=:}"${PIPESTATUS[@]}""#, vec!["", "1", "0"]),
+        (r#"${IFS:=:}${PIPESTATUS[@]}"#, vec!["", "1", "0"]),
+        (r#"${IFS:=:}${PIPESTATUS[*]}"#, vec!["", "1", "0"]),
+        (r#"${IFS:=:}"${PIPESTATUS[*]}""#, vec!["", "1:0"]),
+    ] {
+        check(&format!("IFS=; false | true; args {word}"), &[&expected]);
+    }
+}
+
+#[test]
+fn deferred_list_separators_keep_raw_output_and_field_bounds() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 8,
+        ..Limits::default()
+    });
+    // Nine generated separators exceed raw bytes even though splitting drops them.
+    assert_eq!(
+        rig.run(r#"f() { IFS=; args "$@"${IFS:= }; }; f '' '' '' '' '' '' '' '' '' ''"#),
+        2
+    );
+    assert!(rig.calls.borrow().is_empty());
+
+    for (bytes, status) in [(8, 2), (9, 0)] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: bytes,
+            ..Limits::default()
+        });
+        assert_eq!(
+            rig.run(r#"f() { IFS=; args "$@"${IFS:=:}; }; f aa bb"#),
+            status
+        );
+        if status == 0 {
+            assert_eq!(*rig.calls.borrow(), &[vec!["aa bb"]]);
+        } else {
+            assert!(rig.calls.borrow().is_empty());
+        }
+    }
+    let rig = Rig::new(Limits {
+        arguments: 3,
+        ..Limits::default()
+    });
+    assert_eq!(rig.run(r#"f() { IFS=; args $@${IFS:=:}; }; f a:b c:d"#), 2);
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn deferred_list_separator_replay_yields_and_cancels_after_the_ifs_write() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("IFS", "|");
+    let source = format!(
+        r#"f() {{ local IFS=; args "$@"${{IFS:=:}}; }}; f {}"#,
+        "'' ".repeat(2048)
+    );
+    let job = rig.shell.start(&source).unwrap();
+    for _ in 0..1000 {
+        rig.ex.drive(1);
+        if rig
+            .shell
+            .state()
+            .borrow()
+            .variables
+            .get("IFS")
+            .map(String::as_str)
+            == Some(":")
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.shell.state().borrow().variables.get("IFS").unwrap(),
+        ":"
+    );
+    let peer = rig.ex.spawn(async { 42 });
+    rig.ex.drive(4);
+    assert!(peer.is_finished());
+    assert!(
+        !job.is_finished(),
+        "separator replay must yield before dispatch"
+    );
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(
+        rig.shell.state().borrow().variables.get("IFS").unwrap(),
+        "|"
+    );
+    assert_eq!(rig.run(r#"args "$#""#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["0"]]);
 }
 
 #[test]

@@ -121,16 +121,26 @@ in `sources.lock.json`; the retained license is `shell/parser/LICENSE`.
 Local changes retain bounded selected operands before field splitting, store
 unsplit values after quote removal, and use cancellation-safe prefix frames to
 preserve completed parameter writes in the caller. Original typed text,
-protected-empty and list-group segments defer field splitting until all word
+protected-empty and list-separator segments defer field splitting until all word
 expansions finish, so selected IFS assignments also govern earlier unquoted
-text. List joins read IFS at their expansion point. Coalesced text stays within
-the intermediate byte allowance, and collection and splitting share command
-work and cancellation checkpoints. Original accounting records quoted-at in
-the existing part visit and uses the first character checkpoint for nonempty
-emission and split entry. Empty, captured and group-only paths keep explicit
-checkpoints; per-character work, the command ceiling and shared argv/redirect
-parser allowance are unchanged. Independent GNU Bash regressions cover these
-IFS writes with mixed quote/list boundaries and bounded cancellation. No upstream
+text. List separators retain their expansion-time character and resolve their
+boundaries against final IFS. Original GNU Bash adaptations protect data spaces
+emitted under empty IFS and select space splitting for positional unquoted `*`
+emitted under empty IFS. Literal protection uses the IFS active at emission;
+a bounded cache propagates nested IFS writes and is reused for final splitting.
+Only an unquoted expansion or quoted `@` requests field splitting. Quoted `@`
+and unquoted lists apply Bash's leading mixed-delimiter rules. Coalesced text
+stays within the intermediate byte allowance, and collection and splitting share
+command work and cancellation checkpoints. Original accounting records list-word
+and splitting modes in the existing part visit and uses the first character
+checkpoint for nonempty emission and split entry. Empty, captured and list-separator paths keep explicit
+checkpoints. Generated separators consume raw UTF-8 bytes before retention and
+output bytes when emitted. Per-character work, the command ceiling and shared
+argv/redirect parser allowance are unchanged. The shared redirect/argv reparse
+regression remains unchanged at its 100-step ceiling and 97-step success. Independent GNU
+Bash regressions cover both list orders around IFS writes, quoted/unquoted
+`@` and `*`, zero/empty/multiple elements, protected delimiters, `PIPESTATUS`,
+literal protection, nested writes, limits and cancellation. No upstream
 sentinel strings or flattened-string re-splitting are used. Assignment result
 protection,
 command-word/RHS/redirect ordering, diagnostic spelling and environment-dependent
