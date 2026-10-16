@@ -109,10 +109,8 @@ pub struct Lexer<'a> {
     alias_stack: Vec<(String, usize, bool)>,
     /// A blank-ending alias was just used up: the next word is checked too.
     blank_alias_pending: bool,
-    /// `!(` starts an extglob group. Off when the shell runs without
-    /// `shopt -s extglob`: then `!(a && b)` is `!` and a subshell. The other
-    /// groups (`@(`, `+(`, ...) always lex as patterns, where bash would
-    /// report a syntax error instead.
+    /// Extended pattern groups are words only with `shopt -s extglob`.
+    /// Otherwise their `(` is an ordinary shell grammar token.
     extglob_bang: bool,
     /// While the rest of a here-document's command line is re-read, the
     /// position walks that line again (spans and `$LINENO` stay on the
@@ -1260,8 +1258,8 @@ impl<'a> Lexer<'a> {
                     word.push('\\');
                 }
             } else if ch == '('
-                && (word.ends_with(['@', '?', '*', '+'])
-                    || (self.extglob_bang && word.ends_with('!')))
+                && self.extglob_bang
+                && word.ends_with(['@', '?', '*', '+', '!'])
             {
                 // Extglob: @(...), ?(...), *(...), +(...), !(...)
                 // Consume through matching ) including nested parens
@@ -1610,8 +1608,7 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 Some('(')
-                    if content.ends_with(['@', '?', '*', '+'])
-                        || (self.extglob_bang && content.ends_with('!')) =>
+                    if self.extglob_bang && content.ends_with(['@', '?', '*', '+', '!']) =>
                 {
                     // `"$*"*@(.py|cc)`: an extglob group after a quoted start.
                     let mut depth = 0usize;

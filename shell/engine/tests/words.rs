@@ -631,7 +631,6 @@ fn unsupported_case_targets_transformations_and_selected_patterns_fail_closed() 
         "${@^^}",
         "${*,,}",
         "${?^}",
-        "${#,,}",
         "${a[0]^^}",
         "${PIPESTATUS[@],,}",
         "${PIPESTATUS^^}",
@@ -641,7 +640,6 @@ fn unsupported_case_targets_transformations_and_selected_patterns_fail_closed() 
         "${v~~}",
         "${v^^$(args forbidden)}",
         "${v^^`args forbidden`}",
-        "${v^^$((1+2))}",
         "${v^^~}",
         "${v^^@(a)}",
         "${v^^?(a)}",
@@ -650,7 +648,6 @@ fn unsupported_case_targets_transformations_and_selected_patterns_fail_closed() 
         "${v^^[[:alpha:]]}",
         "${v^^[[.a.]]}",
         "${v^^[[=a=]]}",
-        "${v^^${v:1}}",
         "${v^^$@}",
     ] {
         for source in [format!("args {form}"), format!("args ${{u:-{form}}}")] {
@@ -1092,7 +1089,6 @@ fn unsupported_trim_targets_and_selected_patterns_fail_without_dispatch() {
         "${!v#x}",
         "${v#$(args forbidden)}",
         "${v#`args forbidden`}",
-        "${v#$((1+2))}",
         "${v#~}",
         "${v#@(a)}",
         "${v#?(a)}",
@@ -1101,7 +1097,6 @@ fn unsupported_trim_targets_and_selected_patterns_fail_without_dispatch() {
         "${v#[[:alpha:]]}",
         "${v#[[.a.]]}",
         "${v#[[=a=]]}",
-        "${v#${v:1}}",
         "${v#$@}",
     ] {
         for source in [
@@ -1441,10 +1436,6 @@ fn unsupported_length_targets_fail_closed_even_in_selected_operands() {
         "${#arr[0]}",
         "${#arr[@]}",
         "${#arr[*]}",
-        "${#x-default}",
-        "${#x/foo/bar}",
-        "${#x:1}",
-        "${#!x}",
     ] {
         for source in [format!("args {token}"), format!("args ${{u:-{token}}}")] {
             let rig = Rig::new(Limits::default());
@@ -2115,7 +2106,6 @@ fn selected_unsupported_operands_and_operator_targets_fail_without_dispatch() {
     for source in [
         "args ${u:-$(args forbidden)}",
         "args ${u:-`args forbidden`}",
-        "args ${u:-$((1+2))}",
         "args ${u:-$@}",
         "args ${u:-${PIPESTATUS[@]}}",
         "args ${a[0]-x}",
@@ -2933,11 +2923,7 @@ fn assignment_and_error_operands_are_lazy_including_unsupported_syntax() {
         r#"v=set; e=; args ${v:=$(args forbidden)} ${v=${bad:?fail}} "${e=$(args forbidden)}" ${v?$(args forbidden)} "${e?$(args forbidden)}" ${v:?${bad:=bad}}; args "$bad"; args ${u+${bad:?fail}} ${v:-${bad:=bad}}"#,
         &[&["set", "set", "", "set", "", "set"], &[""], &["set"]],
     );
-    for source in [
-        "args ${u:=$(args forbidden)}",
-        "args ${u:?$((1+2))}",
-        "args ${u:=$@}",
-    ] {
+    for source in ["args ${u:=$(args forbidden)}", "args ${u:=$@}"] {
         let rig = Rig::new(Limits::default());
         assert_eq!(rig.run(source), 2, "{source}");
         assert!(rig.calls.borrow().is_empty());
@@ -4019,5 +4005,10 @@ fn cancellation_during_redirect_target_keeps_effects_and_restores_frames() {
     assert_eq!(rig.output.bytes(), b"recovered\n");
 }
 
+#[path = "words/arithmetic.rs"]
+mod arithmetic;
 #[path = "words/indirect.rs"]
 mod indirect;
+
+#[path = "words/readonly.rs"]
+mod readonly;

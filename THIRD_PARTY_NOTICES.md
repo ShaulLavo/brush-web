@@ -379,3 +379,29 @@ whole-output buffering or mapfile implementation is ported. Shared admission
 and cancellation bounds replace upstream caps and fallback behavior. Only
 ordinary scalars with the existing basic UTF-8 patterns are included. Arrays,
 namerefs, option emulation, byte locales and locale collation are not claimed.
+
+Scalar arithmetic and substring foundations adapt Bashkit's
+`crates/bashkit/src/interpreter/arithmetic.rs` (integer bases, precedence,
+operators, short circuits, ternary, scalar identifiers and assignments) and
+`crates/bashkit/src/interpreter/expansion.rs::substring_part/slice_range` at
+`491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT, Copyright 2024–2026
+Everruns). Operator/base examples derive from its `arithmetic.rs` unit tests
+and `tests/spec_cases/bash/arithmetic.test.sh`; slice overflow regression
+concepts derive from `tests/integration/byte_range_panic_tests.rs`.
+The retained license is `shell/parser/LICENSE`; detailed paths and boundaries
+are recorded under `shellArithmetic` in `sources.lock.json`.
+
+The streaming lexer, async bounded precedence parser, exact future-frame
+admission, shared command work/storage budget, direct durable state writes,
+cycle detection, cancellation controls and admitted slice shell-boundary
+validation are original adapters, not a copied blocking interpreter. GNU Bash
+5.3 controls correct upstream compound-assignment self-write ordering, unset
+slice laziness and out-of-range length laziness. Textual shell expansion occurs
+before arithmetic, except already-expanded `let` arguments. Domain errors have
+Bash status1 and context-appropriate fatal versus ordinary control; resource
+limits remain status2 and cancellation130. The scalar substring adapter uses
+existing locale/state interfaces and rejects invalid UTF-8 output explicitly.
+The parser's scalar-count substring recognition and command-separator repairs
+are original local changes recorded in its change log. Arrays, subscript and
+command/process substitution execution, integer declarations and namerefs are
+not included. No whole-output buffering is added.

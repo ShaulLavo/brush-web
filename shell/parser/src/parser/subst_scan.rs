@@ -83,7 +83,7 @@ enum Mode {
 
 /// Result of feeding one char.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Step {
+pub enum Step {
     /// Char belongs to the body.
     Body,
     /// Char is the closing `)`; it is not part of the body.
@@ -92,7 +92,7 @@ pub(crate) enum Step {
 
 /// Incremental scanner for a `$(...)` body. Create it after consuming `$(`.
 #[derive(Debug, Clone)]
-pub(crate) struct SubstScanner {
+pub struct SubstScanner {
     /// Context stack; the bottom `Code` frame is the substitution itself.
     stack: Vec<Frame>,
     /// Paren depth per `Code` frame (parallel to Code entries in `stack`).
@@ -116,7 +116,7 @@ impl Default for SubstScanner {
 }
 
 impl SubstScanner {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             stack: vec![Frame::Code],
             parens: vec![0],
@@ -132,7 +132,7 @@ impl SubstScanner {
         }
     }
 
-    pub(crate) fn feed(&mut self, c: char) -> Step {
+    pub fn feed(&mut self, c: char) -> Step {
         let step = self.feed_inner(c);
         self.prev = Some(c);
         step

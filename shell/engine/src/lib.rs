@@ -1,5 +1,6 @@
 //! WASI-first shell engine. It deliberately has no browser imports: the embedding
 //! supplies readiness, terminal queues, filesystem endpoints and process hosting.
+mod arithmetic;
 mod builtins;
 pub mod executor;
 mod expand;

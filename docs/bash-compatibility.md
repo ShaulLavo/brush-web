@@ -267,3 +267,60 @@ after review. Frozen replay neither prepares corpora nor invokes GNU bash, probe
 external commands, runs mapfile sweeps or downloads other engines. Live ad hoc
 comparisons still use `BASH_COMPAT_ENGINES` and `BASH_COMPAT_CORPORA`; unselected
 engines and Oils are not prepared.
+
+### Differential arithmetic checks
+
+`npm run fuzz:shell-arithmetic` generates deterministic scalar expressions and
+compares native `shell-engine` stdout bytes and status with GNU Bash 5.3.15.
+It covers `$((...))`, `((...))`, `let` and scalar `${v:offset:length}`, including
+precedence, every integer operator, bases and overflow, assignments, short
+circuits, recursive variable values, malformed expressions and fatal errors.
+Quoted and unquoted slices include empty, ASCII and UTF-8 values. Fixed controls
+check lazy offset/length evaluation, side effects and nested parameter operands.
+This gate makes no claim about arrays, namerefs or command substitution.
+
+```sh
+# Build the native shell separately through the shared queue, then pass its path.
+npm run fuzz:shell-arithmetic -- --shell /path/to/shell-engine --count 3000 --seed 7
+
+# Refresh an oracle fixture only after the complete native comparison is clean.
+npm run fuzz:shell-arithmetic -- --shell /path/to/shell-engine --count 3000 --seed 7 \
+  --record scripts/fixtures/shell-arithmetic-seed-7.json
+
+# CI replays seeds 7 and 314 without invoking an installed Bash.
+npm run fuzz:shell-arithmetic:ci -- --shell /path/to/shell-engine
+```
+
+The generator routes itself through the shared queue when installed on this host.
+It creates no temporary build trees, processes that outlive a case, or services.
+Each case has a timeout and a bounded output buffer. Inherited startup files,
+shell options and compatibility-mode variables are stripped, and both processes
+use the same fixed UTF-8 locale. A timeout, signal, missing
+process, byte difference or status difference is a mismatch; unsupported results
+are not accepted for this scalar grammar. Replay verifies the generator hash,
+seed-generated case identity, case count, oracle version and timeout before
+running. The separate recorded shell-word gate remains unchanged.
+
+
+## Scalar arithmetic and substring offsets
+
+PR #28 adds scalar arithmetic expansion, arithmetic commands, `let`, recursive
+scalar expressions, substring offsets and lengths, and positional slices.
+Readonly declarations protect scalar writes and preserve local scope.
+Arithmetic expansion errors discard the current read unit and resume at the
+next top-level newline. Completed assignments survive errors and cancellation.
+
+| Corpus | Previous passes | Arithmetic passes | Gained | Lost |
+| --- | ---: | ---: | ---: | ---: |
+| Oils | 380 | 481 | 101 | 0 |
+| Brush suite | 340 | 384 | 44 | 0 |
+| Bashkit suite | 595 | 754 | 159 | 0 |
+
+The fixed oracle, case sets and environment are unchanged. The [PR CI run](https://github.com/ShaulLavo/brush-web/actions/runs/38975907453)
+at `8caa622` supplies the committed baseline artifact. Its complete pass membership
+matches the combined local WASI run. All 504 native and 287 WASI tests pass.
+The release is 237,825 bytes with brotli-11, below the 1,000,000-byte ceiling.
+Arithmetic seeds 7, 314 and 981 each match 3,674 Bash 5.3.15 cases. Seeds 7 and
+314 are recorded for CI. Readonly seeds 17 and 314 each match 267 cases, and
+27 parser compatibility cases match. Regenerated word fixtures for seeds 1
+and 42 remain byte-identical, with 3,014 cases each.

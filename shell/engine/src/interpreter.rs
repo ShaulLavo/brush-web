@@ -49,6 +49,7 @@ pub(crate) enum Flow {
     Normal,
     Exit,
     Return,
+    DiscardReadUnit,
 }
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Outcome {
@@ -277,7 +278,27 @@ impl Session {
             max_input_bytes: self.core.limits.source_bytes,
             ..Default::default()
         };
-        let script = shell_parser::parse(source, &parser_limits).map_err(|e| e.to_string())?;
+        let budget = shell_parser::limits::ExecutionBudget::new(
+            &parser_limits,
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let (script, error) = Parser::with_limits_and_timeout(
+            source,
+            parser_limits.max_ast_depth,
+            parser_limits.max_parser_operations,
+            Some(parser_limits.parser_timeout),
+        )
+        .with_execution_budget(budget.clone())
+        .parse_recovering();
+        budget.check().map_err(|error| error.to_string())?;
+        let word_error = match error {
+            None => None,
+            Some(shell_parser::Error::ShellWord { line }) => Some(expand::Error::ShellBoundary {
+                stage: expand::ShellBoundaryStage::Word,
+                line: Some(line),
+            }),
+            Some(error) => return Err(error.to_string()),
+        };
         let group = self.core.host.allocate_group();
         let cancel = Cancel::new();
         let foreground_cancel = cancel.clone();
@@ -294,13 +315,20 @@ impl Session {
         let join = self.core.executor.spawn(async move {
             let _foreground = ForegroundGuard(context.core.clone());
             let mut processes = ProcessGroup::new(context.core.host.clone(), group);
-            let result = sequence(
+            let mut result = script_sequence(
                 script.commands,
                 state.clone(),
                 context.core.descriptors.clone(),
                 context.clone(),
             )
             .await;
+            if matches!(result.flow, Flow::Normal | Flow::DiscardReadUnit)
+                && let Some(error) = word_error
+            {
+                let mut work = expansion_work(context.limits());
+                let error = work.admit_storage(256).err().unwrap_or(error);
+                result = expansion_failure(error.into(), &context.core.descriptors, &context).await;
+            }
             let code = context.finish_group(&mut processes, result.code).await;
             state.borrow_mut().status = code;
             code
@@ -355,6 +383,28 @@ impl Drop for ForegroundGuard {
     fn drop(&mut self) {
         self.0.foreground.borrow_mut().take();
     }
+}
+
+async fn script_sequence(
+    commands: Vec<Command>,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+) -> Outcome {
+    let mut result = Outcome::status(0);
+    // The parser groups each top-level read unit through its terminating
+    // newline. Arithmetic expansion errors unwind functions and compound
+    // commands in that unit, then Bash's reader accepts the next one.
+    for command in commands {
+        result = execute(command, state.clone(), fds.clone(), context.clone()).await;
+        if context.cancel.is_cancelled() {
+            return Outcome::status(130);
+        }
+        if matches!(result.flow, Flow::Exit | Flow::Return) {
+            break;
+        }
+    }
+    result
 }
 
 fn sequence(
@@ -475,8 +525,14 @@ fn execute(
                 match command_redirects(&redirs, &state, fds, &context, &mut work).await {
                     Err(outcome) => outcome,
                     Ok(fds) => {
-                        execute_compound_body(compound, state.clone(), fds, context.compound_body())
-                            .await
+                        execute_compound_body(
+                            compound,
+                            state.clone(),
+                            fds,
+                            context.compound_body(),
+                            &mut work,
+                        )
+                        .await
                     }
                 }
             }
@@ -509,8 +565,12 @@ async fn execute_compound_body(
     state: SharedState,
     fds: Descriptors,
     context: Context,
+    work: &mut expand::Work,
 ) -> Outcome {
     match compound {
+        CompoundCommand::Arithmetic(source) => {
+            arithmetic_command(&source, &state, &fds, &context, work).await
+        }
         CompoundCommand::BraceGroup(commands) => {
             sequence(commands, state.clone(), fds, context.clone()).await
         }
@@ -549,10 +609,74 @@ async fn execute_compound_body(
     }
 }
 
+async fn arithmetic_command(
+    source: &str,
+    state: &SharedState,
+    fds: &Descriptors,
+    context: &Context,
+    work: &mut expand::Work,
+) -> Outcome {
+    match crate::arithmetic::evaluate(
+        source,
+        state,
+        &context.cancel,
+        context.limits().expansion_bytes,
+        work,
+    )
+    .await
+    {
+        Ok(value) => Outcome::status(i32::from(value == 0)),
+        Err(
+            error @ expand::Error::Arithmetic {
+                expansion: false, ..
+            }
+            | error @ expand::Error::Readonly {
+                expansion: false, ..
+            },
+        ) => {
+            let mut outcome = expansion_failure(error.into(), fds, context).await;
+            outcome.flow = Flow::Normal;
+            outcome
+        }
+        Err(error) => expansion_failure(error.into(), fds, context).await,
+    }
+}
+
 async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Context) -> Outcome {
     let CommandError { error, stderr } = error;
+    let flow = if matches!(
+        error,
+        expand::Error::Arithmetic { .. }
+            | expand::Error::Readonly { .. }
+            | expand::Error::ShellBoundary {
+                stage: expand::ShellBoundaryStage::Expansion,
+                ..
+            }
+    ) {
+        Flow::DiscardReadUnit
+    } else {
+        Flow::Exit
+    };
     let (name, message, line, status) = match error {
         expand::Error::Status(code) => return Outcome::status(code),
+        expand::Error::Readonly { name, line, .. } => {
+            (name, "readonly variable".to_owned(), line, 1)
+        }
+        expand::Error::ShellBoundary { stage, line } => (
+            "arithmetic expression".to_owned(),
+            "syntax error while looking for matching `)'".to_owned(),
+            line,
+            match stage {
+                expand::ShellBoundaryStage::Word => 127,
+                expand::ShellBoundaryStage::Expansion => 1,
+            },
+        ),
+        expand::Error::Arithmetic { message, line, .. } => (
+            "arithmetic expression".to_owned(),
+            message.to_owned(),
+            line,
+            1,
+        ),
         expand::Error::BadSubstitution { message, line } => {
             ("bad substitution".to_owned(), message.to_owned(), line, 1)
         }
@@ -595,10 +719,7 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
     if context.cancel.is_cancelled() {
         return Outcome::status(130);
     }
-    Outcome {
-        code: status,
-        flow: Flow::Exit,
-    }
+    Outcome { code: status, flow }
 }
 
 async fn subshell(
@@ -801,6 +922,7 @@ struct PreparedCommand {
     argv: Vec<String>,
     assigned: Vec<(String, String)>,
     fds: Descriptors,
+    work: expand::Work,
 }
 
 async fn simple_command(
@@ -911,6 +1033,7 @@ async fn prepare_simple_command(
             argv,
             assigned: Vec::new(),
             fds,
+            work,
         });
     }
     let fds = redirects(&simple.redirects, state, fds, context, &mut work).await?;
@@ -927,6 +1050,7 @@ async fn prepare_simple_command(
         argv,
         assigned,
         fds,
+        work,
     })
 }
 
@@ -939,6 +1063,7 @@ async fn dispatch_simple_command(
         argv,
         assigned,
         fds,
+        mut work,
     } = prepared;
     let mut fields = argv.into_iter();
     let Some(name) = fields.next() else {
@@ -958,6 +1083,46 @@ async fn dispatch_simple_command(
             outcome.flow = Flow::Normal;
         }
         return Ok(outcome);
+    }
+    if name == "let" {
+        if !assigned.is_empty() {
+            return Err(2);
+        }
+        if args.is_empty() {
+            return Ok(arithmetic_command("()", &state, &fds, &context, &mut work).await);
+        }
+        let mut result = Outcome::status(0);
+        for source in &args {
+            match crate::arithmetic::evaluate_literal(
+                source,
+                &state,
+                &context.cancel,
+                context.limits().expansion_bytes,
+                &mut work,
+            )
+            .await
+            {
+                Ok(value) => result = Outcome::status(i32::from(value == 0)),
+                Err(error) => {
+                    let ordinary = matches!(
+                        error,
+                        expand::Error::Arithmetic {
+                            expansion: false,
+                            ..
+                        } | expand::Error::Readonly {
+                            expansion: false,
+                            ..
+                        }
+                    );
+                    result = expansion_failure(error.into(), &fds, &context).await;
+                    if ordinary {
+                        result.flow = Flow::Normal;
+                    }
+                    break;
+                }
+            }
+        }
+        return Ok(result);
     }
     if builtins::is_builtin(&name) {
         if !assigned.is_empty() {
@@ -1041,7 +1206,14 @@ async fn assignments(
             return Err(2.into());
         }
         names.push(assignment.name.clone());
-        frame.set(assignment.name, value);
+        if let Err(name) = frame.set(assignment.name, value) {
+            work.admit_storage(name.len().saturating_add(160))?;
+            return Err(expand::Error::Readonly {
+                name,
+                line: None,
+                expansion: true,
+            });
+        }
     }
     let mut assigned = Vec::new();
     *bytes = initial_bytes;

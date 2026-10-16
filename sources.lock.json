@@ -184,6 +184,48 @@
         "classification": "Original fixed-capacity incremental nested-parameter boundary adapter and regressions; no additional upstream implementation copied.",
         "change": "Use one fixed-capacity quote/operator state machine for both lexer parameter readers, parser default/pattern/replacement operands, and engine lazy scalar-token boundaries. Only ${ opens a nested frame. Retain each frame's double-quote, apostrophe, pattern and enclosing context. Apostrophe spans are opaque to boundary scanning; selected ordinary outer-double-quoted defaults still expand their contents lazily, while real single quotes retain literal semantics. An explicit inner double quote resets inherited pattern context for nested defaults. Slash delimiters belong only to an unquoted root replacement pattern. Preserve raw quote spelling and retain ANSI-C decoding as a protected-literal representation transform, not a separate parameter boundary reader. Parse admitted lazy scalar tokens with their enclosing quote/pattern context instead of inventing a top-level word. Add nested replacement/default, replacement/replacement, raw double-quote/apostrophe, admitted-token context and fixed-depth controls.",
         "reason": "Replacement support introduced nested scalar tokens whose literal braces and substitution lookalikes were incorrectly interpreted by the older generic operand boundary readers. Matching boundaries before lazy evaluation must follow the same per-parameter quote context as direct replacement parsing without recursion, candidate strings, reparsing, or a reset depth allowance."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original bounded parser corrections in the owned Bashkit-derived parser; no additional upstream code copied.",
+        "change": "Recognize ${#:offset:length} as substring of the scalar positional count, not length. Reject remaining same-line tokens after parse_command_list finishes a compound command or its redirects instead of silently accepting a second command without a separator. Retain every upstream assertion; add hash-slice and separator controls. Classify malformed special-parameter length spellings as delayed bad substitutions while retaining valid scalar hash trim and substring headers.",
+        "reason": "Arithmetic slice foundations use the existing parser to validate Bash shell-word <(...)/>(...) boundaries; silently accepting (x)+(y) or (x)>=(y) would miss Bash fatal lexical errors. State scalar/special/positional interfaces remain the semantic source."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original explicit shell-body validation option and regression tests; no additional upstream implementation copied.",
+        "change": "Limit the arithmetic separator check to Parser::with_strict_command_separators. Captured shell-body validation opts in, and nested command parsers inherit the policy. Preserve the original public parse default and keep every strict separator assertion through the explicit entrypoint. Propagate process-substitution syntax failures only during strict validation. Add default-policy and nested command/process-substitution controls.",
+        "reason": "The engine parses a whole script before executing alias or shopt changes. Applying the new shell-body separator check globally rejected previously accepted scripts whose command boundaries can change through aliases. Localizing validation avoids introducing incomplete runtime alias support."
+      },
+      {
+        "paths": [
+          "shell/parser/src/error.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/lexical.rs",
+          "shell/parser/src/parser/parameter_scan.rs",
+          "shell/parser/src/parser/subst_scan.rs",
+          "shell/parser/src/parser/substring.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original shell grammar and scanner API corrections; GNU Bash source used only to research observable phase ordering, with no implementation copied.",
+        "change": "Consume one parenthesis from a doubled closing token in array assignments, reject unseparated opening parentheses in nested lists, and honor explicit extglob options before the first token for every pattern operator. Share the existing incremental parameter and command scanners for bounded lexical substring checks before lazy selection; retain a typed ShellWord failure separately from ordinary syntax errors. Make parser fuel internally mutable so infallible word readers and their bounded child parsers consume the same fuel, request budget and cancellation checks. Expose the command scanner for admitted, cooperative expansion checks. Use the existing recovering parser to retain complete earlier lines on word syntax failures. Keep word-error recovery outside recursive grammar frames so existing hard-cap stack assertions remain intact. All upstream assertions retained.",
+        "reason": "Substring text has an outer word-reading pass and a later brace-extraction pass. Arithmetic substitutions are opaque to the former; invalid shell grammar must retain Bash fatal status 127 or 1 at the correct stage, including skipped defaults and unused functions, without test-case or prefix heuristics."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original arithmetic field delimiter correction; no additional upstream implementation copied.",
+        "change": "Ignore parentheses, braces, colons and question marks inside quoted or escaped portions while finding a substring offset or length boundary. Retain raw quote spelling for lazy operand evaluation. Add direct AST and Bash differential regression controls.",
+        "reason": "An unused quoted operand containing an unmatched parenthesis raised the substring field depth and swallowed the enclosing brace, so arithmetic received a spurious closing brace even when the operand was skipped."
       }
     ],
     "removedUpstreamTests": []
@@ -670,5 +712,59 @@
       "Original review repairs admit existing captured capacity exactly once when replacement enables storage accounting and inherit that mode in subsequent assignment captures; pattern snapshots are not charged twice. Dedicated PIPESTATUS array state fails closed before operand side effects. One fixed-capacity quote/operator state machine serves lexer, parser operands and lazy engine token boundaries; lazy scalar parsing retains its actual enclosing context. Original selected malformed-substitution EOF errors have admitted diagnostic storage, fatal status 1 and existing source/descriptor containment; complete unsupported syntax and resource/cancellation failures retain their separate statuses. Original deterministic paired-context differential tooling exercises operators nested 0-3 deep against local Bash, preserving argv boundaries independently of the known printf format-reuse gap."
     ],
     "verification": "Focused Bash 5.3.15 C.UTF-8 controls; runtime and corpus deltas must be established by the coordinator after integration. Fixed oracle, baselines, scores and versions unchanged."
+  },
+  "shellArithmetic": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "licenseFile": "shell/parser/LICENSE",
+    "classification": "Adapted scalar arithmetic grammar and integer/operator semantics; original WASI-first async execution and admission adapters.",
+    "upstreamSources": [
+      {
+        "path": "crates/bashkit/src/interpreter/arithmetic.rs",
+        "parts": [
+          "parse_arith_number",
+          "operator precedence and associativity",
+          "short-circuit and ternary grammar",
+          "scalar recursive identifier evaluation",
+          "assignment and increment/decrement operators"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/interpreter/expansion.rs",
+        "parts": [
+          "substring_part",
+          "slice_range"
+        ]
+      },
+      {
+        "path": "crates/bashkit/tests/spec_cases/bash/arithmetic.test.sh",
+        "parts": [
+          "scalar operator and base examples"
+        ]
+      },
+      {
+        "path": "crates/bashkit/tests/integration/byte_range_panic_tests.rs",
+        "parts": [
+          "negative and overflow slice regression concepts"
+        ]
+      }
+    ],
+    "localPaths": [
+      "shell/engine/src/arithmetic.rs",
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/expand/operand.rs",
+      "shell/engine/src/interpreter.rs",
+      "shell/engine/tests/words/arithmetic.rs",
+      "shell/engine/src/expand/positional.rs"
+    ],
+    "strategy": "Stream tokens over borrowed source, parse with bounded async precedence climbing, admit exact boxed future frames and all scalar snapshots/storage before growth, and share command Work across arithmetic and expansions. Every unbounded lexing, digit, parse, snapshot, substring and recursion loop checkpoints cancellation and cooperative Budget. Exponentiation uses at most63 wrapping-squaring steps. Recursive scalar cycles are arithmetic domain errors; parser depth/work/storage exhaustion remains status2 and cancellation130. Writes immediately use State::assign_parameter rather than the upstream overlay, preserving completed effects across errors/cancellation and respecting prefix frames. Shell dollar expansion precedes arithmetic evaluation; let receives already shell-expanded arguments and never expands literal dollars twice. Domain/syntax errors abort expansion environments with status1; (( )) and let retain ordinary status1 without aborting later commands. Nested expansion errors preserve fatal control. Scalar slices resolve source before arithmetic, skip expressions for unset values, skip length when start is out of range, and use signed bounded range calculations. UTF-8 locales count scalar characters; C/POSIX count bytes, rejecting output that cannot be represented as valid UTF-8. Source snapshots do not spend emitted-output bytes. An original admitted shell-grammar validation adapter reproduces Bash slice-word <(...)/>(...) lexical boundary checks without executing substitutions. GNU Bash5.3 observations correct upstream eager slice lengths and compound assignment self-write ordering. Original tests cover semantics, admission, explicit failures, cooperative cancellation and retained state. Review regressions preserve terminating recursive identifiers by pairing active names with the generation of actual scalar value changes; unchanged assignments do not hide cycles. Arithmetic and substring writes invalidate enclosing IFS caches. Nested arithmetic scanning treats selected or skipped braced operands as opaque lexical regions, and selected substrings accept the same scalar positional/special targets as top-level slices. Original native/WASI depth regressions exercise each recursive scalar form through the deepest accepted level and its first explicit resource rejection. Positional @ slices preserve empty fields, include configurable shell_name at offset zero, and admit each selected element before copying. Arithmetic and readonly expansion failures discard the current read unit and resume at the next top-level newline. Special scalar substring snapshots admit decimal storage before formatting. Scalar operand depth is explicitly capped at 16 and exercised through its boundary on native and WASI.",
+    "excluded": [
+      "arrays and subscripts",
+      "command/process substitution execution",
+      "integer declarations and namerefs",
+      "invalid UTF-8 scalar output",
+      "locale collation and arbitrary non-UTF-8 encodings"
+    ]
   }
 }

@@ -5,7 +5,11 @@ use crate::executor::Cancel;
 use shell_parser::parser::parameter_scan::{ParameterScan, Step};
 use shell_parser::parser::{ParameterOp, Parser, WordPart};
 
-pub(super) const MAX_DEPTH: usize = 32;
+// Keep scalar expansion/parser recursion below the native test-thread stack
+// limit. The parser's general hard cap is intentionally higher for scripts,
+// but scalar operands are reparsed from nested futures and need a smaller
+// bound so malformed/deep operands return status 2 instead of overflowing.
+pub(super) const MAX_DEPTH: usize = 16;
 // Each synchronous parser call receives one admitted scalar token. Large
 // literal runs stream through the scanner without entering the parser.
 const MAX_TOKEN_BYTES: usize = 4096;
@@ -173,6 +177,54 @@ impl<'a> Scanner<'a> {
             Some(c) if c.is_ascii_digit() || matches!(c, '?' | '#') => {
                 self.take();
             }
+            Some('(') if self.source[self.cursor..].starts_with("((") => {
+                let begin = self.cursor + 2;
+                self.cursor = begin;
+                let mut depth = 0usize;
+                while let Some(ch) = self.peek() {
+                    work.checkpoint(cancel).await?;
+                    if self.cursor - start > MAX_TOKEN_BYTES {
+                        return Err(2.into());
+                    }
+                    if ch == ')' && depth == 0 && self.source[self.cursor..].starts_with("))") {
+                        let body = &self.source[begin..self.cursor];
+                        work.admit_storage(body.len())?;
+                        self.cursor += 2;
+                        return Ok(Piece::Expansion {
+                            part: WordPart::ArithmeticExpansion(body.to_owned()),
+                            protected: self.protected(),
+                        });
+                    }
+                    if ch == '$' && self.source[self.cursor..].starts_with("${") {
+                        self.take();
+                        self.braced(work, cancel).await?;
+                        continue;
+                    }
+                    if ch == '\\' {
+                        self.take();
+                        self.take();
+                        continue;
+                    }
+                    self.take();
+                    if ch == '(' {
+                        depth += 1;
+                        if depth >= MAX_DEPTH {
+                            return Err(2.into());
+                        }
+                    }
+                    if ch == ')' {
+                        depth = depth.checked_sub(1).ok_or(2)?;
+                    }
+                    if ch == '`'
+                        || ch == '$'
+                            && self.peek() == Some('(')
+                            && !self.source[self.cursor..].starts_with("((")
+                    {
+                        return Err(2.into());
+                    }
+                }
+                return bad_substitution("no closing `)'", work).and(Err(2.into()));
+            }
             Some('(') => {
                 self.skip_command(start, work, cancel).await?;
                 return Err(2.into());
@@ -181,8 +233,13 @@ impl<'a> Scanner<'a> {
             _ => return Ok(self.text("$", self.protected())),
         }
         let token = &self.source[start..self.cursor];
-        validate_token(token)?;
+        validate_token(token, work)?;
         work.admit_parse(token.len(), cancel).await?;
+        // Bound the scalar AST's owned strings and parser token allocations
+        // before entering the synchronous, byte-capped parser.
+        if work.arithmetic_depth != 0 || matches_substring(token) {
+            work.admit_storage(token.len().saturating_mul(16).saturating_add(512))?;
+        }
         // Validation permits only a basic variable or a scalar operator header.
         // Their parser paths retain nested operands as raw text, never recursively
         // parsing scripts. The byte cap also bounds lexer and fallback allocation.
@@ -342,7 +399,13 @@ fn toggle_quote(current: &mut Quote, quote: Quote) {
     };
 }
 
-fn validate_token(token: &str) -> Result<(), Error> {
+fn matches_substring(token: &str) -> bool {
+    token
+        .strip_prefix("${")
+        .and_then(|body| body.split_once(':'))
+        .is_some_and(|(_, suffix)| !suffix.starts_with(['-', '+', '=', '?']))
+}
+fn validate_token(token: &str, work: &mut Work) -> Result<(), Error> {
     if token.len() > MAX_TOKEN_BYTES {
         return Err(2.into());
     }
@@ -361,20 +424,41 @@ fn validate_token(token: &str) -> Result<(), Error> {
     if !indirect && body.strip_prefix('#').is_some_and(length_name) {
         return Ok(());
     }
-    let name_end = body
-        .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
-        .unwrap_or(body.len());
+    if !indirect
+        && (body.starts_with("#!")
+            || body.starts_with("#,")
+            || body.starts_with("#^")
+            || body.strip_prefix('#').is_some_and(|inner| {
+                inner.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
+                    && !basic_name(inner)
+                    && !inner.contains('[')
+            }))
+    {
+        return bad_substitution("invalid length parameter", work);
+    }
+    let name_end = if body.starts_with(['#', '?', '@']) {
+        1
+    } else {
+        body.find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .unwrap_or(body.len())
+    };
     let name = &body[..name_end];
     let suffix = &body[name_end..];
     let operator = suffix.strip_prefix(':').unwrap_or(suffix);
     let trim = suffix.starts_with(['#', '%', '/', '^', ',']);
-    if !scalar_name(name) || !(!indirect && trim || operator.starts_with(['-', '+', '=', '?'])) {
+    let substring =
+        !indirect && suffix.starts_with(':') && !operator.starts_with(['-', '+', '=', '?']);
+    if !(scalar_name(name) || substring && (length_name(name) || name == "@"))
+        || !(substring || !indirect && trim || operator.starts_with(['-', '+', '=', '?']))
+    {
         return Err(2.into());
     }
     Ok(())
 }
 fn supported(part: &WordPart) -> bool {
     match part {
+        WordPart::ArithmeticExpansion(_) | WordPart::BadSubstitution(_) => true,
+        WordPart::Substring { name, .. } => length_name(name) || name == "@",
         WordPart::Variable(name) => basic_name(name),
         WordPart::Length(name) => length_name(name),
         WordPart::IndirectExpansion { name, operator, .. } => {

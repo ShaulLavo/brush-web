@@ -533,3 +533,206 @@ fn lazy_default_reparse_keeps_quoted_substitution_lookalikes_literal() {
         assert!(operand.ends_with('\''), "swallowed outer brace: {word:?}");
     }
 }
+
+#[test]
+fn hash_scalar_substrings_are_not_length_expansions() {
+    let word = argument("args ${#:0:1}");
+    assert!(
+        matches!(word.parts.as_slice(), [WordPart::Substring { name, offset, length }] if name == "#" && offset == "0" && length.as_deref() == Some("1"))
+    );
+    assert!(
+        matches!(argument("args ${#v}").parts.as_slice(), [WordPart::Length(name)] if name == "v")
+    );
+}
+
+#[test]
+fn shell_body_validation_requires_separators_at_top_level() {
+    for source in [
+        "(missing)+(2)",
+        "(18446744073709551616)>=(64#_)",
+        "(echo x) echo y",
+    ] {
+        assert!(
+            Parser::new(source)
+                .with_strict_command_separators()
+                .parse()
+                .is_err(),
+            "{source}"
+        );
+    }
+    for source in [
+        "(echo x); (echo y)",
+        "(echo x)\n(echo y)",
+        "(echo x) | (echo y)",
+        "(echo x) && (echo y)",
+    ] {
+        assert!(
+            Parser::new(source)
+                .with_strict_command_separators()
+                .parse()
+                .is_ok(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn whole_script_defaults_preserve_original_separator_policy() {
+    for name in ["a", "empty_word", "_drop7"] {
+        let source =
+            format!("shopt -s expand_aliases\nalias {name}=\n{name} (( value = 0 ))\necho done");
+        assert!(Parser::new(&source).parse().is_ok(), "{source}");
+        assert!(
+            parse(&source, &ExecutionLimits::default()).is_ok(),
+            "{source}"
+        );
+        assert!(
+            Parser::new(&source)
+                .with_strict_command_separators()
+                .parse()
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn strict_separator_policy_reaches_nested_shell_bodies() {
+    for source in [
+        "echo $( (missing)+(2) )",
+        "echo $( (echo x) echo y )",
+        "echo <((missing)+(2))",
+    ] {
+        assert!(Parser::new(source).parse().is_ok(), "{source}");
+        assert!(
+            Parser::new(source)
+                .with_strict_command_separators()
+                .parse()
+                .is_err(),
+            "{source}"
+        );
+    }
+    for source in ["echo $( (echo x); echo y )", "echo <((echo x); echo y)"] {
+        assert!(
+            Parser::new(source)
+                .with_strict_command_separators()
+                .parse()
+                .is_ok(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn array_assignments_consume_one_closing_parenthesis_in_subshells() {
+    for source in [
+        "(alpha+=(beta))",
+        "(alpha=(beta))",
+        "((alpha+=(beta)))",
+        "(alpha+=(beta gamma)); echo done",
+    ] {
+        let parsed = Parser::with_limits_and_options(source, 32, 65536, Default::default()).parse();
+        assert!(parsed.is_ok(), "{source}: {parsed:?}");
+    }
+}
+
+#[test]
+fn nested_lists_require_separators_after_commands_and_redirects() {
+    for source in [
+        "(alpha|=((beta)&(3)))",
+        "((alpha)>=(3))",
+        "((alpha)+(beta))",
+        "((alpha)**(3))",
+        "((alpha)>>(beta))",
+    ] {
+        assert!(
+            Parser::with_limits_and_options(source, 32, 65536, Default::default())
+                .with_strict_command_separators()
+                .parse()
+                .is_err(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn explicit_shell_options_apply_to_the_first_pattern_group() {
+    for source in [
+        "+(2)",
+        "echo @(alpha|beta)",
+        "echo ?(alpha)",
+        "echo *(alpha)",
+    ] {
+        assert!(
+            Parser::with_limits_and_options(source, 32, 65536, Default::default())
+                .parse()
+                .is_err(),
+            "{source}"
+        );
+        assert!(
+            Parser::new(source).parse().is_ok(),
+            "default upstream pattern mode: {source}"
+        );
+    }
+    assert!(
+        Parser::with_limits_and_options("!(2)", 32, 65536, Default::default())
+            .parse()
+            .is_ok()
+    );
+}
+
+#[test]
+fn substring_word_syntax_is_checked_before_lazy_selection() {
+    for source in [
+        "echo \"${present:-${v:1>(+(2))}}\"",
+        "false && echo \"${v:1<(-(2))}\"",
+        "f() { echo \"${v:1>(~(2))}\"; }",
+    ] {
+        assert!(
+            matches!(
+                Parser::new(source).parse(),
+                Err(shell_parser::Error::ShellWord { .. })
+            ),
+            "{source}"
+        );
+    }
+    for source in [
+        "echo '${v:1>(+(2))}'",
+        "echo \"$(( ${v:1>(+(2))} ))\"",
+        "echo \"${present:-$((1>(+(2))))}\"",
+        "echo \"${v:1>>(+(2))}\"",
+    ] {
+        assert!(Parser::new(source).parse().is_ok(), "{source}");
+    }
+}
+
+#[test]
+fn substring_word_validation_shares_fuel_and_request_budget() {
+    use shell_parser::limits::{ExecutionBudget, ExecutionLimits, LimitExceeded};
+    use std::sync::{Arc, atomic::AtomicBool};
+    let source = "echo \"${v:1>(alpha beta gamma)}\"";
+    assert!(Parser::with_limits(source, 32, 8).parse().is_err());
+    let limits = ExecutionLimits {
+        max_work_units: 8,
+        ..Default::default()
+    };
+    let budget = ExecutionBudget::new(&limits, Arc::new(AtomicBool::new(false)));
+    assert!(matches!(
+        Parser::new(source).with_execution_budget(budget).parse(),
+        Err(shell_parser::Error::ResourceLimit(
+            LimitExceeded::WorkUnits { .. }
+        ))
+    ));
+}
+
+#[test]
+fn substring_fields_ignore_delimiters_inside_quoted_operands() {
+    for text in ["<(bad", "(", ")", "}", "{", "?:", "\\\"("] {
+        let source = format!("args \"${{v:0:${{u:-'{text}'}}}}\"");
+        let word = argument(&source);
+        assert!(
+            matches!(word.parts.as_slice(), [WordPart::Substring { name, offset, length }]
+            if name == "v" && offset == "0" && length.as_deref() == Some(format!("${{u:-'{text}'}}").as_str())),
+            "{source}: {word:?}"
+        );
+    }
+}

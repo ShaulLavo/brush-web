@@ -31,6 +31,7 @@ mod print_cmd;
 mod raw;
 mod span;
 mod subst_scan;
+mod substring;
 mod tokens;
 
 pub use ast::*;
@@ -39,6 +40,7 @@ pub use lexer::{Lexer, SpannedToken};
 pub use print_cmd::function_string;
 pub(crate) use print_cmd::word_text;
 pub use span::{Position, Span};
+pub use subst_scan::{Step as CommandBoundaryStep, SubstScanner as CommandBoundaryScanner};
 
 use crate::error::{Error, Result};
 use crate::limits::LimitExceeded;
@@ -98,7 +100,7 @@ pub struct Parser<'a> {
     /// Current nesting depth
     current_depth: usize,
     /// Remaining fuel for parsing operations
-    fuel: usize,
+    fuel: Cell<usize>,
     /// Maximum fuel (for error reporting)
     max_fuel: usize,
     /// Optional parser timeout enforced via cooperative checks in `tick`.
@@ -110,6 +112,7 @@ pub struct Parser<'a> {
     /// when a `$(...)` body fails to parse; `parse_script` converts it into a
     /// hard parse error so the script is rejected the way bash rejects it.
     deferred_error: Cell<Option<Error>>,
+    parameter_word_boundaries: bool,
     /// The returned error came from (or coexisted with) a deferred `$(...)`
     /// error, whose position is unreliable; see [`Parser::parse_recovering`].
     error_was_deferred: bool,
@@ -120,6 +123,7 @@ pub struct Parser<'a> {
     execution_budget: Option<crate::limits::ExecutionBudget>,
     /// Shell options that change parsing (aliases, extglob).
     options: ParseOptions,
+    strict_command_separators: bool,
     /// The current token is a word with no quoting (alias candidate).
     current_plain: bool,
     /// The current token follows a blank-ending alias value.
@@ -170,7 +174,35 @@ impl<'a> Parser<'a> {
         max_fuel: usize,
         timeout: Option<Duration>,
     ) -> Self {
+        Self::with_limits_timeout_options(
+            input,
+            max_depth,
+            max_fuel,
+            timeout,
+            ParseOptions { aliases: None, extglob: true },
+        )
+    }
+
+    /// Set lexical options before reading the first token, including when the
+    /// entire input is an extended-pattern lookalike.
+    pub fn with_limits_and_options(
+        input: &'a str,
+        max_depth: usize,
+        max_fuel: usize,
+        options: ParseOptions,
+    ) -> Self {
+        Self::with_limits_timeout_options(input, max_depth, max_fuel, None, options)
+    }
+
+    fn with_limits_timeout_options(
+        input: &'a str,
+        max_depth: usize,
+        max_fuel: usize,
+        timeout: Option<Duration>,
+        options: ParseOptions,
+    ) -> Self {
         let mut lexer = Lexer::with_max_subst_depth(input, max_depth.min(HARD_MAX_AST_DEPTH));
+        lexer.set_extglob_bang(options.extglob);
         let spanned = lexer.next_spanned_token();
         let (current_token, current_span, current_escapes) = match spanned {
             Some(st) => (Some(st.token), st.span, st.literal_escapes),
@@ -191,19 +223,17 @@ impl<'a> Parser<'a> {
             function_depth: 0,
             max_depth: max_depth.min(HARD_MAX_AST_DEPTH),
             current_depth: 0,
-            fuel: max_fuel,
+            fuel: Cell::new(max_fuel),
             max_fuel,
             timeout,
             started_at: Instant::now(),
             deferred_error: Cell::new(None),
+            parameter_word_boundaries: true,
             error_was_deferred: false,
             failed_command_line: 0,
             execution_budget: None,
-            // Without shell options every extglob group lexes as one.
-            options: ParseOptions {
-                aliases: None,
-                extglob: true,
-            },
+            options,
+            strict_command_separators: false,
             current_plain,
             current_after_blank: false,
             prev_token_end: usize::MAX,
@@ -219,6 +249,14 @@ impl<'a> Parser<'a> {
     /// Parse with the shell's alias table and `extglob` setting.
     pub fn with_options(mut self, options: ParseOptions) -> Self {
         self.set_options(options);
+        self
+    }
+
+    /// Require separators between completed commands when validating a captured
+    /// shell body. Whole-script callers retain the original parser behavior.
+    /// Aliases may change command boundaries when the interpreter reads a unit.
+    pub fn with_strict_command_separators(mut self) -> Self {
+        self.strict_command_separators = true;
         self
     }
 
@@ -318,7 +356,10 @@ impl<'a> Parser<'a> {
     ) -> Result<WordPart> {
         // The token has already been admitted and boundary-scanned by the
         // caller. Do not lex it again in an invented top-level quote context.
-        let parser = Parser::with_limits("", max_depth, max_fuel);
+        let mut parser = Parser::with_limits("", max_depth, max_fuel);
+        // The enclosing word reader has already checked lexical boundaries.
+        // This API is also used inside opaque arithmetic text at expansion time.
+        parser.parameter_word_boundaries = false;
         let mut chars = WordChars::new(input, &[]);
         if chars.next() != Some('$') || chars.peek() != Some(&'{') {
             return Err(parser.error("expected scalar parameter token"));
@@ -456,7 +497,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Consume one unit of fuel, returning an error if exhausted
-    fn tick(&mut self) -> Result<()> {
+    fn tick(&self) -> Result<()> {
         if let Some(budget) = &self.execution_budget {
             budget.consume_work(1)?;
         }
@@ -465,14 +506,14 @@ impl<'a> Parser<'a> {
         {
             return Err(Error::ResourceLimit(LimitExceeded::ParserTimeout(timeout)));
         }
-        if self.fuel == 0 {
+        if self.fuel.get() == 0 {
             let used = self.max_fuel;
             return Err(Error::parse(format!(
                 "parser fuel exhausted ({} operations, max {})",
                 used, self.max_fuel
             )));
         }
-        self.fuel -= 1;
+        self.fuel.set(self.fuel.get() - 1);
         Ok(())
     }
 
@@ -480,7 +521,7 @@ impl<'a> Parser<'a> {
     /// THREAT[TM-DOS-064]: Heredoc rest-of-line re-injection copies command suffixes;
     /// charge each copied character so repeated heredocs cannot hide quadratic work
     /// outside parser fuel accounting.
-    fn tick_units(&mut self, units: usize) -> Result<()> {
+    fn tick_units(&self, units: usize) -> Result<()> {
         if let Some(budget) = &self.execution_budget {
             budget.consume_work(u64::try_from(units).unwrap_or(u64::MAX))?;
         }
@@ -489,14 +530,14 @@ impl<'a> Parser<'a> {
         {
             return Err(Error::ResourceLimit(LimitExceeded::ParserTimeout(timeout)));
         }
-        if self.fuel < units {
+        if self.fuel.get() < units {
             let used = self.max_fuel;
             return Err(Error::parse(format!(
                 "parser fuel exhausted ({} operations, max {})",
                 used, self.max_fuel
             )));
         }
-        self.fuel -= units;
+        self.fuel.set(self.fuel.get() - units);
         Ok(())
     }
 
@@ -579,11 +620,18 @@ impl<'a> Parser<'a> {
         let end_span = self.current_span;
         let (keep, err) = match result {
             Ok(()) => (commands.len(), None),
-            Err(e) => {
-                if self.deferred_error.take().is_some() {
+            Err(mut e) => {
+                if let Some(deferred) = self.deferred_error.take() {
                     self.error_was_deferred = true;
+                    if matches!(deferred, Error::ShellWord { .. }) {
+                        e = deferred;
+                    }
                 }
                 let keep = match &e {
+                    Error::ShellWord { line } => commands
+                        .iter()
+                        .take_while(|(_, end)| end < line)
+                        .count(),
                     Error::Parse { .. } if !self.error_was_deferred => {
                         let failed_line = self.failed_command_line;
                         commands
@@ -644,6 +692,14 @@ impl<'a> Parser<'a> {
                 self.top_starts.push((start_offset, start_line));
                 commands.push((*cmd, self.current_span.start.line));
             });
+            self.check_error_token()?;
+            // parse_command_list consumes semicolon/background separators.
+            // A remaining token on this line cannot silently start a second
+            // command after a completed compound command or its redirections.
+            if self.strict_command_separators && parsed.is_some() && self.current_token.is_some()
+                && !matches!(self.current_token, Some(tokens::Token::Newline)) {
+                return Err(self.error("unexpected token"));
+            }
             if parsed.is_none()
                 && self.current_token.is_some()
                 && self.current_span.start.offset == start_offset
@@ -804,6 +860,14 @@ impl<'a> Parser<'a> {
             }
         }
 
+        // No grammar level may silently begin another command without an
+        // operator. Parentheses and reserved terminators belong to its caller.
+        if self.strict_command_separators && matches!(
+            self.current_token,
+            Some(tokens::Token::LeftParen | tokens::Token::DoubleLeftParen)
+        ) {
+            return Err(self.error("unexpected token"));
+        }
         finish_command_list(first, rest, start_span.merge(self.current_span))
     }
 
@@ -2943,6 +3007,14 @@ impl<'a> Parser<'a> {
                     self.advance();
                     break;
                 }
+                Some(tokens::Token::DoubleRightParen) => {
+                    // The array owns only the first `)`; the surrounding
+                    // subshell or command owns the second one.
+                    self.current_token = Some(tokens::Token::RightParen);
+                    self.current_span.start.offset += 1;
+                    self.current_span.start.column += 1;
+                    break;
+                }
                 Some(tokens::Token::Word(elem))
                 | Some(tokens::Token::LiteralWord(elem))
                 | Some(tokens::Token::QuotedWord(elem))
@@ -4056,10 +4128,11 @@ impl<'a> Parser<'a> {
                     let mut inner_parser = Parser::with_limits_and_timeout(
                         cmd_src,
                         self.max_depth,
-                        self.fuel,
+                        self.fuel.get(),
                         self.timeout,
                     );
                     inner_parser.execution_budget = self.execution_budget.clone();
+                    inner_parser.strict_command_separators = self.strict_command_separators;
                     inner_parser.current_depth = self.current_depth + 1;
                     inner_parser.started_at = self.started_at;
                     let mut commands = Vec::new();
@@ -4068,13 +4141,13 @@ impl<'a> Parser<'a> {
                         .map(|()| commands.into_iter().map(|(cmd, _)| cmd).collect::<Vec<_>>());
                     let raw = (self.function_depth > 0)
                         .then(|| format!("{}({cmd_src})", if is_input { '<' } else { '>' }));
-                    (result, inner_parser.fuel, raw)
+                    (result, inner_parser.fuel.get(), raw)
                 };
                 let (parse_result, remaining_fuel, raw) = inner_result;
-                self.fuel = remaining_fuel;
+                self.fuel.set(remaining_fuel);
                 let commands = match parse_result {
                     Ok(commands) => commands,
-                    Err(err) if Self::is_parser_budget_error(&err) => return Err(err),
+                    Err(err) if self.strict_command_separators || Self::is_parser_budget_error(&err) => return Err(err),
                     Err(_) => Vec::new(),
                 };
 
@@ -4161,13 +4234,14 @@ impl<'a> Parser<'a> {
         let mut parser = Box::new(Parser::with_limits_and_timeout(
             src,
             self.max_depth,
-            self.fuel,
+            self.fuel.get(),
             self.timeout,
         ));
         parser.current_depth = self.current_depth + 1;
         parser.started_at = self.started_at;
         parser.execution_budget = self.execution_budget.clone();
         parser.set_options(self.options.clone());
+        parser.strict_command_separators = self.strict_command_separators;
         // `$( )` spans count from the outer word's line, so `$LINENO` and
         // error line numbers inside it match bash.
         let shift = self.current_span.start.line.saturating_sub(1);
@@ -4198,6 +4272,12 @@ impl<'a> Parser<'a> {
         }
         // ${VAR} format with possible parameter expansion
         chars.next(); // consume '{'
+        if let Err(error) = self.validate_parameter_shell_boundaries(
+            chars, in_quoted_segment, pattern_context,
+        ) {
+            let first = self.deferred_error.take();
+            self.deferred_error.set(first.or(Some(error)));
+        }
 
         if let Some(inner) = bad_brace_parameter(chars) {
             // Bash accepts the word and fails when expanding it.
@@ -5300,12 +5380,19 @@ fn bad_brace_parameter(chars: &WordChars<'_>) -> Option<String> {
     let length_prefix = match it.peek() {
         Some('!') => return None,
         Some('#') => {
+            if hash_param_with_op(chars) { return None; }
             it.next();
             match it.peek() {
                 // `${#}`, `${##}`, `${#-}`, ...: length of a special parameter
                 // or `$#` itself; leave these to the regular parser.
                 Some(c) if c.is_ascii_alphanumeric() || *c == '_' => true,
-                _ => return None,
+                Some('}') | None => return None,
+                Some(_) => {
+                    let mut tail = it.clone();
+                    tail.next();
+                    if tail.peek() == Some(&'}') { return None; }
+                    true
+                }
             }
         }
         _ => false,
@@ -5424,7 +5511,38 @@ fn read_slice_field(chars: &mut WordChars<'_>, stop_colon: bool) -> String {
     let mut field = String::new();
     let mut depth = 0usize;
     let mut ternary = 0usize;
+    let mut quote = None;
+    let mut escaped = false;
     while let Some(&c) = chars.peek() {
+        if escaped {
+            field.push(c);
+            chars.next();
+            escaped = false;
+            continue;
+        }
+        if c == '\\' && quote != Some('\'') {
+            field.push(c);
+            chars.next();
+            escaped = true;
+            continue;
+        }
+        if quote == Some(c) {
+            quote = None;
+            field.push(c);
+            chars.next();
+            continue;
+        }
+        if quote.is_some() {
+            field.push(c);
+            chars.next();
+            continue;
+        }
+        if matches!(c, '\'' | '"') {
+            quote = Some(c);
+            field.push(c);
+            chars.next();
+            continue;
+        }
         match c {
             '(' | '{' => depth += 1,
             ')' => depth = depth.saturating_sub(1),
@@ -5446,7 +5564,11 @@ fn read_slice_field(chars: &mut WordChars<'_>, stop_colon: bool) -> String {
 fn hash_param_with_op(chars: &WordChars<'_>) -> bool {
     let mut it = chars.clone();
     it.next(); // '#'
-    it.next() == Some('#') && !matches!(it.next(), Some('}') | None)
+    match it.next() {
+        Some(':') => true, // `${#:offset:length}` slices the scalar `$#`.
+        Some('#') => !matches!(it.next(), Some('}') | None),
+        _ => false,
+    }
 }
 
 /// After the parameter of `${...}`: whether `next` cannot start an operator.

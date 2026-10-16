@@ -1,0 +1,3481 @@
+{
+  "schema": 1,
+  "sourceHash": "548dd4215253aba386ba613e814020109ba4c38f2d6b49f669dd0db388caebbc",
+  "seed": 17,
+  "count": 256,
+  "timeoutMs": 2000,
+  "bash": "GNU bash, version 5.3.15(1)-release (x86_64-pc-linux-gnu)",
+  "cases": [
+    {
+      "case": {
+        "id": "fixed-0",
+        "script": "f() { readonly y; local x=1 y=$(( x )); echo y=$y; }; f; echo y=$y"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "eT0KeT0K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-1",
+        "script": "readonly x=1; ((x=2)); printf '<%s>\\n' status=$? x=$x"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8eD0xPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-2",
+        "script": "readonly x; x=2; printf '<%s>\\n' status=$? x=$x"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-3",
+        "script": "f() { local x=1; readonly x; ((x=2)); printf '<%s>\\n' status=$? x=$x; }; f; printf '<%s>\\n' x=$x"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8eD0xPgo8eD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-4",
+        "script": "f() { local x=1; readonly x; g() { local x=2; ((x=3)); printf '<%s>\\n' status=$? x=$x; }; g; printf '<%s>\\n' x=$x; }; f"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8eD0zPgo8eD0xPgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-5",
+        "script": "readonly x=1; export x; printf '<%s>\\n' x=$x"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHg9MT4K",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-6",
+        "script": "readonly x=1; ((x+=2)); printf '<%s>\\n' status=$? x=$x"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8eD0xPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-7",
+        "script": "f() { readonly y; local x=3 y=$((x+2)); printf '<%s>\\n' status=$? y=$y; }; f"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8eT0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-8",
+        "script": "readonly x=1; echo \"$((x=2))\"; echo skipped\nprintf \"%s\\n\" after=$? x=$x"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXI9MQp4PTEK",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-9",
+        "script": "readonly x=1; x=2; echo skipped\nprintf \"%s\\n\" after=$? x=$x"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXI9MQp4PTEK",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-10",
+        "script": "readonly x; echo \"${x:=2}\"; echo skipped\nprintf \"%s\\n\" after=$? \"${x-unset}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXI9MQp1bnNldAo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-0",
+        "script": "f() { readonly x='2'; local before=1 x=$(( 2+0 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-1",
+        "script": "f() { local x=''; readonly x; (( x=5+4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9Pgo8c2V0PT4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-2",
+        "script": "readonly counter42=''; let 'counter42+=2'; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPD4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-3",
+        "script": "f() { local result=1; readonly result; g() { local result=2; (( result=1+1 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; g; (( result=4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; result=5; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-4",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-5",
+        "script": "text='a b'; readonly x=$text; readonly x=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; export x=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQpiYXNoOiBsaW5lIDI6IHg6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-6",
+        "script": "f() { readonly x='2'; local before=1 x=$(( 6+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-7",
+        "script": "f() { local _item='1'; readonly _item; (( _item=1+1 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-8",
+        "script": "readonly x=''; (( ++x )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPD4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-9",
+        "script": "f() { local _item=1; readonly _item; g() { local _item=2; (( _item=7+1 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; g; (( _item=4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; _item=5; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9OD4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-10",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-11",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-12",
+        "script": "f() { readonly x='2'; local before=1 x=$(( 7+1 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-13",
+        "script": "f() { local result=''; readonly result; (( result=5+2 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9Pgo8c2V0PT4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-14",
+        "script": "readonly result='7'; printf '<%s>\\n' \"$(( 1||(result=2) ))\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDE+CjxzdGF0dXM9MD4KPHZhbHVlPTc+CjxzZXQ9eWVzPgo8Pgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "generated-15",
+        "script": "f() { local result=1; readonly result; g() { local result=2; (( result=4+2 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; g; (( result=4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; result=5; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Nj4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-16",
+        "script": "readonly result; printf '<%s>\\n' \"${result:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-17",
+        "script": "text='a b'; readonly _item=$text; readonly _item=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; export _item=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUKYmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-18",
+        "script": "f() { readonly x='2'; local before=1 x=$(( 8+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-19",
+        "script": "f() { local counter42='2'; readonly counter42; (( counter42=3+1 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-20",
+        "script": "readonly counter42='2'; let '++counter42'; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-21",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=7+3 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9MTA+CjxzZXQ9eWVzPgo8c3RhdHVzPTE+Cjx2YWx1ZT0xPgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9NT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-22",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-23",
+        "script": "text='a b'; readonly counter42=$text; readonly counter42=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; export counter42=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-24",
+        "script": "f() { readonly result='7'; local before=1 result=$(( 4+1 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-25",
+        "script": "f() { local counter42='2'; readonly counter42; (( counter42=2+1 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-26",
+        "script": "readonly result='7'; v=abcdef; printf '<%s>\\n' \"${v:(result=2+0):1}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-27",
+        "script": "f() { local _item=1; readonly _item; g() { local _item=2; (( _item=5+2 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; g; (( _item=4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; _item=5; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-28",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-29",
+        "script": "text='a b'; readonly x=$text; readonly x=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; export x=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQpiYXNoOiBsaW5lIDI6IHg6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-30",
+        "script": "f() { readonly x='7'; local before=1 x=$(( 2+3 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-31",
+        "script": "f() { local result='2'; readonly result; (( result=7+2 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-32",
+        "script": "readonly counter42='2'; let 'counter42+=2'; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-33",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=1+0 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9MT4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-34",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-35",
+        "script": "text='a b'; readonly counter42=$text; readonly counter42=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; export counter42=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-36",
+        "script": "f() { readonly _item='2'; local before=1 _item=$(( 5+0 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogX2l0ZW06IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-37",
+        "script": "f() { local _item=''; readonly _item; (( _item=7+1 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9Pgo8c2V0PT4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-38",
+        "script": "readonly _item='2'; printf '<%s>\\n' \"$(( _item=(saved=3) ))\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-39",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=7+0 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-40",
+        "script": "readonly result; printf '<%s>\\n' \"${result:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-41",
+        "script": "text='a b'; readonly counter42=$text; readonly counter42=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; export counter42=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-42",
+        "script": "f() { readonly result=''; local before=1 result=$(( 2+0 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPDE+CjwyPgo8c3RhdHVzPTA+Cjx2YWx1ZT0+CjxzZXQ9eWVzPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-43",
+        "script": "f() { local _item=''; readonly _item; (( _item=5+4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9Pgo8c2V0PT4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-44",
+        "script": "readonly result='2'; let 'result=1+1'; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-45",
+        "script": "f() { local x=1; readonly x; g() { local x=2; (( x=5+3 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; g; (( x=4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; x=5; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9OD4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-46",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-47",
+        "script": "text='a b'; readonly x=$text; readonly x=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; export x=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQpiYXNoOiBsaW5lIDI6IHg6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-48",
+        "script": "f() { readonly result='2'; local before=1 result=$(( 7+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-49",
+        "script": "f() { local result='7'; readonly result; (( result=8+2 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-50",
+        "script": "readonly x='7'; printf '<%s>\\n' \"$(( x+=2 ))\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-51",
+        "script": "f() { local x=1; readonly x; g() { local x=2; (( x=5+4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; g; (( x=4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; x=5; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9OT4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-52",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-53",
+        "script": "text='a b'; readonly x=$text; readonly x=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; export x=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQpiYXNoOiBsaW5lIDI6IHg6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-54",
+        "script": "f() { readonly result='7'; local before=1 result=$(( 7+0 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-55",
+        "script": "f() { local x='7'; readonly x; (( x=4+1 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-56",
+        "script": "readonly result=''; let 'result=2+3'; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPD4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-57",
+        "script": "f() { local x=1; readonly x; g() { local x=2; (( x=1+4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; g; (( x=4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; x=5; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9NT4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-58",
+        "script": "readonly result; printf '<%s>\\n' \"${result:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-59",
+        "script": "text='a b'; readonly counter42=$text; readonly counter42=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; export counter42=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-60",
+        "script": "f() { readonly x='7'; local before=1 x=$(( 1+3 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-61",
+        "script": "f() { local _item='2'; readonly _item; (( _item=6+3 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-62",
+        "script": "readonly _item=''; printf '<%s>\\n' \"$(( ++_item ))\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-63",
+        "script": "f() { local result=1; readonly result; g() { local result=2; (( result=1+2 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; g; (( result=4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; result=5; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Mz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-64",
+        "script": "readonly result; printf '<%s>\\n' \"${result:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-65",
+        "script": "text='a b'; readonly _item=$text; readonly _item=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; export _item=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUKYmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-66",
+        "script": "f() { readonly result='2'; local before=1 result=$(( 4+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-67",
+        "script": "f() { local x='1'; readonly x; (( x=8+1 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-68",
+        "script": "readonly x='2'; (( x++ )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-69",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=3+0 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Mz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-70",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-71",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-72",
+        "script": "f() { readonly _item='7'; local before=1 _item=$(( 3+3 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogX2l0ZW06IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-73",
+        "script": "f() { local counter42=''; readonly counter42; (( counter42=8+1 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9Pgo8c2V0PT4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-74",
+        "script": "readonly x=''; v=abcdef; printf '<%s>\\n' \"${v:(1||(x=2)):1}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGI+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "generated-75",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=8+0 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9OD4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-76",
+        "script": "readonly counter42; printf '<%s>\\n' \"${counter42:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-77",
+        "script": "text='a b'; readonly x=$text; readonly x=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; export x=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQpiYXNoOiBsaW5lIDI6IHg6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-78",
+        "script": "f() { readonly x='2'; local before=1 x=$(( 5+0 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-79",
+        "script": "f() { local counter42='7'; readonly counter42; (( counter42=5+0 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-80",
+        "script": "readonly counter42=''; (( counter42=5+1 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPD4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-81",
+        "script": "f() { local _item=1; readonly _item; g() { local _item=2; (( _item=4+2 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; g; (( _item=4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; _item=5; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Nj4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-82",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-83",
+        "script": "text='a b'; readonly counter42=$text; readonly counter42=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; export counter42=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-84",
+        "script": "f() { readonly x='7'; local before=1 x=$(( 3+1 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-85",
+        "script": "f() { local _item='2'; readonly _item; (( _item=6+1 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-86",
+        "script": "readonly counter42='2'; printf '<%s>\\n' \"$(( counter42++ ))\"; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-87",
+        "script": "f() { local x=1; readonly x; g() { local x=2; (( x=8+0 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; g; (( x=4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; x=5; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9OD4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-88",
+        "script": "readonly counter42; printf '<%s>\\n' \"${counter42:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-89",
+        "script": "text='a b'; readonly counter42=$text; readonly counter42=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; export counter42=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-90",
+        "script": "f() { readonly _item='2'; local before=1 _item=$(( 6+2 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogX2l0ZW06IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-91",
+        "script": "f() { local _item='1'; readonly _item; (( _item=3+2 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-92",
+        "script": "readonly _item=''; v=abcdef; printf '<%s>\\n' \"${v:(_item=7+2):1}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-93",
+        "script": "f() { local x=1; readonly x; g() { local x=2; (( x=2+3 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; g; (( x=4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; x=5; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9NT4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-94",
+        "script": "readonly result; printf '<%s>\\n' \"${result:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-95",
+        "script": "text='a b'; readonly _item=$text; readonly _item=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; export _item=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUKYmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-96",
+        "script": "f() { readonly _item='7'; local before=1 _item=$(( 1+0 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogX2l0ZW06IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-97",
+        "script": "f() { local x='2'; readonly x; (( x=5+3 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-98",
+        "script": "readonly counter42='2'; (( counter42+=2 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-99",
+        "script": "f() { local result=1; readonly result; g() { local result=2; (( result=6+0 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; g; (( result=4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; result=5; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Nj4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-100",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-101",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-102",
+        "script": "f() { readonly x=''; local before=1 x=$(( 5+0 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPDE+CjwyPgo8c3RhdHVzPTA+Cjx2YWx1ZT0+CjxzZXQ9eWVzPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-103",
+        "script": "f() { local result='2'; readonly result; (( result=7+4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-104",
+        "script": "readonly x='1'; let 'x=(saved=3)'; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjwzPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-105",
+        "script": "f() { local _item=1; readonly _item; g() { local _item=2; (( _item=2+1 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; g; (( _item=4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; _item=5; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Mz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-106",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-107",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-108",
+        "script": "f() { readonly result='7'; local before=1 result=$(( 1+2 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-109",
+        "script": "f() { local x=''; readonly x; (( x=6+4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9Pgo8c2V0PT4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-110",
+        "script": "readonly result='1'; (( 1||(result=2) )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9MT4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "generated-111",
+        "script": "f() { local x=1; readonly x; g() { local x=2; (( x=8+4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; g; (( x=4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; x=5; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9MTI+CjxzZXQ9eWVzPgo8c3RhdHVzPTE+Cjx2YWx1ZT0xPgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9NT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-112",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-113",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-114",
+        "script": "f() { readonly x=''; local before=1 x=$(( 6+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPDE+CjwyPgo8c3RhdHVzPTA+Cjx2YWx1ZT0+CjxzZXQ9eWVzPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-115",
+        "script": "f() { local counter42=''; readonly counter42; (( counter42=2+4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9Pgo8c2V0PT4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-116",
+        "script": "readonly counter42='2'; let '1||(counter42=2)'; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "generated-117",
+        "script": "f() { local result=1; readonly result; g() { local result=2; (( result=7+3 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; g; (( result=4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; result=5; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9MTA+CjxzZXQ9eWVzPgo8c3RhdHVzPTE+Cjx2YWx1ZT0xPgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9NT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-118",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-119",
+        "script": "text='a b'; readonly _item=$text; readonly _item=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; export _item=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUKYmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-120",
+        "script": "f() { readonly x=''; local before=1 x=$(( 2+0 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPDE+CjwyPgo8c3RhdHVzPTA+Cjx2YWx1ZT0+CjxzZXQ9eWVzPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-121",
+        "script": "f() { local _item='1'; readonly _item; (( _item=2+2 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-122",
+        "script": "readonly result='1'; (( 1||(result=2) )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9MT4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "generated-123",
+        "script": "f() { local result=1; readonly result; g() { local result=2; (( result=5+1 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; g; (( result=4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; result=5; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Nj4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-124",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-125",
+        "script": "text='a b'; readonly x=$text; readonly x=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; export x=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQpiYXNoOiBsaW5lIDI6IHg6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-126",
+        "script": "f() { readonly counter42='1'; local before=1 counter42=$(( 7+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9MT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-127",
+        "script": "f() { local counter42='7'; readonly counter42; (( counter42=5+4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-128",
+        "script": "readonly result='7'; v=abcdef; printf '<%s>\\n' \"${v:(result+=2):1}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-129",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=4+4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9OD4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-130",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-131",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-132",
+        "script": "f() { readonly _item=''; local before=1 _item=$(( 3+2 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPDE+CjwyPgo8c3RhdHVzPTA+Cjx2YWx1ZT0+CjxzZXQ9eWVzPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogX2l0ZW06IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-133",
+        "script": "f() { local result=''; readonly result; (( result=7+1 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9Pgo8c2V0PT4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-134",
+        "script": "readonly _item='1'; printf '<%s>\\n' \"$(( 1||(_item=2) ))\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDE+CjxzdGF0dXM9MD4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8Pgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "generated-135",
+        "script": "f() { local x=1; readonly x; g() { local x=2; (( x=1+2 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; g; (( x=4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; x=5; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Mz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-136",
+        "script": "readonly counter42; printf '<%s>\\n' \"${counter42:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-137",
+        "script": "text='a b'; readonly counter42=$text; readonly counter42=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; export counter42=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-138",
+        "script": "f() { readonly result='7'; local before=1 result=$(( 3+2 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-139",
+        "script": "f() { local result='1'; readonly result; (( result=3+0 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-140",
+        "script": "readonly _item=''; (( _item+=2 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPD4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-141",
+        "script": "f() { local x=1; readonly x; g() { local x=2; (( x=6+4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; g; (( x=4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; x=5; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9MTA+CjxzZXQ9eWVzPgo8c3RhdHVzPTE+Cjx2YWx1ZT0xPgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9NT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-142",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-143",
+        "script": "text='a b'; readonly _item=$text; readonly _item=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; export _item=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUKYmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-144",
+        "script": "f() { readonly _item='1'; local before=1 _item=$(( 3+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9MT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogX2l0ZW06IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-145",
+        "script": "f() { local _item=''; readonly _item; (( _item=8+2 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9Pgo8c2V0PT4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-146",
+        "script": "readonly _item='2'; (( ++_item )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-147",
+        "script": "f() { local result=1; readonly result; g() { local result=2; (( result=2+0 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; g; (( result=4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; result=5; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-148",
+        "script": "readonly result; printf '<%s>\\n' \"${result:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-149",
+        "script": "text='a b'; readonly x=$text; readonly x=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; export x=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQpiYXNoOiBsaW5lIDI6IHg6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-150",
+        "script": "f() { readonly x='7'; local before=1 x=$(( 4+3 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-151",
+        "script": "f() { local counter42='2'; readonly counter42; (( counter42=7+3 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-152",
+        "script": "readonly counter42='1'; printf '<%s>\\n' \"$(( 1||(counter42=2) ))\"; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDE+CjxzdGF0dXM9MD4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8Pgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "generated-153",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=1+2 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Mz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-154",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-155",
+        "script": "text='a b'; readonly counter42=$text; readonly counter42=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; export counter42=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-156",
+        "script": "f() { readonly x='1'; local before=1 x=$(( 1+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9MT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-157",
+        "script": "f() { local x='7'; readonly x; (( x=2+3 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-158",
+        "script": "readonly counter42=''; (( counter42=2+1 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPD4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-159",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=1+2 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Mz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-160",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-161",
+        "script": "text='a b'; readonly counter42=$text; readonly counter42=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; export counter42=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-162",
+        "script": "f() { readonly counter42='2'; local before=1 counter42=$(( 1+3 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-163",
+        "script": "f() { local result='1'; readonly result; (( result=3+4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-164",
+        "script": "readonly counter42='2'; v=abcdef; printf '<%s>\\n' \"${v:(counter42=(saved=3)):1}\"; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-165",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=8+0 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9OD4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-166",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-167",
+        "script": "text='a b'; readonly x=$text; readonly x=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; export x=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQpiYXNoOiBsaW5lIDI6IHg6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-168",
+        "script": "f() { readonly _item='7'; local before=1 _item=$(( 8+3 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogX2l0ZW06IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-169",
+        "script": "f() { local _item='2'; readonly _item; (( _item=1+1 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-170",
+        "script": "readonly x=''; let '++x'; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPD4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-171",
+        "script": "f() { local x=1; readonly x; g() { local x=2; (( x=4+3 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; g; (( x=4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; x=5; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-172",
+        "script": "readonly counter42; printf '<%s>\\n' \"${counter42:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-173",
+        "script": "text='a b'; readonly x=$text; readonly x=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; export x=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQpiYXNoOiBsaW5lIDI6IHg6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-174",
+        "script": "f() { readonly _item='2'; local before=1 _item=$(( 8+1 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogX2l0ZW06IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-175",
+        "script": "f() { local _item='2'; readonly _item; (( _item=5+3 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-176",
+        "script": "readonly result='2'; v=abcdef; printf '<%s>\\n' \"${v:(++result):1}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-177",
+        "script": "f() { local _item=1; readonly _item; g() { local _item=2; (( _item=7+4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; g; (( _item=4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; _item=5; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9MTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTE+Cjx2YWx1ZT0xPgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9NT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-178",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-179",
+        "script": "text='a b'; readonly _item=$text; readonly _item=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; export _item=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUKYmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-180",
+        "script": "f() { readonly result=''; local before=1 result=$(( 8+1 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPDE+CjwyPgo8c3RhdHVzPTA+Cjx2YWx1ZT0+CjxzZXQ9eWVzPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-181",
+        "script": "f() { local x=''; readonly x; (( x=1+2 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9Pgo8c2V0PT4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-182",
+        "script": "readonly result='7'; printf '<%s>\\n' \"$(( result=5+3 ))\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-183",
+        "script": "f() { local _item=1; readonly _item; g() { local _item=2; (( _item=1+1 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; g; (( _item=4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; _item=5; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-184",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-185",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-186",
+        "script": "f() { readonly result='1'; local before=1 result=$(( 6+3 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9MT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-187",
+        "script": "f() { local result='7'; readonly result; (( result=3+1 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-188",
+        "script": "readonly _item=''; printf '<%s>\\n' \"$(( _item=(saved=3) ))\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-189",
+        "script": "f() { local _item=1; readonly _item; g() { local _item=2; (( _item=1+3 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; g; (( _item=4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; _item=5; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9ND4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-190",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-191",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-192",
+        "script": "f() { readonly x=''; local before=1 x=$(( 8+2 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPDE+CjwyPgo8c3RhdHVzPTA+Cjx2YWx1ZT0+CjxzZXQ9eWVzPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-193",
+        "script": "f() { local counter42='2'; readonly counter42; (( counter42=4+0 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-194",
+        "script": "readonly result=''; printf '<%s>\\n' \"$(( ++result ))\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-195",
+        "script": "f() { local _item=1; readonly _item; g() { local _item=2; (( _item=3+1 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; g; (( _item=4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; _item=5; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9ND4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-196",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-197",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-198",
+        "script": "f() { readonly counter42='1'; local before=1 counter42=$(( 8+2 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9MT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-199",
+        "script": "f() { local _item='1'; readonly _item; (( _item=3+4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-200",
+        "script": "readonly counter42=''; printf '<%s>\\n' \"$(( counter42=(saved=3) ))\"; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-201",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=3+0 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Mz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-202",
+        "script": "readonly result; printf '<%s>\\n' \"${result:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-203",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-204",
+        "script": "f() { readonly result='2'; local before=1 result=$(( 4+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-205",
+        "script": "f() { local counter42='1'; readonly counter42; (( counter42=4+4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-206",
+        "script": "readonly x=''; (( 1||(x=2) )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Pgo8c2V0PXllcz4KPD4K",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "generated-207",
+        "script": "f() { local x=1; readonly x; g() { local x=2; (( x=1+2 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; g; (( x=4 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; x=5; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Mz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-208",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-209",
+        "script": "text='a b'; readonly _item=$text; readonly _item=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; export _item=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUKYmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-210",
+        "script": "f() { readonly result=''; local before=1 result=$(( 1+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPDE+CjwyPgo8c3RhdHVzPTA+Cjx2YWx1ZT0+CjxzZXQ9eWVzPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-211",
+        "script": "f() { local counter42=''; readonly counter42; (( counter42=1+4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9Pgo8c2V0PT4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-212",
+        "script": "readonly result=''; let '0&&(result=2)'; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPD4K",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "generated-213",
+        "script": "f() { local _item=1; readonly _item; g() { local _item=2; (( _item=7+4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; g; (( _item=4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; _item=5; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9MTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTE+Cjx2YWx1ZT0xPgo8c2V0PXllcz4KPHN0YXR1cz0wPgo8dmFsdWU9NT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-214",
+        "script": "readonly x; printf '<%s>\\n' \"${x:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-215",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-216",
+        "script": "f() { readonly result='2'; local before=1 result=$(( 6+1 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-217",
+        "script": "f() { local counter42='7'; readonly counter42; (( counter42=4+3 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-218",
+        "script": "readonly counter42='1'; v=abcdef; printf '<%s>\\n' \"${v:(1||(counter42=2)):1}\"; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGI+CjxzdGF0dXM9MD4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8Pgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "generated-219",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=6+2 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9OD4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-220",
+        "script": "readonly result; printf '<%s>\\n' \"${result:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-221",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-222",
+        "script": "f() { readonly result=''; local before=1 result=$(( 4+1 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Pgo8c2V0PXllcz4KPDE+CjwyPgo8c3RhdHVzPTA+Cjx2YWx1ZT0+CjxzZXQ9eWVzPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-223",
+        "script": "f() { local result='7'; readonly result; (( result=1+4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-224",
+        "script": "readonly counter42='7'; (( counter42=(saved=3) )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwzPgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-225",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=1+3 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9ND4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-226",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-227",
+        "script": "text='a b'; readonly counter42=$text; readonly counter42=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; export counter42=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-228",
+        "script": "f() { readonly x='1'; local before=1 x=$(( 8+0 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9MT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-229",
+        "script": "f() { local counter42='1'; readonly counter42; (( counter42=5+4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-230",
+        "script": "readonly x='2'; v=abcdef; printf '<%s>\\n' \"${v:(x=(saved=3)):1}\"; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-231",
+        "script": "f() { local result=1; readonly result; g() { local result=2; (( result=3+4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; g; (( result=4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; result=5; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-232",
+        "script": "readonly _item; printf '<%s>\\n' \"${_item:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-233",
+        "script": "text='a b'; readonly result=$text; readonly result=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; export result=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCmJhc2g6IGxpbmUgMjogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-234",
+        "script": "f() { readonly counter42='7'; local before=1 counter42=$(( 4+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogY291bnRlcjQyOiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-235",
+        "script": "f() { local _item='1'; readonly _item; (( _item=5+1 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-236",
+        "script": "readonly result='7'; (( result+=2 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-237",
+        "script": "f() { local counter42=1; readonly counter42; g() { local counter42=2; (( counter42=6+1 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; g; (( counter42=4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; counter42=5; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-238",
+        "script": "readonly result; printf '<%s>\\n' \"${result:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-239",
+        "script": "text='a b'; readonly _item=$text; readonly _item=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; export _item=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUKYmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-240",
+        "script": "f() { readonly _item='2'; local before=1 _item=$(( 4+3 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogX2l0ZW06IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-241",
+        "script": "f() { local x='7'; readonly x; (( x=2+2 )); printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-242",
+        "script": "readonly _item='2'; let '_item++'; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-243",
+        "script": "f() { local result=1; readonly result; g() { local result=2; (( result=6+1 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; g; (( result=4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; result=5; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-244",
+        "script": "readonly counter42; printf '<%s>\\n' \"${counter42:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-245",
+        "script": "text='a b'; readonly _item=$text; readonly _item=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; export _item=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUKYmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-246",
+        "script": "f() { readonly result='2'; local before=1 result=$(( 5+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogcmVzdWx0OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-247",
+        "script": "f() { local counter42='7'; readonly counter42; (( counter42=6+4 )); printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$counter42\" \"set=${counter42+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-248",
+        "script": "readonly result='2'; (( result++ )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Mj4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-249",
+        "script": "f() { local _item=1; readonly _item; g() { local _item=2; (( _item=6+2 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; g; (( _item=4 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; _item=5; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9OD4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-250",
+        "script": "readonly result; printf '<%s>\\n' \"${result:=${saved:=kept}}\"; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-251",
+        "script": "text='a b'; readonly x=$text; readonly x=changed other=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; export x=changed final=$text; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$other\" \"$final\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPHN0YXR1cz0xPgo8dmFsdWU9YSBiPgo8c2V0PXllcz4KPGEgYj4KPGEgYj4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQpiYXNoOiBsaW5lIDI6IHg6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "generated-252",
+        "script": "f() { readonly x='1'; local before=1 x=$(( 7+4 )) after=2; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$before\" \"$after\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9MT4KPHNldD15ZXM+CjwxPgo8Mj4KPHN0YXR1cz0wPgo8dmFsdWU9MT4KPHNldD15ZXM+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeDogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-253",
+        "script": "f() { local _item='7'; readonly _item; (( _item=7+3 )); printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\"; }; f; printf '<%s>\\n' \"status=$?\" \"value=$_item\" \"set=${_item+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8dmFsdWU9Nz4KPHNldD15ZXM+CjxzdGF0dXM9MD4KPHZhbHVlPT4KPHNldD0+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "generated-254",
+        "script": "readonly x='7'; let '1||(x=2)'; printf '<%s>\\n' \"status=$?\" \"value=$x\" \"set=${x+yes}\"; printf '<%s>\\n' \"$saved\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9Nz4KPHNldD15ZXM+Cjw+Cg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "generated-255",
+        "script": "f() { local result=1; readonly result; g() { local result=2; (( result=3+2 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; g; (( result=4 )); printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\"; }; f; result=5; printf '<%s>\\n' \"status=$?\" \"value=$result\" \"set=${result+yes}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8dmFsdWU9NT4KPHNldD15ZXM+CjxzdGF0dXM9MT4KPHZhbHVlPTE+CjxzZXQ9eWVzPgo8c3RhdHVzPTA+Cjx2YWx1ZT01Pgo8c2V0PXllcz4K",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IHJlYWRvbmx5IHZhcmlhYmxlCg=="
+      }
+    }
+  ]
+}
