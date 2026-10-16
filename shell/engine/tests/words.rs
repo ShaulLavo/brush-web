@@ -342,7 +342,7 @@ fn length_tokens_retain_lazy_operand_token_and_depth_limits() {
 }
 
 #[test]
-fn length_counting_yields_and_cancellation_restores_function_and_prefix_frames() {
+fn length_counting_yields_and_cancellation_restores_function_frames() {
     for (operand, locale) in [
         ("${#s}", "C"),
         ("${#s}", "C.UTF-8"),
@@ -354,7 +354,7 @@ fn length_counting_yields_and_cancellation_restores_function_and_prefix_frames()
         let job = rig
             .shell
             .start(&format!(
-                "f() {{ local LC_ALL={locale}; args {operand}; }}; TEMP=value f inner"
+                "f() {{ local LC_ALL={locale}; args {operand}; }}; f inner"
             ))
             .unwrap();
         rig.drive_until_variable("LC_ALL", locale);
@@ -371,8 +371,42 @@ fn length_counting_yields_and_cancellation_restores_function_and_prefix_frames()
         rig.shell.interrupt();
         assert_eq!(rig.finish(job), 130);
         assert!(rig.calls.borrow().is_empty());
-        assert_eq!(rig.run(r#"args "$LC_ALL" "$#" "${TEMP-unset}""#), 0);
-        assert_eq!(*rig.calls.borrow(), &[vec!["POSIX", "0", "unset"]]);
+        assert_eq!(rig.run(r#"args "$LC_ALL" "$#" "$1" "${TEMP-unset}""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["POSIX", "0", "", "unset"]]);
+    }
+}
+
+#[test]
+fn length_rhs_yields_and_cancellation_restores_prefix_frames() {
+    for (operand, locale) in [
+        ("${#s}", "C"),
+        ("${#s}", "C.UTF-8"),
+        ("${u:-${#s}}", "C.UTF-8"),
+    ] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("s", &"é".repeat(150_000));
+        rig.variable("LC_ALL", "POSIX");
+        rig.variable("length", "outer");
+        // External-command prefixes expose earlier values while a later RHS yields.
+        let job = rig
+            .shell
+            .start(&format!("TEMP=value LC_ALL={locale} length={operand} args"))
+            .unwrap();
+        rig.drive_until_variable("LC_ALL", locale);
+        assert_eq!(
+            rig.shell.state().borrow().variables.get("TEMP").unwrap(),
+            "value"
+        );
+        let peer = rig.ex.spawn(async { 42 });
+        rig.ex.drive(4);
+        assert!(peer.is_finished(), "counting must yield");
+        assert!(!job.is_finished());
+        rig.variable("peer", "ran");
+        rig.shell.interrupt();
+        assert_eq!(rig.finish(job), 130);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.run(r#"args "$LC_ALL" "${TEMP-unset}" "$length""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["POSIX", "unset", "outer"]]);
     }
 }
 
