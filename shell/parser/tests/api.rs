@@ -453,3 +453,20 @@ fn replacement_operands_keep_bare_braces_and_single_quote_backslashes_bounded() 
         ));
     }
 }
+
+#[test]
+fn quoted_replacement_substitution_lookalikes_stay_inside_single_quotes() {
+    for source in [r#"args "${v/b/'$(x'}" next"#, r#"args "${v/b/'${x'}" next"#] {
+        let word = argument(source);
+        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0] else {
+            panic!("lost replacement: {word:?}");
+        };
+        let ParameterOp::ReplaceFirst { replacement, .. } = operator else {
+            panic!("lost replacement operator: {word:?}");
+        };
+        assert!(
+            replacement.ends_with('\''),
+            "swallowed closing brace: {word:?}"
+        );
+    }
+}

@@ -5003,7 +5003,7 @@ impl<'a> Parser<'a> {
                 out.extend(chars.next());
                 continue;
             }
-            if ch == '$' && chars.peek() == Some(&'(') {
+            if ch == '$' && quote != Some('\'') && chars.peek() == Some(&'(') {
                 out.push(chars.next().unwrap());
                 copy_replace_substitution(chars, &mut out);
                 continue;
@@ -5016,7 +5016,7 @@ impl<'a> Parser<'a> {
                 quote = Some(ch);
                 continue;
             }
-            if ch == '$' && chars.peek() == Some(&'{') {
+            if ch == '$' && quote != Some('\'') && chars.peek() == Some(&'{') {
                 depth += 1;
             } else if ch == '}' && depth > 0 {
                 depth -= 1;

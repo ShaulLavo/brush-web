@@ -167,10 +167,11 @@
       {
         "paths": [
           "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/mod.rs",
           "shell/parser/tests/api.rs"
         ],
         "classification": "Original quoted-parameter lexer correction and regression tests in the owned Bashkit-derived lexer.",
-        "change": "Track each nested quoted parameter header with the existing bounded ParameterHeader stack. Bare braces stay literal rather than consuming nesting depth. Apostrophes in replacement and pattern operands protect dollars and backslashes, while ordinary default operands retain literal-apostrophe expansion behavior. Add quoted bare-brace and literal ${ / $( boundary regressions; preserve existing depth ceilings and upstream assertions.",
+        "change": "Track each nested quoted parameter header with the existing bounded ParameterHeader stack. Bare braces stay literal rather than consuming nesting depth. Apostrophes in replacement and pattern operands protect dollars and backslashes, while ordinary default operands retain literal-apostrophe expansion behavior. Add quoted bare-brace and literal ${ / $( boundary regressions; preserve existing depth ceilings and upstream assertions. The replacement operand parser likewise skips substitution scanning and nesting changes inside single quotes; an exact operand-boundary regression rejects swallowing the outer brace.",
         "reason": "The quoted lexer must agree with replacement operand parsing: only ${ starts a nested parameter, and single-quoted replacement text must not invoke substitution scanners or swallow the outer double quote. Operator-specific quote handling preserves ordinary default-operand behavior."
       }
     ],
