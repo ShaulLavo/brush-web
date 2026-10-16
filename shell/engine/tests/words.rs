@@ -76,6 +76,23 @@ impl Rig {
             .variables
             .insert(name.into(), value.into());
     }
+    fn drive_until_variable(&self, name: &str, value: &str) {
+        for _ in 0..200 {
+            self.ex.drive(1);
+            if self
+                .shell
+                .state()
+                .borrow()
+                .variables
+                .get(name)
+                .map(String::as_str)
+                == Some(value)
+            {
+                return;
+            }
+        }
+        panic!("variable {name} did not become {value}");
+    }
 }
 impl Drop for Rig {
     fn drop(&mut self) {
@@ -103,6 +120,294 @@ fn check_output(source: &str, expected: &str) {
     let rig = Rig::new(Limits::default());
     assert_eq!(rig.run(source), 0, "{source}");
     assert_eq!(rig.output.bytes(), expected.as_bytes(), "{source}");
+}
+
+// Scalar length cases adapted from Bashkit 491c3281's variables, string-ops,
+// unicode, bashbox-utf8 and c-locale-length specs. Bounds are engine-specific.
+#[test]
+fn adapted_scalar_length_examples() {
+    check_output(
+        "LC_ALL=C.UTF-8; X=hello; echo ${#X}; x=café; echo ${#x}; x='héllo wörld'; echo ${#x}; y=日本語; echo ${#y}",
+        "5\n4\n11\n3\n",
+    );
+}
+
+#[test]
+fn scalar_lengths_preserve_values_and_dynamic_local_scope() {
+    check(
+        r#"args ${#missing}; empty=; v='a b*'; args ${#empty} ${#v} "$v"; v=outer; g() { args ${#v}; }; f() { local v=é; g; args ${#v}; }; LC_ALL=C.UTF-8; f; args ${#v} "${missing+changed}" ${#PWD}"#,
+        &[
+            &["0"],
+            &["0", "4", "a b*"],
+            &["1"],
+            &["1"],
+            &["5", "", "11"],
+        ],
+    );
+}
+
+#[test]
+fn scalar_length_locale_precedence_and_changes() {
+    check(
+        r#"s=ação; LC_ALL=C; LC_CTYPE=C.UTF-8; LANG=C.UTF-8; args ${#s}; LC_ALL=POSIX; args ${#s}; LC_ALL=C.UTF-8; args ${#s}; LC_ALL=; LC_CTYPE=POSIX; args ${#s}; LC_CTYPE=C.UTF-8; args ${#s}; LC_CTYPE=; LANG=C; args ${#s}; LANG=C.UTF-8; args ${#s}; LANG=; args ${#s}; f() { local LC_ALL=C.UTF-8; args in=${#s}; }; f; args out=${#s}"#,
+        &[
+            &["6"],
+            &["6"],
+            &["4"],
+            &["6"],
+            &["4"],
+            &["6"],
+            &["4"],
+            &["6"],
+            &["in=4"],
+            &["out=6"],
+        ],
+    );
+    check(
+        "LC_ALL=C.utf8; s='é🙂'; args ${#s}; LC_ALL=C; args ${#s}; LC_ALL=C.UTF-8; x='héllo wörld'; y=日本語; args ${#x} ${#y}",
+        &[&["3"], &["7"], &["11", "3"]],
+    );
+    let rig = Rig::new(Limits::default());
+    rig.variable("s", "é");
+    assert_eq!(rig.run("args ${#s}"), 0, "no locale defaults to C");
+    rig.variable("LC_ALL", "unsupported-locale");
+    assert_eq!(rig.run("args ${#s}"), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["2"], vec!["2"]]);
+}
+
+#[test]
+fn scalar_lengths_include_positive_positionals_status_and_argument_count() {
+    check(
+        r#"LC_ALL=C.UTF-8; f() { args ${#1} ${#10} ${#11} ${#?} ${##} ${#}; args "${u:-${#1}}" "${u:-${#10}}" "${u:-${#?}}" "${u:-${##}}"; }; f é b c d e f g h i tenth; args ${#1} ${##}"#,
+        &[
+            &["1", "5", "0", "1", "2", "10"],
+            &["1", "5", "1", "2"],
+            &["0", "1"],
+        ],
+    );
+}
+
+#[test]
+fn scalar_lengths_accept_positive_decimal_targets_beyond_machine_indices() {
+    check(
+        "args ${#18446744073709551616} ${u:-${#18446744073709551616}}",
+        &[&["0", "0"]],
+    );
+    let zeros = "0".repeat(2048);
+    let source = format!(
+        "f() {{ args ${{#{zeros}1}} ${{u:-${{#{zeros}1}}}} ${{#{zeros}18446744073709551616}} ${{u:-${{#{zeros}18446744073709551616}}}}; }}; f abc"
+    );
+    check(&source, &[&["3", "3", "0", "0"]]);
+    let rig = Rig::new(Limits::default());
+    let oversized = format!("args ${{u:-${{#{}1}}}}", "0".repeat(4096));
+    assert_eq!(
+        rig.run(&oversized),
+        2,
+        "length tokens retain their byte cap"
+    );
+    assert!(rig.calls.borrow().is_empty());
+    // All-zero spellings remain excluded, as do numeric assignment targets.
+    for target in ["0".to_owned(), zeros] {
+        for source in [
+            format!("args ${{#{target}}}"),
+            format!("args ${{u:-${{#{target}}}}}"),
+        ] {
+            let rig = Rig::new(Limits::default());
+            assert_eq!(rig.run(&source), 2, "{source}");
+            assert!(rig.calls.borrow().is_empty());
+        }
+    }
+    for source in [
+        "args ${18446744073709551616:=bad}",
+        "args ${u:-${18446744073709551616:=bad}}",
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 2, "{source}");
+        assert!(rig.calls.borrow().is_empty());
+    }
+}
+
+#[test]
+fn lazy_lengths_keep_quote_ifs_and_scalar_context_rules() {
+    check(
+        r#"LC_ALL=C.UTF-8; s=ação; args "${u:-${v:-${#s}}}"; LC_ALL=C; args ${u:-${#s}}; v=set; args ${v:-${#arr[0]}} ${u+${#arr[0]}}; IFS=3; x=abc; args ${#x} "${#x}" pre${#x}post; y=${#x}; args "$y"; args ${u:-${#x}} ${u:-"${#x}"} "${u:-${#x}}"; export z=${#x}; args "$z""#,
+        &[
+            &["4"],
+            &["6"],
+            &["set"],
+            &["", "3", "pre", "post"],
+            &["3"],
+            &["", "3", "3"],
+            &["3"],
+        ],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run(r#"v=abc; path=${#v}; echo result >"${#v}"; cat "$path"; ${u:-echo} ${#v}"#),
+        0
+    );
+    assert_eq!(rig.output.bytes(), b"result\n3\n");
+    check(
+        r#"LC_ALL=C.UTF-8; s=ação; args ${u:=${#s}} "$u" ${u:+${#s}}; LC_ALL=C; args ${missing:-${u:+${#s}}}"#,
+        &[&["4", "4", "4"], &["6"]],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("LC_ALL=C.UTF-8; s=é; args ${u:?${#s}}"), 127);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.errors.bytes(), b"/usr/bin/bash: line 1: u: 1\n");
+}
+
+#[test]
+fn unsupported_length_targets_fail_closed_even_in_selected_operands() {
+    for token in [
+        "${#0}",
+        "${#@}",
+        "${#*}",
+        "${#arr[0]}",
+        "${#arr[@]}",
+        "${#arr[*]}",
+        "${#x-default}",
+        "${#x/foo/bar}",
+        "${#x:1}",
+        "${#!x}",
+    ] {
+        for source in [format!("args {token}"), format!("args ${{u:-{token}}}")] {
+            let rig = Rig::new(Limits::default());
+            assert_eq!(rig.run(&source), 2, "{source}");
+            assert!(rig.calls.borrow().is_empty(), "{source}");
+        }
+    }
+}
+
+#[test]
+fn length_input_snapshots_decimal_output_and_fields_are_bounded() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 16,
+        ..Limits::default()
+    });
+    rig.variable("v", &"x".repeat(17));
+    assert_eq!(rig.run("args ${#v}"), 2);
+    rig.variable("v", &"x".repeat(10));
+    assert_eq!(rig.run("args ${#v}"), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["10"]]);
+    assert_eq!(rig.run("args prefix12345${#v}"), 2);
+    assert_eq!(rig.run("args ${#v} ${#v} ${#v} ${#v} ${#v} ${#v} ${#v}"), 2);
+    assert_eq!(rig.calls.borrow().len(), 1);
+    let rig = Rig::new(Limits {
+        arguments: 2,
+        ..Limits::default()
+    });
+    assert_eq!(rig.run("args ${#u} ${#v}"), 2);
+    assert!(rig.calls.borrow().is_empty());
+    let rig = Rig::new(Limits {
+        expansion_bytes: 16,
+        ..Limits::default()
+    });
+    rig.variable("v", &"x".repeat(17));
+    assert_eq!(rig.run("args ${v+ok} ${u+${#v}}"), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["ok"]]);
+}
+
+#[test]
+fn repeated_lengths_share_command_work_even_for_tiny_results() {
+    let rig = Rig::new(Limits {
+        source_bytes: 1024,
+        expansion_bytes: 512,
+        arguments: 128,
+        ..Limits::default()
+    });
+    rig.variable("v", &"é".repeat(100));
+    rig.variable("LC_ALL", "C.UTF-8");
+    assert_eq!(rig.run(&format!("args {}", "${#v} ".repeat(50))), 2);
+    assert!(rig.calls.borrow().is_empty());
+    let argv = format!("args {}", "${#v} ".repeat(7));
+    assert_eq!(rig.run(&argv), 0);
+    assert_eq!(rig.calls.borrow().len(), 1);
+    assert_eq!(rig.run(&format!("{argv} >${{u:-${{#v}}}}")), 2);
+    assert_eq!(
+        rig.calls.borrow().len(),
+        1,
+        "redirect work must share argv's allowance"
+    );
+}
+
+#[test]
+fn length_tokens_retain_lazy_operand_token_and_depth_limits() {
+    let rig = Rig::new(Limits::default());
+    let token = format!("${{#{}}}", "v".repeat(4096));
+    assert_eq!(rig.run(&format!("args ${{u:-{token}}}")), 2);
+    let deep = format!("args {}${{#v}}{}", "${u:-".repeat(34), "}".repeat(34));
+    assert_eq!(rig.run(&deep), 2);
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn length_counting_yields_and_cancellation_restores_function_frames() {
+    for (operand, locale) in [
+        ("${#s}", "C"),
+        ("${#s}", "C.UTF-8"),
+        ("${u:-${#s}}", "C.UTF-8"),
+    ] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("s", &"é".repeat(150_000));
+        rig.variable("LC_ALL", "POSIX");
+        let job = rig
+            .shell
+            .start(&format!(
+                "f() {{ local LC_ALL={locale}; args {operand}; }}; f inner"
+            ))
+            .unwrap();
+        rig.drive_until_variable("LC_ALL", locale);
+        assert_eq!(
+            rig.shell.state().borrow().variables.get("LC_ALL").unwrap(),
+            locale
+        );
+        let peer = rig.ex.spawn(async { 42 });
+        rig.ex.drive(4);
+        assert!(peer.is_finished(), "counting must yield");
+        assert!(!job.is_finished());
+        // A mutable borrow while suspended also proves counting holds no RefCell borrow.
+        rig.variable("peer", "ran");
+        rig.shell.interrupt();
+        assert_eq!(rig.finish(job), 130);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.run(r#"args "$LC_ALL" "$#" "$1" "${TEMP-unset}""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["POSIX", "0", "", "unset"]]);
+    }
+}
+
+#[test]
+fn length_rhs_yields_and_cancellation_restores_prefix_frames() {
+    for (operand, locale) in [
+        ("${#s}", "C"),
+        ("${#s}", "C.UTF-8"),
+        ("${u:-${#s}}", "C.UTF-8"),
+    ] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("s", &"é".repeat(150_000));
+        rig.variable("LC_ALL", "POSIX");
+        rig.variable("length", "outer");
+        // External-command prefixes expose earlier values while a later RHS yields.
+        let job = rig
+            .shell
+            .start(&format!("TEMP=value LC_ALL={locale} length={operand} args"))
+            .unwrap();
+        rig.drive_until_variable("LC_ALL", locale);
+        assert_eq!(
+            rig.shell.state().borrow().variables.get("TEMP").unwrap(),
+            "value"
+        );
+        let peer = rig.ex.spawn(async { 42 });
+        rig.ex.drive(4);
+        assert!(peer.is_finished(), "counting must yield");
+        assert!(!job.is_finished());
+        rig.variable("peer", "ran");
+        rig.shell.interrupt();
+        assert_eq!(rig.finish(job), 130);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.run(r#"args "$LC_ALL" "${TEMP-unset}" "$length""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["POSIX", "unset", "outer"]]);
+    }
 }
 
 #[test]

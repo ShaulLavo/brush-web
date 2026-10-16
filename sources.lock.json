@@ -197,9 +197,9 @@
       "note": "Initial metadata refined from nodeMajor 26 to the exact setup-node version; script bytes, classifications and GNU bash observations unchanged."
     },
     "baselineMeasurement": {
-      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38901235619",
-      "source": "922c4becfa5ab2b40cf4adbf0425f89661f0d819",
-      "note": "Measured scalar assignment/error and lexical-protection slice: Oils314, Brush-suite328, Bashkit-suite492; 28 gains versus merged parent12f9a17 and zero lost passing cases. Fixed case/oracle/environment identity unchanged. Native and WASI pass80 word and37 streaming tests; release WASI886832 bytes raw,201618 Brotli-11. Fresh CI must match exact pass membership after this metadata update."
+      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38902874011",
+      "source": "f2f88a0ab40a979e60dbdf7bb8ef2e8590594a8f",
+      "note": "Measured scalar length slice: Oils322, Brush-suite332, Bashkit-suite505; 25 gains versus merged parent9ec48b4 and zero lost passing cases. Fixed case/oracle/environment identity unchanged. Initial native CI identified an invalid function-prefix cancellation fixture, repaired separately without changing production code or limits. Fresh CI must match exact pass membership after the fixture and metadata update."
     }
   },
   "shellWords": {
@@ -357,5 +357,41 @@
       "shell/engine/tests/words.rs"
     ],
     "strategy": "Extend the scalar operator selection to ${v=word}, ${v:=word}, ${v?word} and ${v:?word}. Retain only selected assignment/error operands, bounded before growth, using the existing cooperative scanner and shared command Work. Store the unsplit quote-removed value; unlike default operands, inner operand quotes do not protect returned assignment fields. Retain bounded typed text, protected-empty and list-separator segments until word expansion finishes, then split once using post-expansion IFS, including earlier unquoted segments. List separators retain the character selected at expansion time, with a space fallback for @ and unquoted lists. Their boundaries are resolved against final IFS, rather than frozen as groups. Original GNU Bash adaptations protect element/scalar spaces emitted under empty IFS, select word-wide space splitting for positional unquoted * emitted under empty IFS, and apply list-word leading mixed-delimiter rules. Literal IFS protection uses the emission-time IFS, cached with nested-write invalidation and reused at final splitting. A word requests field splitting only for an unquoted expansion or quoted @. Quoted/scalar protection and explicit empty elements remain structural. Adjacent equally protected text shares storage; both collection and splitting spend shared Work and yield for cancellation. Independent GNU Bash regressions cover assignment-updated IFS, mixed quote/list boundaries, field/byte/work rejection and cancellation during the deferred split. Cumulative target/value storage and diagnostic space are admitted before persistent copies. A cancellation-safe prefix frame exposes earlier RHS assignments while completed parameter writes also update the saved caller value, replacing the discarded assignment_state clone. Expand argv first, then apply Bash assignment-only versus named-command redirect/RHS ordering. Typed fatal parameter errors propagate through sequences, AND/OR, loop conditions and function frames; explicit subshells, pipeline stages and background jobs contain them. GNU Bash and frozen observations require top-level/simple-child status 127, compound-body status 1 and explicit-subshell redirect status 127, instead of upstream hardcoded 1. Empty diagnostic operands differ from omitted operands. Diagnostics use the frozen /usr/bin/bash identity and the preparation-stage stderr route, with bounded allocation. Tests add scalar nesting, lazy unsupported skipping, dynamic scope, quote removal/field boundaries, redirected and assignment-only commands, exact frozen diagnostics/stdout/status, child isolation, bounds and cancellation. Prefix-frame destruction is bounded by the admitted argument count and completes restoration synchronously just like FunctionFrame. Existing upstream parser tests remain unchanged. Arrays, positional/list targets and operands, substitutions, arithmetic, patterns, globbing, tilde and brace expansion remain deferred when selected; no output buffering or oracle edits. Measured baseline gains are recorded separately. Diagnostic follow-on: original engine error metadata carries parser-selected optional line anchors through parameter failures. Local parser adaptations record consumed-token end lines and grammar context; multiline simple, brace, subshell, function and while redirect diagnostics follow bounded GNU Bash observations. The parser change and unchanged upstream assertions are recorded in shellParser.changeLog. No status/control-flow, oracle, case-set or baseline changes accompany this correction. Review follow-on: an original interpreter-only CommandError retains the effective stderr endpoint when a later redirect target fails, including an explicitly closed stderr, while prefix-RHS diagnostics retain the original route. Isolated compound redirects use the incoming parameter-error status and switch to body status 1 only after successful redirect preparation. Separate original command preparation/dispatch boundaries finish diagnostics and release all diagnostic-only descriptor owners before external child waits or compound bodies; this repairs the CI EPIPE-before-consumer-exit regression without changing its streaming assertion. Existing source anchors, frames, cancellation, streaming and bounds remain in force; parser, versions, oracle and baseline are unchanged by this follow-on. Original accounting records list-word and splitting modes during the existing part visit instead of rescanning the word. Nonempty emission and split entry use their first character checkpoint; empty, captured and list-separator paths keep explicit checkpoints. Generated separators consume raw UTF-8 bytes before retention and output bytes when emitted. Focused original regressions cover list-before/after IFS writes, quoted/unquoted @/*, zero/empty/multiple elements, protected delimiters, PIPESTATUS, literal protection, nested writes, limits and cancellation. The unchanged shared redirect/argv reparse regression retains its 100-step ceiling and 97-step success. Per-character work in both phases, the command ceiling and the shared argv/redirect parser allowance remain unchanged. Native CI follow-on: absent-IFS observations now explicitly remove the nonexported startup value in the test fixture; separate controls retain normal Bash startup behavior. Original lexer/parser escape metadata preserves emission-time protection of escaped literals without changing the field splitter. Focused engine controls cover partial protection, escaped variable-name boundaries and syntax characters, quote continuations, UTF-8, scalar assignments and stored functions. Existing 136 Bash observations, shared-work limits and cancellation assertions remain unchanged. Original shell-state initialization adapter, verified against clean GNU Bash 5.3.15 startup, seeds nonexported IFS once with space/tab/newline. Later empty, changed and removed values retain ordinary state representation without expansion-time reinitialization. Original state and scalar-operator tests cover startup, export exclusion, lookup and local restoration. The pre-existing seeded-IFS cancellation test is preserved unchanged."
+  },
+  "shellParameterLength": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "implementationSources": [
+      {
+        "path": "crates/bashkit/src/interpreter/expansion.rs",
+        "items": [
+          "shell_length (locale precedence and scalar/byte counting)",
+          "expand_word Length arm (scalar branch only)",
+          "expand_operand Length arm"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/interpreter/mod.rs",
+        "items": [
+          "expand_variable (ordinary scalar, positive positional, ? and # lookup)"
+        ]
+      }
+    ],
+    "testSources": [
+      "crates/bashkit/tests/spec_cases/bash/variables.test.sh:72-79",
+      "crates/bashkit/tests/spec_cases/bash/string-ops.test.sh:50-56",
+      "crates/bashkit/tests/spec_cases/bash/unicode.test.sh:66-73",
+      "crates/bashkit/tests/spec_cases/bash/bashbox-utf8.test.sh:5-11,20-25 (function arguments replace unsupported set --)",
+      "crates/bashkit/tests/spec_cases/bash/c-locale-length.test.sh:1-26,37-56"
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/expand/operand.rs"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words.rs"
+    ],
+    "strategy": "Adapt scalar ${#name}, positive positional, ? and # lengths through the existing state lookup and quote-aware segment path. Admit only exact scalar length tokens in selected lazy operands, preserving token/parse/depth admission and leaving scalar operator targets unchanged. Bound transient input snapshots by intermediate expansion capacity and remaining shared command work before copying, check cancellation before snapshotting, release state borrows before awaits, and checkpoint every input byte. Count UTF-8 leading bytes as Unicode scalar values, including separate combining marks; C/POSIX count bytes. Consult current LC_ALL, LC_CTYPE and LANG in order, skipping empty values. Recognize case-insensitive .UTF-8 and .UTF8 codeset suffixes. All-empty and unrecognized locales use C byte counting, deliberately replacing Bashkit's UTF-8 default; arbitrary locale emulation is deferred. Decimal output uses existing raw/field/byte/work limits and IFS handling. Tests cover locale changes and dynamic scope/restoration, selected and skipped operands, scalar/argv/redirect contexts, quote and IFS boundaries, fail-closed unsupported targets, snapshot/output/field/token/depth/shared-work bounds, cooperative yield and cancellation. Parser files and upstream parser tests are unchanged. No arrays, lists, patterns, nounset, command substitution or arithmetic are ported. Local review correction validates positive decimal target syntax independently of machine index width, including leading zeros, while retaining zero exclusion and the existing selected-token admission cap. Ordinary scalar assignment target validation and state lookup are unchanged; absent out-of-range positional values expand to empty and therefore have length zero."
   }
 }

@@ -16,6 +16,11 @@ pub(super) fn scalar_name(name: &str) -> bool {
         .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
+pub(super) fn length_name(name: &str) -> bool {
+    scalar_name(name)
+        || matches!(name, "?" | "#")
+        || name.bytes().all(|c| c.is_ascii_digit()) && name.bytes().any(|c| c != b'0')
+}
 fn basic_name(name: &str) -> bool {
     scalar_name(name)
         || name == "?"
@@ -312,6 +317,9 @@ fn validate_token(token: &str) -> Result<(), Error> {
     if basic_name(body) {
         return Ok(());
     }
+    if body.strip_prefix('#').is_some_and(length_name) {
+        return Ok(());
+    }
     let name_end = body
         .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
         .unwrap_or(body.len());
@@ -326,6 +334,7 @@ fn validate_token(token: &str) -> Result<(), Error> {
 fn supported(part: &WordPart) -> bool {
     match part {
         WordPart::Variable(name) => basic_name(name),
+        WordPart::Length(name) => length_name(name),
         WordPart::ParameterExpansion { name, operator, .. } => {
             scalar_name(name)
                 && matches!(

@@ -471,6 +471,9 @@ impl Expansion<'_> {
                     )
                     .await;
             }
+            if let WordPart::Length(name) = part {
+                return self.length(name, state, scalar || quoted, depth).await;
+            }
             let value = scalar_value(part, state, self.raw_remaining)?;
             self.segment(
                 &value,
@@ -480,6 +483,45 @@ impl Expansion<'_> {
             .await
         }
         .boxed_local()
+    }
+    async fn length(
+        &mut self,
+        name: &str,
+        state: &SharedState,
+        protected: bool,
+        depth: usize,
+    ) -> Result<(), Error> {
+        if !operand::length_name(name) || depth >= operand::MAX_DEPTH {
+            return Err(2.into());
+        }
+        self.work.checkpoint(self.cancel).await?;
+        let (value, utf8) = {
+            let s = state.borrow();
+            // Admit the transient snapshot before copying, independently of the
+            // much smaller decimal result. No state borrow crosses counting.
+            let value = bounded(
+                s.parameter(name),
+                self.raw_remaining.min(self.work.remaining),
+            )?;
+            let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
+                .iter()
+                .filter_map(|name| s.variables.get(*name))
+                .find(|value| !value.is_empty());
+            (value, locale.is_some_and(|value| utf8_locale(value)))
+        };
+        let mut count = 0usize;
+        for byte in value.bytes() {
+            self.work.checkpoint(self.cancel).await?;
+            // Rust strings are valid UTF-8. Count each leading byte as one
+            // scalar, including combining marks; C/POSIX count every byte.
+            count += usize::from(!utf8 || byte & 0xc0 != 0x80);
+        }
+        self.segment(
+            &count.to_string(),
+            Protection::expansion(protected, state),
+            protected,
+        )
+        .await
     }
     async fn parameter(
         &mut self,
@@ -733,6 +775,17 @@ impl Expansion<'_> {
         }
         self.separator(separator, protected).await
     }
+}
+
+fn utf8_locale(locale: &str) -> bool {
+    // Recognize UTF-8 codeset suffixes without scanning or copying an arbitrary
+    // locale value. C/POSIX, empty and other locales use the C byte-count path.
+    locale
+        .get(locale.len().saturating_sub(6)..)
+        .is_some_and(|suffix| suffix.eq_ignore_ascii_case(".UTF-8"))
+        || locale
+            .get(locale.len().saturating_sub(5)..)
+            .is_some_and(|suffix| suffix.eq_ignore_ascii_case(".UTF8"))
 }
 
 fn bounded(value: Cow<'_, str>, max: usize) -> Result<String, Error> {

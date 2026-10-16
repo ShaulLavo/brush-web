@@ -82,6 +82,13 @@ store selected, quote-removed values without field splitting; their completed
 writes persist in the calling shell. Scalar error operators (`?`, `:?`) stop the
 containing shell, while subshells, pipeline stages and background jobs contain
 those failures. All eight forms currently require ordinary identifier targets.
+Scalar length (`${#name}`) also supports ordinary identifiers, positive positional
+parameters, `$?` and `$#`; unset values have length zero. `C`/`POSIX` count bytes;
+recognized UTF-8 locales count Unicode scalar values, not grapheme clusters.
+Locale selection follows nonempty `LC_ALL`, `LC_CTYPE`, then `LANG`, defaulting to
+`C`; unrecognized locale names use bytes rather than claiming full locale emulation.
+List/array length and `${#0}` remain unsupported. Length reads and counting share
+the command's storage/work limits and cooperative cancellation checkpoints.
 Other parameter operators, globbing, substitution, arrays, traps, aliases,
 `lastpipe`, directory validation and full utility option coverage are not
 implemented. Unsupported AST forms return status 2. Utility names/format options
