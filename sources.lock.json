@@ -469,5 +469,45 @@
       "nestedLengthStorage": "The final author integration already admits nested length input storage with admit_pattern_length before calling the unchanged length counter. Additional regressions exercise the review example (3-byte trim snapshot plus a 256-byte length input under 256-byte storage), selected lazy nesting, no dispatch on failure, and ordinary PR20 scalar length success under the same limits.",
       "verification": "Bounded GNU Bash C.UTF-8 expectation controls, rustfmt and provenance/static checks only. Fresh engine/native/WASI/corpus results for these repairs remain coordinator-owned CI work."
     }
+  },
+  "shellParameterCase": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "classification": "Adapted Bashkit scalar case dispatch, first-character selection, per-character pattern matching and focused examples; original bounded async integration and explicit locale mapping adapter.",
+    "implementationSources": [
+      {
+        "path": "crates/bashkit/src/interpreter/expansion.rs",
+        "items": [
+          "apply_parameter_op UpperFirst/UpperAll/LowerFirst/LowerAll arms:3238-3241",
+          "change_case:3250-3277",
+          "expand_pattern_operand:3286-3290"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/interpreter/glob.rs",
+        "items": [
+          "Existing scalar-trim basic-glob adaptation reused, recorded in shellParameterTrim. No additional implementation copied."
+        ]
+      }
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/expand/operand.rs",
+      "shell/engine/src/expand/pattern.rs",
+      "shell/engine/src/expand/case.rs"
+    ],
+    "testSources": [
+      "crates/bashkit/tests/spec_cases/bash/variables.test.sh:226-253",
+      "crates/bashkit/tests/spec_cases/bash/string-ops.test.sh:73-85",
+      "crates/bashkit/tests/spec_cases/bash/bashbox-word-expander.test.sh:181-186"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words.rs"
+    ],
+    "strategy": "Only ordinary identifier scalar ^, ^^, comma and double-comma targets. Resolve and admit the original target snapshot before operand effects; only unset targets skip operands, while set empty targets evaluate them. Reuse the structural pattern sink and lazy scalar scanner, with independent inner pattern and outer result protection. An omitted or unquoted expanded-empty pattern defaults to ?, while quoted empty patterns match nothing. First forms inspect index zero only. Compile once, allocate one state vector, and reset/advance the existing iterative matcher for each eligible character. No candidate strings, recursion, per-candidate allocation, call caps, or exhaustion-as-false. All snapshot bytes, pattern scans/compilation/state resets, mapping characters and emitted output use shared Work/storage/raw/argument/field bounds and cooperative cancellation130. Mapping output is admitted before retention. No state borrow crosses await; existing cancellation-safe local, positional and valid external prefix frames remain in use. Pattern effects invalidate IFS before final result splitting and locale is selected after operand evaluation.",
+    "originalAdapters": "case.rs uses an explicit constant-size mapping for ASCII and Latin-1 input rather than Rust Unicode expansion. pattern.rs retains quoted-empty pattern presence, reuses the bounded matcher for single-character matching, and admits mapped storage/output. expand.rs shares the existing trim pattern-evaluation helper without changing its order or work charges; operand.rs admits the four selected nested operators. Existing parser AST/operators are reused unchanged. Integration correction: matcher Character/Atom vectors reserve and charge actual geometric capacity; matcher state vectors reserve their exact charged size; case result Strings charge spare capacity before growth. Focused unit tests establish the exact admission boundary without allocating on failure.",
+    "localDivergence": "C/POSIX/default locales map ASCII only, preserving non-ASCII value characters and rejecting non-ASCII patterns to avoid claiming byte-oriented multibyte pattern matching. C.UTF-8 and C.utf8 map ASCII plus U+0080..U+00FF inputs, including unchanged sharp-s, micro-sign to Greek capital mu, and y-diaeresis to capital Y-diaeresis. Other locale names fail closed for set targets. In UTF-8 mode, selected characters outside Latin-1 return status2; unselected characters and first-form tails remain unchanged. Full Unicode, language-specific mappings, collation and byte-locale non-ASCII patterns are deferred. Named classes, extglob, collation/equivalence symbols, arrays, namerefs, positional/special targets, transformations, toggle, replacement, substring, arithmetic/substitution, pathname/tilde/brace expansion and process/browser/output-buffer changes are excluded. Unlike upstream, do not expand sharp-s to SS, and preserve quoted-empty versus unquoted-empty patterns. Frozen scorer/oracle/input/classification/exclusions/baseline and plan measurements are unchanged.",
+    "verification": "GNU Bash 5.3.15 C.UTF-8 and C controls executed through the shared heavy-job runner: exhaustive 255 non-NUL Latin-1 inputs in each direction (510 mappings per locale), multicharacter Rust/Bash divergence examples, first/all forms, quote/escape protection, scalar nesting, IFS, and locale precedence. New Rust tests cover adapted examples plus original contexts, fail-closed boundaries, shared bounds, yield and cancellation/frame restoration. Native/WASI/corpus results are recorded only when actually executed; exact fixed-case membership and zero-loss comparison remain coordinator-owned CI."
   }
 }

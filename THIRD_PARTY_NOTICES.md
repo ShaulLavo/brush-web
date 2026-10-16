@@ -291,3 +291,38 @@ length inputs share snapshot storage while ordinary PR20 length behavior keeps
 its existing limits. `shellParser.changeLog` and
 `shellParameterTrim.reviewCorrections` classify the paths and local changes.
 Fresh runtime and corpus checks for these repairs remain coordinator-owned CI.
+
+## Scalar parameter case modification
+
+The scalar `^`, `^^`, `,` and `,,` dispatch, first-character selection and
+per-character pattern rules in `shell/engine/src/expand.rs` and
+`expand/pattern.rs` adapt Bashkit's `crates/bashkit/src/interpreter/expansion.rs`
+(`apply_parameter_op:3238-3241`, `change_case:3250-3277` and
+`expand_pattern_operand:3286-3290`) at revision
+`491c3281f668b76d64b15210b8f5d7bf97244be0`, under the retained MIT license at
+`shell/parser/LICENSE`. Focused examples in `shell/engine/tests/words.rs` adapt
+`variables.test.sh:226-253`, `string-ops.test.sh:73-85` and
+`bashbox-word-expander.test.sh:181-186` in the pinned
+`crates/bashkit/tests/spec_cases/bash/` directory. Exact paths, classification,
+destinations and divergences are recorded in `shellParameterCase` in
+`sources.lock.json`.
+
+The async integration, selected-token admission, quoted-empty pattern flag,
+reusable matcher state and `expand/case.rs` locale table are original adapters.
+The existing bounded scalar-trim matcher and structural operand scanner are
+reused. Unlike upstream, quoted empty patterns match nothing, only unset targets
+skip operands, and full Rust Unicode case expansion is not used. GNU Bash 5.3.15
+controls check both directions for all 255 non-NUL Latin-1 characters under
+`C.UTF-8` and `C`, including unchanged sharp-s and the single-character micro-sign
+and y-diaeresis mappings. `C`/`POSIX` map ASCII with ASCII patterns; `C.UTF-8` and
+`C.utf8` additionally map Latin-1 inputs. Other selected UTF-8 inputs, other
+locales and non-ASCII byte-locale patterns fail closed. Unmatched characters and
+first-form tails remain unchanged. This does not claim full Unicode or locale
+collation compatibility. Pattern effects precede locale selection and final IFS
+splitting; shared bounds, cooperative yields and cancellation-safe frames remain
+in force. No process host, browser transport or output buffering is copied or
+changed. Versions and fixed measurement metadata remain coordinator-owned.
+
+The original integration also reserves actual matcher vector capacities and case
+result String capacities before allocation, including spare slots. Exact-budget
+unit controls reject before growth; this is not copied from Bashkit.

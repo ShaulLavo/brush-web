@@ -2,7 +2,7 @@
 //! and glob.rs::glob_match_steps at the pinned revision in sources.lock.json.
 //! This matcher advances all basic-glob states over borrowed character slices.
 //! It allocates no candidate strings and never treats exhausted work as a miss.
-use super::{Error, Protection, Work};
+use super::{Error, Protection, Work, admit_string_growth, case};
 use crate::executor::Cancel;
 use std::mem::size_of;
 
@@ -16,15 +16,19 @@ struct Character {
 #[derive(Default)]
 pub(super) struct Pattern {
     chars: Vec<Character>,
+    quoted_empty: bool,
 }
 impl Pattern {
+    pub(super) fn keep_empty(&mut self) {
+        self.quoted_empty = true;
+    }
     pub(super) fn push(
         &mut self,
         value: char,
         protection: Protection,
         work: &mut Work,
     ) -> Result<(), Error> {
-        work.admit_storage(size_of::<Character>())?;
+        admit_element(&mut self.chars, work)?;
         self.chars.push(Character {
             value,
             protected: protection.protects(value),
@@ -95,7 +99,7 @@ impl Pattern {
         while index < self.chars.len() {
             work.checkpoint(cancel).await?;
             let (atom, next) = self.atom(index, work, cancel).await?;
-            work.admit_storage(size_of::<Atom>())?;
+            admit_element(&mut atoms, work)?;
             atoms.push(atom);
             index = next;
         }
@@ -196,7 +200,11 @@ impl Pattern {
             }
         }
         let mut states = Vec::new();
-        work.admit_storage(atoms.len().saturating_add(1))?;
+        let count = atoms.len().checked_add(1).ok_or(2)?;
+        work.admit_storage(count)?;
+        states
+            .try_reserve_exact(count)
+            .map_err(|_| Error::Status(2))?;
         states.push(true);
         for atom in &atoms {
             work.checkpoint(cancel).await?;
@@ -230,6 +238,77 @@ impl Pattern {
         } else {
             &value[..boundary]
         })
+    }
+    pub(super) async fn change_case(
+        &mut self,
+        value: &str,
+        upper: bool,
+        all: bool,
+        locale: case::Locale,
+        max_bytes: usize,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<String, Error> {
+        if !locale.utf8() {
+            self.require_ascii(work, cancel).await?;
+        }
+        let atoms = self.compile(work, cancel).await?;
+        let mut states = Vec::new();
+        let count = atoms.len().checked_add(1).ok_or(2)?;
+        work.admit_storage(count)?;
+        states
+            .try_reserve_exact(count)
+            .map_err(|_| Error::Status(2))?;
+        for _ in 0..=atoms.len() {
+            work.checkpoint(cancel).await?;
+            states.push(false);
+        }
+        let mut result = String::new();
+        for (index, ch) in value.chars().enumerate() {
+            work.checkpoint(cancel).await?;
+            let eligible = (all || index == 0) && (locale.utf8() || ch.is_ascii());
+            let selected = eligible
+                && self
+                    .matches_character(&atoms, &mut states, ch, work, cancel)
+                    .await?;
+            let mapped = if selected { locale.map(ch, upper)? } else { ch };
+            if mapped.len_utf8() > max_bytes.saturating_sub(result.len()) {
+                return Err(2.into());
+            }
+            admit_string_growth(&mut result, mapped.len_utf8(), work)?;
+            result.push(mapped);
+        }
+        Ok(result)
+    }
+    async fn require_ascii(&self, work: &mut Work, cancel: &Cancel) -> Result<(), Error> {
+        for ch in &self.chars {
+            work.checkpoint(cancel).await?;
+            if !ch.value.is_ascii() {
+                return Err(2.into());
+            }
+        }
+        Ok(())
+    }
+    async fn matches_character(
+        &self,
+        atoms: &[Atom],
+        states: &mut [bool],
+        value: char,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<bool, Error> {
+        // Omitted and unquoted expanded-empty patterns default to '?'.
+        // An explicitly quoted empty pattern matches no character.
+        if atoms.is_empty() {
+            return Ok(!self.quoted_empty);
+        }
+        states[0] = true;
+        for (index, atom) in atoms.iter().enumerate() {
+            work.checkpoint(cancel).await?;
+            states[index + 1] = matches!(atom, Atom::Star) && states[index];
+        }
+        self.advance(atoms, states, value, work, cancel).await?;
+        Ok(states[atoms.len()])
     }
     async fn advance(
         &self,
@@ -265,4 +344,65 @@ enum Atom {
         end: usize,
         negated: bool,
     },
+}
+
+// Reserve actual container capacity before allocation, including spare slots.
+fn admit_element<T>(values: &mut Vec<T>, work: &mut Work) -> Result<(), Error> {
+    if values.len() < values.capacity() {
+        return Ok(());
+    }
+    let capacity = values.capacity().saturating_mul(2).max(4);
+    let bytes = (capacity - values.capacity())
+        .checked_mul(size_of::<T>())
+        .ok_or(2)?;
+    work.admit_storage(bytes)?;
+    values
+        .try_reserve_exact(capacity - values.len())
+        .map_err(|_| Error::Status(2))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::FutureExt;
+
+    #[test]
+    fn case_result_admits_capacity_not_only_written_bytes() {
+        // The omitted pattern needs one state byte and the first String
+        // growth reserves eight bytes, even for a one-byte result.
+        for storage in [8, 9] {
+            let mut pattern = Pattern::default();
+            let mut work = Work::new(32, storage, 2);
+            let cancel = Cancel::new();
+            let result = pattern
+                .change_case("a", true, true, case::Locale::C, 8, &mut work, &cancel)
+                .now_or_never()
+                .expect("small mapping finishes in one turn");
+            if storage == 8 {
+                assert!(matches!(result, Err(Error::Status(2))));
+            } else {
+                assert_eq!(
+                    result.unwrap_or_else(|_| panic!("admitted mapping must fit")),
+                    "A"
+                );
+                assert_eq!(work.storage_remaining, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn pattern_vectors_admit_spare_capacity_before_allocating() {
+        let mut values = Vec::<Character>::new();
+        let bytes = 4 * size_of::<Character>();
+        let mut work = Work::new(32, bytes - 1, 2);
+        assert!(matches!(
+            admit_element(&mut values, &mut work),
+            Err(Error::Status(2))
+        ));
+        assert_eq!(values.capacity(), 0);
+        let mut work = Work::new(32, bytes, 2);
+        admit_element(&mut values, &mut work).unwrap_or_else(|_| panic!("exact capacity must fit"));
+        assert_eq!(values.capacity(), 4);
+        assert_eq!(work.storage_remaining, 0);
+    }
 }

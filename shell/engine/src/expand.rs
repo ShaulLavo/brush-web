@@ -9,6 +9,7 @@ use crate::{
 use futures::{FutureExt, future::LocalBoxFuture};
 use shell_parser::parser::{ParameterOp, Word, WordPart};
 
+mod case;
 mod operand;
 mod pattern;
 use std::{borrow::Cow, collections::BTreeSet};
@@ -568,6 +569,9 @@ impl Expansion<'_> {
     ) -> Result<(), Error> {
         if let Some(pattern) = &mut self.pattern {
             self.work.checkpoint(self.cancel).await?;
+            if value.is_empty() && keeps_empty {
+                pattern.keep_empty();
+            }
             for ch in value.chars() {
                 self.work.checkpoint(self.cancel).await?;
                 pattern.push(ch, protection, self.work)?;
@@ -703,6 +707,14 @@ impl Expansion<'_> {
                 )
                 .await;
         }
+        if let Some((upper, all)) = case_mode(operator) {
+            if name == "PIPESTATUS" {
+                return Err(2.into());
+            }
+            return self
+                .change_case(name, operand, state, scalar || quoted, depth, upper, all)
+                .await;
+        }
         let replacement = match operator {
             ParameterOp::UseDefault => false,
             ParameterOp::UseReplacement => true,
@@ -772,6 +784,19 @@ impl Expansion<'_> {
         for _ in value.bytes() {
             self.work.checkpoint(self.cancel).await?;
         }
+        let mut pattern = self.pattern_operand(source, state, depth).await?;
+        let result = pattern
+            .remove(&value, prefix, longest, self.work, self.cancel)
+            .await?;
+        self.segment(result, Protection::expansion(protected, state), protected)
+            .await
+    }
+    async fn pattern_operand(
+        &mut self,
+        source: &str,
+        state: &SharedState,
+        depth: usize,
+    ) -> Result<pattern::Pattern, Error> {
         let capacity = self.raw_remaining;
         let mut child = Expansion {
             segments: Segments::default(),
@@ -787,23 +812,64 @@ impl Expansion<'_> {
             raw_remaining: capacity,
             elements_remaining: self.elements_remaining,
         };
-        // A trim's pattern has its own quote context. Outer quotes protect
+        // A transformation pattern has its own quote context. Outer quotes protect
         // only its returned value; quotes inside protect pattern characters.
         child
             .operand(source, state, false, false, depth + 1, true)
             .await?;
         self.raw_remaining -= capacity - child.raw_remaining;
         let ifs_changed = child.ifs_changed;
-        let mut pattern = child.pattern.take().ok_or(2)?;
+        let pattern = child.pattern.take().ok_or(2)?;
         drop(child);
         self.ifs_changed |= ifs_changed;
         if ifs_changed {
             self.ifs = None;
         }
+        Ok(pattern)
+    }
+    async fn change_case(
+        &mut self,
+        name: &str,
+        source: &str,
+        state: &SharedState,
+        protected: bool,
+        depth: usize,
+        upper: bool,
+        all: bool,
+    ) -> Result<(), Error> {
+        self.work.checkpoint(self.cancel).await?;
+        let (value, present) = {
+            let s = state.borrow();
+            let parameter = s.scalar_parameter(name);
+            let value = parameter.unwrap_or("");
+            if value.len() > self.raw_remaining.min(self.work.remaining) {
+                return Err(2.into());
+            }
+            self.work.admit_storage(value.len())?;
+            (value.to_owned(), parameter.is_some())
+        };
+        if !present {
+            return self
+                .segment("", Protection::expansion(protected, state), protected)
+                .await;
+        }
+        for _ in value.bytes() {
+            self.work.checkpoint(self.cancel).await?;
+        }
+        let mut pattern = self.pattern_operand(source, state, depth).await?;
+        let locale = case::Locale::from_state(state)?;
         let result = pattern
-            .remove(&value, prefix, longest, self.work, self.cancel)
+            .change_case(
+                &value,
+                upper,
+                all,
+                locale,
+                self.raw_remaining,
+                self.work,
+                self.cancel,
+            )
             .await?;
-        self.segment(result, Protection::expansion(protected, state), protected)
+        self.segment(&result, Protection::expansion(protected, state), protected)
             .await
     }
     async fn effect_operand(
@@ -1052,6 +1118,16 @@ impl Expansion<'_> {
             return Ok(());
         }
         self.separator(separator, protected).await
+    }
+}
+
+fn case_mode(operator: &ParameterOp) -> Option<(bool, bool)> {
+    match operator {
+        ParameterOp::UpperFirst => Some((true, false)),
+        ParameterOp::UpperAll => Some((true, true)),
+        ParameterOp::LowerFirst => Some((false, false)),
+        ParameterOp::LowerAll => Some((false, true)),
+        _ => None,
     }
 }
 
