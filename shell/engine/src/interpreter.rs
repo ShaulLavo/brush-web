@@ -553,6 +553,9 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
     let CommandError { error, stderr } = error;
     let (name, message, line, status) = match error {
         expand::Error::Status(code) => return Outcome::status(code),
+        expand::Error::BadSubstitution { message, line } => {
+            ("bad substitution".to_owned(), message.to_owned(), line, 1)
+        }
         expand::Error::Parameter {
             name,
             message,

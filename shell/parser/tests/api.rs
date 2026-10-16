@@ -505,6 +505,25 @@ fn nested_replacements_keep_enclosing_operand_and_word_boundaries() {
 }
 
 #[test]
+fn admitted_scalar_tokens_retain_quote_and_pattern_context() {
+    for (source, outer_quoted, pattern, expected) in [
+        (r#"${u:-"don't"}"#, false, false, r#""don't""#),
+        (r#"${u:-"'"}"#, true, false, r#""'""#),
+        (r#"${u:-'$(x'}"#, true, true, r#"'$(x'"#),
+        (r#"${u:-'${x}'}"#, true, false, r#"'${x}'"#),
+        (r#"${u:-"a}b"}"#, true, false, r#""a}b""#),
+    ] {
+        let part =
+            Parser::parse_parameter_token_with_limits(source, 32, 65536, outer_quoted, pattern)
+                .unwrap();
+        let WordPart::ParameterExpansion { operand, .. } = part else {
+            panic!("lost admitted token: {source}");
+        };
+        assert_eq!(operand, expected, "{source}");
+    }
+}
+
+#[test]
 fn lazy_default_reparse_keeps_quoted_substitution_lookalikes_literal() {
     for source in [r#"${u:-'$(x'}"#, r#"${u:-'${x'}"#] {
         let word = Parser::parse_word_string(source);

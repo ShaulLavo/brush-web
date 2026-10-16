@@ -20,6 +20,10 @@ use std::{borrow::Cow, collections::BTreeSet};
 /// The interpreter supplies the shell environment's status and diagnostic line.
 pub(crate) enum Error {
     Status(i32),
+    BadSubstitution {
+        message: &'static str,
+        line: Option<usize>,
+    },
     Indirect {
         name: String,
         unset: bool,
@@ -34,6 +38,7 @@ pub(crate) enum Error {
 impl Error {
     pub(crate) fn at_line(self, line: Option<usize>) -> Self {
         match self {
+            Self::BadSubstitution { message, .. } => Self::BadSubstitution { message, line },
             Self::Parameter { name, message, .. } => Self::Parameter {
                 name,
                 message,

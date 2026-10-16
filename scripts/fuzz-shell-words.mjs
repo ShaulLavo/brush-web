@@ -218,7 +218,7 @@ function renderCase(testCase) {
   const printed =
     testCase.quote === "double" ? `"${testCase.expression.source}"` : testCase.expression.source;
   // Native printf currently consumes only one argument; argv.py preserves every
-  // post-expansion field while retaining the same printf-style boundary evidence.
+  // post-expansion field. Remove this workaround when plan 004 step 3.6 fixes printf.
   return `${assignments.join("; ")}; argv.py ${printed} following`;
 }
 

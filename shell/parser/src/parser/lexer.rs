@@ -50,7 +50,7 @@ struct ContinuationFlags {
     error: Option<String>,
 }
 
-use super::parameter_scan::ParameterHeader;
+use super::parameter_scan::{ParameterScan, Step};
 
 /// Bash parses a backquoted command when it runs, so a syntax error there
 /// fails only that substitution (status 2), unlike `$(...)` which fails the
@@ -1741,151 +1741,53 @@ impl<'a> Lexer<'a> {
         *content = marked;
     }
 
-    /// Read ANSI-C quoted content ($'...').
-    /// Opening $' already consumed. Returns the resolved string.
-    /// Read the body of an unquoted `${...}` after the opening `${`, through
-    /// the closing `}`.
-    ///
-    /// Important decision: quoting inside an unquoted expansion is resolved
-    /// here, where the context is known. `'...'` and `$'...'` become a
-    /// double-quoted span whose every char is NUL-escaped, so it stays literal
-    /// and quoted through operand expansion (no `$`, no glob) and a `}` or `/`
-    /// inside it never ends the operand. Inside `"..."` spans and after `\`,
-    /// braces are NUL-escaped for the same reason. Bash keeps `'` literal in a
-    /// double-quoted `${x:-'d'}`, which `read_param_expansion_into` handles.
-    ///
-    /// Field splitting of an unquoted `${x:-'a  b'}` keeps those quoted
-    /// spans whole (`Interpreter::split_word_segments`).
+    /// Keep the lexer's protected-literal representation, while all parameter
+    /// boundaries and quote/operator decisions belong to ParameterScan.
     fn read_unquoted_param_body(&mut self, word: &mut String) -> Result<(), String> {
-        fn push_escaped(word: &mut String, content: &str) {
-            for ch in content.chars() {
-                word.push('\x00');
-                word.push(ch);
+        self.read_parameter_body(word, false)
+    }
+
+    fn read_parameter_body(&mut self, word: &mut String, outer_quoted: bool) -> Result<(), String> {
+        let mut scanner = ParameterScan::<{ super::HARD_MAX_AST_DEPTH }>::with_limit(
+            outer_quoted,
+            false,
+            self.max_subst_depth,
+        );
+        while let Some(c) = self.advance() {
+            let next = self.peek_char();
+            // ANSI-C decoding is a representation transform, not a boundary
+            // reader. Its contents are a single protected literal span.
+            if c == '$' && next == Some('\'') && scanner.unquoted() {
+                scanner.feed(c, next);
+                self.advance();
+                let (literal, closed) = self.read_dollar_single_quoted_content();
+                if !closed {
+                    return Err("unterminated single quote".to_string());
+                }
+                word.push('"');
+                for ch in literal.chars() {
+                    word.push('\0');
+                    word.push(ch);
+                }
+                word.push('"');
+                continue;
             }
-        }
-        // Inside an array subscript (`${a['k']}`) quotes stay raw: subscript
-        // evaluation removes them itself. Pattern brackets are operand syntax.
-        let mut parameters = vec![ParameterHeader::default()];
-        while let Some(c) = self.peek_char() {
-            self.advance();
-            parameters.last_mut().unwrap().character(c);
-            match c {
-                '\'' if parameters.last().unwrap().subscript > 0 => {
-                    word.push(c);
-                    while let Some(q) = self.peek_char() {
-                        self.advance();
-                        word.push(q);
-                        if q == '\'' {
-                            break;
-                        }
-                    }
-                }
-                '\\' => match self.peek_char() {
-                    Some(n @ ('{' | '}')) => {
-                        self.advance();
-                        word.push('\x00');
-                        word.push(n);
-                    }
-                    Some(n) => {
-                        self.advance();
-                        word.push('\\');
-                        word.push(n);
-                    }
-                    None => word.push('\\'),
-                },
-                '\'' => {
-                    let mut content = String::new();
-                    let mut closed = false;
-                    while let Some(q) = self.peek_char() {
-                        self.advance();
-                        if q == '\'' {
-                            closed = true;
-                            break;
-                        }
-                        content.push(q);
-                    }
-                    if !closed {
-                        return Err("unterminated single quote".to_string());
-                    }
-                    word.push('"');
-                    push_escaped(word, &content);
-                    word.push('"');
-                }
-                '"' => {
-                    word.push('"');
-                    // Nested `${` depth inside this span; bare braces are literal.
-                    let mut inner = 0usize;
-                    let mut closed = false;
-                    while let Some(q) = self.peek_char() {
-                        self.advance();
-                        match q {
-                            '"' => {
-                                closed = true;
-                                break;
-                            }
-                            '\\' => {
-                                word.push('\\');
-                                if let Some(n) = self.peek_char() {
-                                    self.advance();
-                                    word.push(n);
-                                }
-                                continue;
-                            }
-                            '$' if self.peek_char() == Some('{') => {
-                                self.advance();
-                                word.push_str("${");
-                                inner += 1;
-                                continue;
-                            }
-                            '}' if inner > 0 => inner -= 1,
-                            '{' | '}' => word.push('\x00'),
-                            _ => {}
-                        }
-                        word.push(q);
-                    }
-                    if !closed {
-                        return Err("unterminated double quote".to_string());
-                    }
-                    word.push('"');
-                }
-                '$' if self.peek_char() == Some('\'') => {
-                    self.advance();
-                    let (content, closed) = self.read_dollar_single_quoted_content();
-                    if !closed {
-                        return Err("unterminated single quote".to_string());
-                    }
-                    word.push('"');
-                    push_escaped(word, &content);
-                    word.push('"');
-                }
-                '$' if self.peek_char() == Some('{') => {
-                    self.advance();
-                    word.push_str("${");
-                    if parameters.len() >= self.max_subst_depth {
-                        return Err("parameter expansion nesting too deep".to_string());
-                    }
-                    parameters.push(parameters.last().unwrap().nested());
-                }
-                // `${x:-$(echo })}`: braces inside a command substitution
-                // belong to it.
-                '$' if self.peek_char() == Some('(') => {
-                    self.advance();
-                    word.push_str("$(");
+            word.push(c);
+            match scanner.feed(c, next) {
+                Step::Copy => {}
+                Step::Escape | Step::Open => word.extend(self.advance()),
+                Step::Command => {
+                    word.extend(self.advance());
                     if !self.read_command_subst_body(word) {
                         return Err("unterminated command substitution".to_string());
                     }
                 }
-                '}' => {
-                    word.push('}');
-                    parameters.pop();
-                    if parameters.is_empty() {
-                        break;
-                    }
-                }
-                _ => word.push(c),
+                Step::Closed => return Ok(()),
+                Step::Limit => return Err("parameter expansion nesting too deep".to_string()),
+                Step::Delimiter => unreachable!("whole parameters have no slash delimiter"),
             }
         }
-        Ok(())
+        Err("unterminated parameter expansion".to_string())
     }
 
     fn read_dollar_single_quoted_content(&mut self) -> (String, bool) {
@@ -2582,128 +2484,7 @@ impl<'a> Lexer<'a> {
     /// THREAT[TM-DOS-045]: track nested `${...}` iteratively. This lexer runs
     /// before parser fuel is checked, so recursion here can overflow the host stack.
     fn read_param_expansion_into(&mut self, content: &mut String) -> Result<(), String> {
-        let mut parameters = vec![ParameterHeader::default()];
-        while let Some(c) = self.peek_char() {
-            parameters.last_mut().unwrap().character(c);
-            match c {
-                '}' => {
-                    parameters.pop();
-                    self.advance();
-                    content.push('}');
-                    if parameters.is_empty() {
-                        break;
-                    }
-                }
-                '"' | '\'' => self.read_param_quoted_span(content, c, &mut parameters)?,
-                '\\' => {
-                    // Keep operand escapes raw. The expansion scanner owns
-                    // quote removal, including inside literal apostrophe spans.
-                    content.push(c);
-                    self.advance();
-                    content.extend(self.advance());
-                }
-                '$' => {
-                    content.push('$');
-                    self.advance();
-                    if self.peek_char() == Some('(') {
-                        content.push('(');
-                        self.advance();
-                        self.read_command_subst_into(content);
-                    } else if self.peek_char() == Some('{') {
-                        if parameters.len() >= self.max_subst_depth {
-                            return Err("parameter expansion nesting too deep".to_string());
-                        }
-                        parameters.push(parameters.last().unwrap().nested());
-                        content.push('{');
-                        self.advance();
-                    }
-                }
-                _ => {
-                    // Only `${` opens another parameter; bare `{` is data.
-                    content.push(c);
-                    self.advance();
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Quotes inside an outer double-quoted parameter retain their spelling.
-    /// Apostrophes quote pattern operands, but remain literal characters in
-    /// default operands, where nested `${...}` and `$(...)` stay structural.
-    fn read_param_quoted_span(
-        &mut self,
-        content: &mut String,
-        quote: char,
-        parameters: &mut Vec<ParameterHeader>,
-    ) -> Result<(), String> {
-        // A nested parameter owns its quote/operator context. Once it closes,
-        // resume the enclosing span. Both stacks share the substitution ceiling.
-        let ansi_c = quote == '\'' && content.ends_with('$');
-        let mut quotes = vec![(quote, ansi_c, parameters.len())];
-        content.push(quote);
-        self.advance();
-        while let Some(c) = self.advance() {
-            let depth = parameters.len();
-            let active = quotes.last().copied().filter(|frame| frame.2 == depth);
-            if active.is_some_and(|frame| c == frame.0) {
-                content.push(c);
-                quotes.pop();
-                if quotes.is_empty() {
-                    return Ok(());
-                }
-                continue;
-            }
-            if active.is_some_and(|(quote, ansi_c, _)| {
-                quote == '\'' && !ansi_c && parameters.last().unwrap().single_quotes
-            }) {
-                // Real single quotes in replacement/pattern operands protect
-                // dollars and backslashes too, not only their braces.
-                if matches!(c, '{' | '}') {
-                    content.push('\x00');
-                }
-                content.push(c);
-                continue;
-            }
-            if active.is_none() {
-                parameters.last_mut().unwrap().character(c);
-            }
-            if c == '\\'
-                && active.is_none_or(|(quote, ansi_c, _)| {
-                    quote != '\'' || ansi_c || self.peek_char() != Some('\'')
-                })
-            {
-                content.push(c);
-                content.extend(self.advance());
-                continue;
-            }
-            if c == '$' && self.peek_char() == Some('(') {
-                content.push_str("$(");
-                self.advance();
-                self.read_command_subst_into(content);
-                continue;
-            }
-            if c == '$' && self.peek_char() == Some('{') {
-                if depth >= self.max_subst_depth {
-                    return Err("parameter expansion nesting too deep".to_string());
-                }
-                parameters.push(parameters.last().unwrap().nested());
-                self.advance();
-                content.push_str("${");
-                continue;
-            }
-            if active.is_none() && matches!(c, '\'' | '"') {
-                quotes.push((c, c == '\'' && content.ends_with('$'), depth));
-            } else if matches!(c, '{' | '}') {
-                if active.is_some() {
-                    content.push('\x00');
-                } else if c == '}' {
-                    parameters.pop();
-                }
-            }
-            content.push(c);
-        }
-        Ok(())
+        self.read_parameter_body(content, true)
     }
 
     /// Check if { is followed by whitespace (brace group start)
@@ -3197,7 +2978,7 @@ mod tests {
 
     #[test]
     fn quoted_parameter_depth_includes_the_enclosing_expansion() {
-        let source = r#""${u:-'${v}'}""#;
+        let source = r#""${u:-"${v}"}""#;
         let mut lexer = Lexer::with_max_subst_depth(source, 1);
         assert!(matches!(lexer.next_token(), Some(Token::Error(_))));
         let mut lexer = Lexer::with_max_subst_depth(source, 2);

@@ -123,6 +123,10 @@ impl<'a> Scanner<'a> {
         if ch == '$' {
             return self.expansion(start, work, cancel).await.map(Some);
         }
+        if ch == '`' {
+            self.skip_backticks(start, work, cancel).await?;
+            return Err(2.into());
+        }
         self.check_literal(ch)?;
         // Bash protects source spaces in a pattern, but not source tabs/newlines.
         // Expansion-provided spaces retain the expansion's existing IFS rules.
@@ -142,11 +146,10 @@ impl<'a> Scanner<'a> {
         Ok(self.text(if value == "\n" { "" } else { value }, value != "\n"))
     }
     fn check_literal(&self, ch: char) -> Result<(), Error> {
-        if ch == '`'
-            || !self.protected()
-                && !self.outer_quoted
-                && matches!(ch, '<' | '>')
-                && self.peek() == Some('(')
+        if !self.protected()
+            && !self.outer_quoted
+            && matches!(ch, '<' | '>')
+            && self.peek() == Some('(')
         {
             return Err(2.into());
         }
@@ -170,7 +173,11 @@ impl<'a> Scanner<'a> {
             Some(c) if c.is_ascii_digit() || matches!(c, '?' | '#') => {
                 self.take();
             }
-            Some('(' | '\'' | '"' | '@' | '*' | '!' | '$' | '-') => return Err(2.into()),
+            Some('(') => {
+                self.skip_command(start, work, cancel).await?;
+                return Err(2.into());
+            }
+            Some('\'' | '"' | '@' | '*' | '!' | '$' | '-') => return Err(2.into()),
             _ => return Ok(self.text("$", self.protected())),
         }
         let token = &self.source[start..self.cursor];
@@ -179,11 +186,27 @@ impl<'a> Scanner<'a> {
         // Validation permits only a basic variable or a scalar operator header.
         // Their parser paths retain nested operands as raw text, never recursively
         // parsing scripts. The byte cap also bounds lexer and fallback allocation.
-        let word = Parser::parse_word_string_with_limits(token, MAX_DEPTH, MAX_TOKEN_BYTES * 16);
+        let part = if token.starts_with("${") {
+            Parser::parse_parameter_token_with_limits(
+                token,
+                MAX_DEPTH,
+                MAX_TOKEN_BYTES * 16,
+                self.outer_quoted || self.quote == Quote::Double,
+                self.quote != Quote::Double && (self.pattern || self.pattern_source),
+            )
+            .map_err(|_| Error::from(2))?
+        } else {
+            let word =
+                Parser::parse_word_string_with_limits(token, MAX_DEPTH, MAX_TOKEN_BYTES * 16);
+            let mut parts = word.parts.into_iter();
+            let part = parts.next().ok_or(2)?;
+            if parts.next().is_some() {
+                return Err(2.into());
+            }
+            part
+        };
         work.checkpoint(cancel).await?;
-        let mut parts = word.parts.into_iter();
-        let part = parts.next().ok_or(2)?;
-        if parts.next().is_some() || !supported(&part) {
+        if !supported(&part) {
             return Err(2.into());
         }
         Ok(Piece::Expansion {
@@ -206,7 +229,7 @@ impl<'a> Scanner<'a> {
         self.take();
         let mut scanner = ParameterScan::<MAX_DEPTH>::new(
             self.outer_quoted || self.quote == Quote::Double,
-            self.pattern || self.pattern_source,
+            self.quote != Quote::Double && (self.pattern || self.pattern_source),
         );
         while let Some(value) = self.take() {
             work.checkpoint(cancel).await?;
@@ -221,10 +244,10 @@ impl<'a> Scanner<'a> {
                 }
                 Step::Command => self.skip_command(start, work, cancel).await?,
                 Step::Closed => return Ok(()),
-                Step::Limit => return Err(2.into()),
+                Step::Limit | Step::Delimiter => return Err(2.into()),
             }
         }
-        Err(2.into())
+        bad_substitution("no closing `}'", work)
     }
     // A skipped nested scalar operand may contain unsupported substitution
     // text. Match its boundary without parsing or evaluating that script.
@@ -275,7 +298,7 @@ impl<'a> Scanner<'a> {
                 return Ok(());
             }
         }
-        Err(2.into())
+        bad_substitution("no closing `)'", work)
     }
     async fn skip_backticks(
         &mut self,
@@ -295,8 +318,19 @@ impl<'a> Scanner<'a> {
                 self.take().ok_or(2)?;
             }
         }
-        Err(2.into())
+        bad_substitution("no closing backtick", work)
     }
+}
+
+// Only a selected operand reaches these EOF failures. Unsupported complete
+// substitutions and every byte/work/depth/cancellation limit retain their own
+// status; malformed lazy substitution syntax is Bash's fatal status 1.
+fn bad_substitution(message: &'static str, work: &mut Work) -> Result<(), Error> {
+    work.admit_storage("bad substitution".len() + message.len())?;
+    Err(Error::BadSubstitution {
+        message,
+        line: None,
+    })
 }
 
 fn toggle_quote(current: &mut Quote, quote: Quote) {

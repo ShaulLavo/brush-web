@@ -178,6 +178,61 @@ fn scalar_replace_nested_operand_boundaries() {
 }
 
 #[test]
+fn scalar_default_apostrophe_spans_defer_substitution_lookalikes() {
+    check(
+        r#"unset v; args "${v:+'${'}" "${v+'$('}" "${v+'`'}" next; v=ok; args "${v:-'${'}" "${v-'$('}" next; v=; args "${v-'${'}" next"#,
+        &[&["", "", "", "next"], &["ok", "ok", "next"], &["", "next"]],
+    );
+}
+
+#[test]
+fn selected_malformed_lazy_substitutions_are_fatal_status_one() {
+    for source in [
+        r#"unset v; args "${v:-'${'}" following; args after"#,
+        r#"unset v; args "${v-'$('}" following; args after"#,
+        r#"unset v; args "${v:='`'}" following; args after"#,
+        r#"unset v; args "${v='${'}" following; args after"#,
+        r#"v=; args "${v+'$('}" following; args after"#,
+        r#"v=x; args "${v:+'`'}" following; args after"#,
+        r#"unset v; args "${v:="${v:-'$('}"}" following; args after"#,
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 1, "{source}");
+        assert!(rig.calls.borrow().is_empty(), "{source}");
+        assert!(rig.output.bytes().is_empty(), "{source}");
+        assert!(
+            String::from_utf8(rig.errors.bytes())
+                .unwrap()
+                .contains("bad substitution"),
+            "{source}"
+        );
+    }
+    // A complete substitution remains an explicitly unsupported feature.
+    for source in [
+        r#"unset v; args "${v:-'$(true)'}" following"#,
+        r#"unset v; args "${v:-'`true`'}" following"#,
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 2, "{source}");
+        assert!(rig.calls.borrow().is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn scalar_replace_composes_raw_double_quotes_and_literal_apostrophes() {
+    check(
+        r#"u=; v=abc; args "${v/b/${u:-"don't"}}" next; args "${v/b/${u:-"'"}}" next; args ${v/b/${u:-"don't"}} next; args "${v/b/${u:-"a}b"}}" next; args "${v/b/${u:-"a${v/b/"don't"}z"}}" next"#,
+        &[
+            &["adon'tc", "next"],
+            &["a'c", "next"],
+            &["adon'tc", "next"],
+            &["aa}bc", "next"],
+            &["aaadon'tczc", "next"],
+        ],
+    );
+}
+
+#[test]
 fn scalar_replace_quote_escape_and_ampersand_controls() {
     check(
         r#"v=abc; r='&'; args "${v/b/&}" "${v/b/\&}" "${v/b/"&"}" "${v/b/'&'}" "${v/b/\q}" "${v/b/\\&}" "${v/b/$r}" "${v/b/"$r"}"; r='\&'; args "${v/b/$r}" "${v/b/"$r"}"; args "${v/b/${q:-"&"}}" "${v/b/${s:='&'}}"; args ${v/b/'a b'} "${v/b/'a b'}""#,

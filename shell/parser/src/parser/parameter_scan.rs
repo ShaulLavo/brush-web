@@ -11,13 +11,6 @@ pub(crate) struct ParameterHeader {
     pub(crate) subscript: usize,
 }
 impl ParameterHeader {
-    pub(crate) fn nested(&self) -> Self {
-        Self {
-            single_quotes: self.single_quotes,
-            ..Self::default()
-        }
-    }
-
     pub(crate) fn character(&mut self, ch: char) {
         if self.subscript > 0 {
             match ch {
@@ -60,6 +53,8 @@ pub enum Step {
     Open,
     Command,
     Closed,
+    /// Unquoted root `/` terminating a replacement pattern (not consumed).
+    Delimiter,
     Limit,
 }
 
@@ -68,18 +63,48 @@ pub enum Step {
 pub struct ParameterScan<const N: usize> {
     frames: [Frame; N],
     depth: usize,
+    limit: usize,
+    slash_delimiter: bool,
 }
 impl<const N: usize> ParameterScan<N> {
     pub fn new(outer_quoted: bool, pattern: bool) -> Self {
+        Self::with_limit(outer_quoted, pattern, N)
+    }
+
+    pub fn with_limit(outer_quoted: bool, pattern: bool, limit: usize) -> Self {
         assert!(N > 0);
         let mut frames = [Frame::default(); N];
         frames[0].outer_quoted = outer_quoted;
         frames[0].pattern = pattern;
-        Self { frames, depth: 1 }
+        Self {
+            frames,
+            depth: 1,
+            limit: limit.min(N),
+            slash_delimiter: false,
+        }
+    }
+
+    /// Start after a parsed operator rather than after `${`. Callers must
+    /// retain the enclosing parameter in their depth allowance.
+    pub fn operand(outer_quoted: bool, pattern: bool, slash_delimiter: bool, limit: usize) -> Self {
+        let mut scanner = Self::with_limit(outer_quoted, pattern, limit);
+        scanner.frames[0].header.operand = true;
+        scanner.slash_delimiter = slash_delimiter;
+        scanner
+    }
+
+    pub(crate) fn unquoted(&self) -> bool {
+        self.frames[self.depth - 1].quote.is_none()
     }
 
     pub fn feed(&mut self, ch: char, next: Option<char>) -> Step {
+        if self.limit == 0 {
+            return Step::Limit;
+        }
         let frame = &mut self.frames[self.depth - 1];
+        if self.depth == 1 && self.slash_delimiter && frame.quote.is_none() && ch == '/' {
+            return Step::Delimiter;
+        }
         let single = frame.quote == Some('\'');
         let literal_single =
             single && (!frame.outer_quoted || frame.pattern || frame.header.single_quotes);
@@ -90,7 +115,11 @@ impl<const N: usize> ParameterScan<N> {
             frame.quote = None;
             return Step::Copy;
         }
-        if literal_single {
+        if single {
+            // Apostrophe spans are opaque to Bash's boundary reader even in
+            // ordinary outer-double-quoted defaults. Their dollars expand
+            // only if that operand is selected later. An unselected '${' or
+            // '$(' lookalike must not become an eager parse failure.
             return Step::Copy;
         }
         if frame.quote.is_none() {
@@ -105,12 +134,13 @@ impl<const N: usize> ParameterScan<N> {
                 return Step::Command;
             }
             if next == Some('{') {
-                if self.depth == N {
+                if self.depth == self.limit {
                     return Step::Limit;
                 }
                 self.frames[self.depth] = Frame {
                     outer_quoted: frame.outer_quoted || frame.quote == Some('"'),
-                    pattern: frame.pattern || frame.header.single_quotes,
+                    pattern: frame.quote != Some('"')
+                        && (frame.pattern || frame.header.single_quotes),
                     ..Frame::default()
                 };
                 self.depth += 1;
