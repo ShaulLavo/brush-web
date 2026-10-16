@@ -2464,11 +2464,44 @@ fn errors_inside_trim_keep_cumulative_pattern_snapshot_admission() {
     assert!(rig.calls.borrow().is_empty());
     assert!(rig.output.bytes().is_empty());
     assert!(rig.errors.bytes().is_empty());
-    // Ordinary diagnostics keep ordinary length admission outside trim.
-    assert_eq!(rig.run("args ${bad:?${#a}${#b}}"), 127);
+    // Ordinary diagnostics retain buffers too, so both snapshots share storage.
+    assert_eq!(rig.run("args ${bad:?${#a}${#b}}"), 2);
     assert!(rig.calls.borrow().is_empty());
     assert!(rig.output.bytes().is_empty());
-    assert_eq!(rig.errors.bytes(), b"/usr/bin/bash: line 1: bad: 8080\n");
+    assert!(rig.errors.bytes().is_empty());
+}
+
+#[test]
+fn ordinary_diagnostic_snapshots_share_fragmented_segment_storage_before_copying() {
+    for (source, length) in [
+        (r#"args ${bad:?a"b${#v}"}"#, true),
+        (r#"args ${bad:?a"b${inner:-${#v}}"}"#, true),
+        (r#"args ${bad:?a"b$v"}"#, false),
+    ] {
+        for (bytes, status) in [(256, 2), (1024, 127)] {
+            let rig = Rig::new(Limits {
+                expansion_bytes: bytes,
+                ..Limits::default()
+            });
+            rig.variable("v", &"x".repeat(150));
+            assert_eq!(rig.run(source), status, "{source}, bytes={bytes}");
+            assert!(rig.calls.borrow().is_empty());
+            assert!(rig.output.bytes().is_empty());
+            if status == 127 {
+                let value = if length {
+                    "150".to_owned()
+                } else {
+                    "x".repeat(150)
+                };
+                assert_eq!(
+                    rig.errors.bytes(),
+                    format!("/usr/bin/bash: line 1: bad: ab{value}\n").as_bytes()
+                );
+            } else {
+                assert!(rig.errors.bytes().is_empty());
+            }
+        }
+    }
 }
 
 #[test]

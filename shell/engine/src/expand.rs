@@ -840,7 +840,8 @@ impl Expansion<'_> {
             pattern: None,
             // Diagnostics leave the pattern context, including in nested operands.
             pattern_context: self.pattern_context && !matches!(operator, ParameterOp::Error),
-            pattern_snapshots: self.pattern_snapshots,
+            // Ordinary diagnostics also retain segments/output while snapshotting.
+            pattern_snapshots: self.pattern_snapshots || matches!(operator, ParameterOp::Error),
             ifs: None,
             ifs_changed: false,
             work: self.work,
