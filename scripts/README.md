@@ -63,6 +63,7 @@ Record the oracle with `--record scripts/fixtures/shell-readonly-seed-17.json`.
 `npm run fuzz:shell-readonly:ci -- --shell PATH` replays status and stdout bytes
 without invoking Bash. Replay verifies the generator hash, seed, count, timeout,
 Bash version, and every regenerated script. Stderr is recorded for diagnosis.
+
 ## Whole-script parser compatibility
 
 `node scripts/fuzz-shell-parse-boundaries.mjs --shell /path/to/shell-engine`
