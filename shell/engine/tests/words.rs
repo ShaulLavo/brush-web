@@ -2372,6 +2372,106 @@ fn diagnostic_splitting_does_not_admit_oversized_raw_whitespace() {
 }
 
 #[test]
+fn errors_selected_inside_trim_leave_pattern_context() {
+    // Exact clean Bash 5.3.15 C.UTF-8 observations, including the distinct
+    // multiline source anchor for assignment-only commands.
+    for (operand, expected) in [
+        ("$detail", "abc"),
+        (" detail ", " detail "),
+        (" $detail ", "  abc  "),
+        ("\"$detail\"", " abc "),
+        ("${u:- $detail }", "abc"),
+        ("${u:- a  b }", "a b"),
+        ("\ttext\t", "\ttext\t"),
+        ("\ntext\n", "\ntext\n"),
+        ("${inner#${p} }", "abc"),
+        ("\"${inner#${p} }\"", " abc "),
+        ("\"${inner#${p}$s}\"", "abc "),
+        ("\"*\"", "*"),
+    ] {
+        let contexts = ["#", "##", "%", "%%"].into_iter().flat_map(|operator| {
+            ["args EXP", "args \"EXP\"", "x=EXP"].map(|context| (operator, context))
+        });
+        for (operator, context) in contexts {
+            let expansion = format!("${{v{operator}${{bad:?{operand}}}}}");
+            let source = format!("{}; args forbidden", context.replace("EXP", &expansion));
+            let line = if context == "x=EXP" && operand == "\ntext\n" {
+                3
+            } else {
+                1
+            };
+            let rig = Rig::new(Limits::default());
+            rig.variable("v", "target");
+            rig.variable("detail", " abc ");
+            rig.variable("inner", " abc ");
+            rig.variable("p", "\\");
+            rig.variable("s", " ");
+            assert_eq!(rig.run(&source), 127, "{source}");
+            assert!(rig.calls.borrow().is_empty(), "{source}");
+            assert!(rig.output.bytes().is_empty(), "{source}");
+            assert_eq!(
+                rig.errors.bytes(),
+                format!("/usr/bin/bash: line {line}: bad: {expected}\n").as_bytes(),
+                "{source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn diagnostic_trim_results_split_independently_of_outer_and_pattern_quotes() {
+    for (ifs, operand, expected) in [
+        (" \t\n", "${bad:?${inner#${p} }}", "abc"),
+        (" \t\n", "${bad:?${inner#${p}$s}}", "abc"),
+        (" \t\n", "${bad:?\"${inner#${p} }\"}", " abc "),
+        (" \t\n", "${bad:?\"${inner#${p}$s}\"}", "abc "),
+        (":", "${v#${bad:?$detail}}", " abc  def"),
+        ("", "${v#${bad:?${u:- a  b }}}", " a  b "),
+    ] {
+        for context in ["args EXP", "args \"EXP\"", "x=EXP"] {
+            let source = format!("{}; args forbidden", context.replace("EXP", operand));
+            let rig = Rig::new(Limits::default());
+            rig.variable("IFS", ifs);
+            rig.variable("v", "target");
+            rig.variable("detail", ":abc::def:");
+            rig.variable("inner", " abc ");
+            rig.variable("p", "\\");
+            rig.variable("s", " ");
+            assert_eq!(rig.run(&source), 127, "{source}");
+            assert!(rig.calls.borrow().is_empty(), "{source}");
+            assert!(rig.output.bytes().is_empty(), "{source}");
+            assert_eq!(
+                rig.errors.bytes(),
+                format!("/usr/bin/bash: line 1: bad: {expected}\n").as_bytes(),
+                "{source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn errors_inside_trim_keep_cumulative_pattern_snapshot_admission() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 256,
+        ..Limits::default()
+    });
+    rig.variable("v", "x");
+    rig.variable("a", &"x".repeat(80));
+    rig.variable("b", &"x".repeat(80));
+    // The trim snapshot, diagnostic reserve and both length inputs exceed
+    // shared storage even though the final diagnostic would be only four bytes.
+    assert_eq!(rig.run("args ${v#${bad:?${#a}${#b}}}"), 2);
+    assert!(rig.calls.borrow().is_empty());
+    assert!(rig.output.bytes().is_empty());
+    assert!(rig.errors.bytes().is_empty());
+    // Ordinary diagnostics keep ordinary length admission outside trim.
+    assert_eq!(rig.run("args ${bad:?${#a}${#b}}"), 127);
+    assert!(rig.calls.borrow().is_empty());
+    assert!(rig.output.bytes().is_empty());
+    assert_eq!(rig.errors.bytes(), b"/usr/bin/bash: line 1: bad: 8080\n");
+}
+
+#[test]
 fn fatal_parameter_errors_stop_sequences_functions_and_conditions() {
     for (source, line, message) in [
         (

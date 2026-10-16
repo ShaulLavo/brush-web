@@ -367,6 +367,8 @@ struct Expansion<'a> {
     captured: Option<Captured>,
     pattern: Option<pattern::Pattern>,
     pattern_context: bool,
+    // Diagnostics leave pattern syntax but retain enclosing snapshot charges.
+    pattern_snapshots: bool,
     ifs: Option<Ifs>,
     ifs_changed: bool,
     work: &'a mut Work,
@@ -392,7 +394,7 @@ impl Expansion<'_> {
         Ok(())
     }
     fn snapshot_max(&self) -> usize {
-        if !self.pattern_context {
+        if !self.pattern_snapshots {
             return self.raw_remaining;
         }
         self.raw_remaining
@@ -400,7 +402,7 @@ impl Expansion<'_> {
             .min(self.work.storage_remaining)
     }
     async fn admit_pattern_snapshot(&mut self, value: &str) -> Result<(), Error> {
-        if !self.pattern_context {
+        if !self.pattern_snapshots {
             return Ok(());
         }
         self.work.admit_storage(value.len())?;
@@ -410,7 +412,7 @@ impl Expansion<'_> {
         Ok(())
     }
     fn admit_pattern_length(&mut self, name: &str, state: &SharedState) -> Result<(), Error> {
-        if !self.pattern_context {
+        if !self.pattern_snapshots {
             return Ok(());
         }
         if !operand::length_name(name) {
@@ -668,6 +670,7 @@ impl Expansion<'_> {
             captured: None,
             pattern: Some(pattern::Pattern::default()),
             pattern_context: true,
+            pattern_snapshots: true,
             ifs: None,
             ifs_changed: false,
             work: self.work,
@@ -726,6 +729,7 @@ impl Expansion<'_> {
             pattern: None,
             // Diagnostics leave the pattern context, including in nested operands.
             pattern_context: self.pattern_context && !matches!(operator, ParameterOp::Error),
+            pattern_snapshots: self.pattern_snapshots,
             ifs: None,
             ifs_changed: false,
             work: self.work,
@@ -1055,6 +1059,7 @@ async fn expand(
         captured: None,
         pattern: None,
         pattern_context: false,
+        pattern_snapshots: false,
         ifs: None,
         ifs_changed: false,
         work,
