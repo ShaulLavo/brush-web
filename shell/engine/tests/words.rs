@@ -15,6 +15,8 @@ struct Rig {
     host: InProcessHost,
     calls: Rc<RefCell<Vec<Vec<String>>>>,
     output: Capture,
+    errors: Capture,
+    fs: MemoryFs,
 }
 impl Rig {
     fn new(limits: Limits) -> Self {
@@ -30,17 +32,19 @@ impl Rig {
             }
             .boxed_local()
         });
+        let fs = MemoryFs::new(64 * 1024);
         let shell = Session::new(
             ex.clone(),
             Rc::new(host.clone()),
-            Rc::new(MemoryFs::new(1024)),
+            Rc::new(fs.clone()),
             limits,
         );
         let (out, output) = capture(64 * 1024);
+        let (err, errors) = capture(64 * 1024);
         let mut fds = FdTable::default();
         fds.insert(0, Endpoint::null());
         fds.insert(1, out);
-        fds.insert(2, Endpoint::null());
+        fds.insert(2, err);
         shell.set_descriptors(fds).unwrap();
         Self {
             ex,
@@ -48,6 +52,8 @@ impl Rig {
             host,
             calls,
             output,
+            errors,
+            fs,
         }
     }
     fn finish(&self, job: JoinHandle<i32>) -> i32 {
@@ -623,9 +629,6 @@ fn selected_unsupported_operands_and_operator_targets_fail_without_dispatch() {
         "args ${u:-${v/p/q}}",
         "args ${a[0]-x}",
         "args ${1-x}",
-        "args ${u:=x}",
-        "v=set; args ${v:=x}",
-        "args ${u:?fail}",
         "args ${u:-~}",
         "args ${u:-*}",
         "args ${u:-{a,b}}",
@@ -891,4 +894,309 @@ fn inner_quoted_backslashes_and_nested_apostrophe_spans_keep_context() {
         &[&["a\\}b", "a}b"]],
     );
     check(r#"u=; v=; args "${u:-'${v:-'a'}'}""#, &[&["''a''"]]);
+}
+
+// Assignment/error cases adapt the scalar Bashkit var-op-test, variables and
+// string-ops cases. Status and diagnostic expectations come from GNU Bash 5.3
+// and the unchanged frozen oracle, including its top-level status 127.
+#[test]
+fn scalar_assignment_preserves_unset_null_and_stores_unsplit_values() {
+    check(
+        r#"e=; v=value; args "${u=one}" "${u=bad}" "${e=bad}" "${e:=two}" "${v:=bad}"; args "$u" "$e" "$v"; args ${space:=a" b "c} "$space"; IFS=:; args p${split:=a:"b:c":d}s "$split""#,
+        &[
+            &["one", "one", "", "two", "value"],
+            &["one", "two", "value"],
+            &["a", "b", "c", "a b c"],
+            &["pa", "b", "c", "ds", "a:b:c:d"],
+        ],
+    );
+    check(
+        r#"args ${u=} "${u?bad}" "${u:=}"; args "${u+set}"; args ${nested:=${inner:=two words}} "$inner" "$nested""#,
+        &[
+            &["", ""],
+            &["set"],
+            &["two", "words", "two words", "two words"],
+        ],
+    );
+}
+
+#[test]
+fn assignment_quote_removal_keeps_surrounding_word_boundaries() {
+    check(
+        r#"args p${u:="a b"}s "${u}"; args p${other:-"${inner:=c d}"}s "$inner"; args ${last:=a\ b} "$last""#,
+        &[&["pa", "bs", "a b"], &["pc ds", "c d"], &["a", "b", "a b"]],
+    );
+}
+
+#[test]
+fn assignment_effects_reach_rhs_argv_declarations_and_redirects() {
+    check(
+        r#"a=${b:=B} c=${a:=bad}; args "$a" "$b" "$c"; ${cmd:=args} "${arg:=A}" >"${path:=file}"; args "$cmd" "$arg" "$path"; export x=${y:=Y}; f() { local z=${nested:=N}; args "$z"; }; f; args "$x" "$y" "$nested""#,
+        &[
+            &["B", "B", "B"],
+            &["A"],
+            &["args", "A", "file"],
+            &["N"],
+            &["Y", "Y", "N"],
+        ],
+    );
+    check(
+        r#"a=outer; a= b=${a:=inner} args "${arg:=A}"; args "$a" "$b" "$arg"; x=${y:=rhs} args "${y:=argv}"; args "$x" "$y""#,
+        &[&["A"], &["inner", "", "A"], &["argv"], &["", "argv"]],
+    );
+    check(
+        r#"a=one >"${path:=$a}"; args "$a" "$path"; f() { local v=; args "${v:=inside}" "${global:=outside}"; }; v=before; f; args "$v" "$global""#,
+        &[
+            &["one", "one"],
+            &["inside", "outside"],
+            &["before", "outside"],
+        ],
+    );
+}
+
+#[test]
+fn assignment_and_error_operands_are_lazy_including_unsupported_syntax() {
+    check(
+        r#"v=set; e=; args ${v:=$(args forbidden)} ${v=${bad:?fail}} "${e=$(args forbidden)}" ${v?$(args forbidden)} "${e?$(args forbidden)}" ${v:?${bad:=bad}}; args "$bad"; args ${u+${bad:?fail}} ${v:-${bad:=bad}}"#,
+        &[&["set", "set", "", "set", "", "set"], &[""], &["set"]],
+    );
+    for source in [
+        "args ${u:=$(args forbidden)}",
+        "args ${u:?$((1+2))}",
+        "args ${u:=$@}",
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 2, "{source}");
+        assert!(rig.calls.borrow().is_empty());
+        assert!(!rig.shell.state().borrow().variables.contains_key("u"));
+    }
+}
+
+#[test]
+fn fatal_parameter_errors_stop_sequences_functions_and_conditions() {
+    for (source, line, message) in [
+        (
+            "echo before; args ${u?}; args after",
+            1,
+            "u: parameter not set",
+        ),
+        (
+            "u=;\nargs ${u:?}; args after",
+            2,
+            "u: parameter null or not set",
+        ),
+        ("args ${u?two words}; args after", 1, "u: two words"),
+        ("args ${u:?\"\"}; args after", 1, "u: "),
+        ("args ${u?${missing}}; args after", 1, "u: "),
+        (
+            "f() {\n local v=inside; args ${u:?bad}; args bad;\n}; f; args after",
+            2,
+            "u: bad",
+        ),
+        ("args ${u:?bad} || args after", 1, "u: bad"),
+        (
+            "while args ${u:?bad}; do args after; done; args after",
+            1,
+            "u: bad",
+        ),
+        ("a=${u:?bad}; args after", 1, "u: bad"),
+        ("args >${u:?bad}; args after", 1, "u: bad"),
+    ] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("v", "outside");
+        assert_eq!(rig.run(source), 127, "{source}");
+        assert!(rig.calls.borrow().is_empty(), "{source}");
+        assert_eq!(
+            rig.errors.bytes(),
+            format!("/usr/bin/bash: line {line}: {message}\n").as_bytes(),
+            "{source}"
+        );
+        assert_eq!(
+            rig.shell.state().borrow().variables.get("v").unwrap(),
+            "outside"
+        );
+        assert_eq!(rig.run(r#"args "$#" "$v""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["0", "outside"]]);
+    }
+}
+
+#[test]
+fn fatal_errors_keep_completed_effects_and_route_diagnostics() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run(r#"echo before; a=${saved:=yes} b=${u:?${detail:=two words}}; args after"#),
+        127
+    );
+    assert_eq!(rig.output.bytes(), b"before\n");
+    assert_eq!(rig.run(r#"args "$saved" "$detail""#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["yes", "two words"]]);
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("a=${u:?bad} 2>errors; args after"), 127);
+    assert_eq!(rig.errors.bytes(), b"/usr/bin/bash: line 1: u: bad\n");
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("a=${u:?bad} args 2>errors; args after"), 127);
+    assert_eq!(rig.errors.bytes(), b"/usr/bin/bash: line 1: u: bad\n");
+    assert!(rig.fs.read_file("/home/guest/errors").unwrap().is_empty());
+}
+
+#[test]
+fn fatal_errors_and_writes_are_contained_in_isolated_environments() {
+    check(
+        r#"(args ${u:?bad}; args bad); args "$?"; args "${u-unset}"; args ${u:?bad} | args stage; args "${PIPESTATUS[@]}"; { args ${u:?bad}; args bad; } | args group; args "${PIPESTATUS[@]}"; args ${u:?bad} & wait 1; args "$?"; (args "${side:=child}"); args "${side-unset}""#,
+        &[
+            &["1"],
+            &["unset"],
+            &["stage"],
+            &["127", "0"],
+            &["group"],
+            &["1", "0"],
+            &["127"],
+            &["child"],
+            &["unset"],
+        ],
+    );
+    check(
+        r#"(args) >${path:?bad}; args "$?"; args "${path-unset}"; echo "${side:=parent}" | args sink; args "${side-unset}""#,
+        &[&["127"], &["unset"], &["sink"], &["unset"]],
+    );
+}
+
+#[test]
+fn assignment_storage_and_error_diagnostics_are_bounded() {
+    for source in [
+        "args ${u:=$large}",
+        "args ${u:?$large}",
+        "args ${u:=${v:=$large}}",
+    ] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: 32,
+            ..Limits::default()
+        });
+        rig.variable("large", &"x".repeat(33));
+        assert_eq!(rig.run(source), 2, "{source}");
+        assert!(rig.calls.borrow().is_empty());
+        assert!(rig.errors.bytes().is_empty());
+        assert!(!rig.shell.state().borrow().variables.contains_key("u"));
+    }
+}
+
+#[test]
+fn parameter_writes_share_storage_admission_even_when_fields_fit() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 32,
+        ..Limits::default()
+    });
+    assert_eq!(
+        rig.run("args ${aa:=123456789} ${bb:=123456789} ${cc:=123456789}"),
+        2
+    );
+    assert!(rig.calls.borrow().is_empty());
+    let state = rig.shell.state();
+    let state = state.borrow();
+    assert_eq!(
+        state.variables.get("aa").map(String::as_str),
+        Some("123456789")
+    );
+    assert_eq!(
+        state.variables.get("bb").map(String::as_str),
+        Some("123456789")
+    );
+    assert!(!state.variables.contains_key("cc"));
+}
+
+#[test]
+fn cancellation_keeps_completed_rhs_effects_and_restores_local_prefix_frames() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("v", "outer");
+    let source = format!(
+        "f() {{ local v=; a=${{saved:=yes}} b=${{v:=inner}} c=${{long:={}}} args; }}; f arg",
+        "x".repeat(100_000)
+    );
+    let job = rig.shell.start(&source).unwrap();
+    for _ in 0..500 {
+        rig.ex.drive(1);
+        if rig.shell.state().borrow().variables.contains_key("saved") {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.shell
+            .state()
+            .borrow()
+            .variables
+            .get("saved")
+            .map(String::as_str),
+        Some("yes")
+    );
+    rig.ex.drive(4);
+    assert!(!job.is_finished());
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.run(r#"args "$saved" "$v" "$a" "$b" "$long" "$#""#), 0);
+    assert_eq!(
+        *rig.calls.borrow(),
+        &[vec!["yes", "outer", "", "", "", "0"]]
+    );
+}
+
+#[test]
+fn frozen_scalar_error_observations_keep_exact_status_and_output() {
+    // Verbatim scripts and observations from the committed oracle. No fixture
+    // membership, classifications, identities or expected statuses are changed.
+    for (source, error) in [
+        (
+            "empty=''\necho ${empty:?'is em'pty}  # test eval of error\necho should not get here\n\n",
+            "/usr/bin/bash: line 2: empty: is empty\n",
+        ),
+        (
+            "echo ${unset?is empty}\necho should not get here\n\n",
+            "/usr/bin/bash: line 1: unset: is empty\n",
+        ),
+        (
+            "echo \"${non_existent_var?error message}\"\necho \"This should never execute\"\n",
+            "/usr/bin/bash: line 1: non_existent_var: error message\n",
+        ),
+        (
+            "${UNSET_VAR:?\"variable not set\"}\n",
+            "/usr/bin/bash: line 1: UNSET_VAR: variable not set\n",
+        ),
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 127, "{source}");
+        assert!(rig.output.bytes().is_empty(), "{source}");
+        assert_eq!(rig.errors.bytes(), error.as_bytes(), "{source}");
+    }
+}
+
+#[test]
+fn cancellation_during_error_operand_keeps_effects_without_partial_diagnostic() {
+    let rig = Rig::new(Limits::default());
+    let source = format!(
+        "f() {{ local v=inside; args ${{u:?${{saved:=yes}}{}}}; }}; f arg",
+        "x".repeat(100_000)
+    );
+    let job = rig.shell.start(&source).unwrap();
+    for _ in 0..500 {
+        rig.ex.drive(1);
+        if rig.shell.state().borrow().variables.contains_key("saved") {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.shell
+            .state()
+            .borrow()
+            .variables
+            .get("saved")
+            .map(String::as_str),
+        Some("yes")
+    );
+    assert!(!job.is_finished());
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert!(rig.errors.bytes().is_empty());
+    assert_eq!(rig.run(r#"args "$saved" "$v" "$#""#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["yes", "", "0"]]);
 }

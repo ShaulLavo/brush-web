@@ -89,8 +89,8 @@ checkpoints, a 32-level operator limit and a parsed-shape check. Local changes i
 scalar braces inside literal apostrophe spans. Operand matching in `mod.rs` and
 the lexer's quoted-word boundary scan keep raw escapes and existing lexer
 protection indivisible. The engine removes escapes once and distinguishes quoted
-process-substitution lookalikes from unsupported substitutions. Assignment and
-error operators, list operands, arrays,
+process-substitution lookalikes from unsupported substitutions. The assignment
+and error follow-on is described below. List operands, arrays,
 indirection, patterns, pathname/tilde/brace expansion,
 arithmetic and substitutions are not ported. The original async engine keeps
 its aggregate bounds and cancellation guards; no `mapfile` or output-buffering
@@ -102,3 +102,29 @@ and any deliberately removed upstream tests with reasons are recorded under
 `shellParser` in `sources.lock.json`. The provenance check validates that record
 and the retained license, not byte identity. All upstream parser tests remain in
 place; the local quote and escape changes are recorded there.
+
+Scalar assignment and error operators also adapt Bashkit at
+`491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT, Copyright 2024–2026 Everruns).
+Sources are `crates/bashkit/src/interpreter/expansion.rs` (`ParameterExpansion`,
+`resolve_param_expansion_name`, the `AssignDefault` and `Error` arms of
+`apply_parameter_op`, and selected operand quote removal) and
+`crates/bashkit/src/interpreter/mod.rs` (`set_parameter_expansion_target`, scalar
+branch, and `expansion_error_result` fatal-flow propagation). Adaptations live in
+`shell/engine/src/expand.rs`, `expand/operand.rs`, `state.rs` and `interpreter.rs`.
+Tests in `shell/engine/tests/words.rs` adapt the scalar assignment/error cases in
+`var-op-test.test.sh`, `variables.test.sh`, `string-ops.test.sh`, quote-removal
+rules in `param-operand-quotes.test.sh`, and `test_colon_variable_side_effect`.
+Exact source paths and adaptations are recorded under `shellParameterEffects`
+in `sources.lock.json`; the retained license is `shell/parser/LICENSE`.
+
+Local changes retain bounded selected operands before field splitting, store
+unsplit values after quote removal, and use cancellation-safe prefix frames to
+preserve completed parameter writes in the caller. Assignment result protection,
+command-word/RHS/redirect ordering, diagnostic spelling and environment-dependent
+fatal statuses follow bounded GNU Bash observations and the unchanged frozen
+oracle, deliberately replacing upstream's blanket status 1. Errors stop their
+containing shell environment and remain isolated in subshells, pipeline stages
+and background jobs. Shared command work/storage bounds and cancellation
+checkpoints remain in force. This slice changes no parser files or upstream
+parser tests, includes no substitution/array/pattern implementation, and adds no
+whole-output buffering.

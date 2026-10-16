@@ -21,6 +21,7 @@ pub struct State {
     pub pipefail: bool,
     pub(crate) positional: Vec<String>,
     pub(crate) locals: Vec<BTreeMap<String, (Option<String>, bool)>>,
+    prefixes: Vec<BTreeMap<String, Option<String>>>,
 }
 impl Default for State {
     fn default() -> Self {
@@ -34,6 +35,7 @@ impl Default for State {
             pipefail: false,
             positional: Vec::new(),
             locals: Vec::new(),
+            prefixes: Vec::new(),
         }
     }
 }
@@ -62,6 +64,21 @@ impl State {
         }
         self.variables.get(name).map(String::as_str)
     }
+    pub(crate) fn prefix_saved(&self, name: &str) -> bool {
+        self.prefixes
+            .last()
+            .is_some_and(|saved| saved.contains_key(name))
+    }
+    pub(crate) fn assign_parameter(&mut self, name: String, value: String) {
+        if let Some(saved) = self
+            .prefixes
+            .last_mut()
+            .and_then(|frame| frame.get_mut(&name))
+        {
+            *saved = Some(value.clone());
+        }
+        self.variables.insert(name, value);
+    }
     pub(crate) fn environment(&self) -> BTreeMap<String, String> {
         self.exported
             .iter()
@@ -80,6 +97,55 @@ impl State {
             .or_insert(previous);
         self.variables.insert(name, value);
         Ok(())
+    }
+}
+
+/// Prefix values are visible to later RHS expansions. Parameter assignments
+/// update the saved caller value too, so completed effects survive cancellation
+/// or removal of the temporary environment. No borrow crosses an await.
+pub(crate) struct PrefixFrame {
+    state: SharedState,
+    active: bool,
+}
+impl PrefixFrame {
+    pub(crate) fn enter(state: SharedState) -> Self {
+        state.borrow_mut().prefixes.push(BTreeMap::new());
+        Self {
+            state,
+            active: true,
+        }
+    }
+    pub(crate) fn set(&self, name: String, value: String) {
+        let mut state = self.state.borrow_mut();
+        let previous = state.variables.insert(name.clone(), value);
+        state
+            .prefixes
+            .last_mut()
+            .unwrap()
+            .entry(name)
+            .or_insert(previous);
+    }
+    pub(crate) fn commit(mut self) {
+        self.state.borrow_mut().prefixes.pop();
+        self.active = false;
+    }
+}
+impl Drop for PrefixFrame {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        let mut state = self.state.borrow_mut();
+        let saved = state.prefixes.pop().unwrap();
+        // At most the admitted command argument count. Destructors finish
+        // restoration synchronously even after cancellation, like FunctionFrame.
+        for (name, value) in saved {
+            if let Some(value) = value {
+                state.variables.insert(name, value);
+            } else {
+                state.variables.remove(&name);
+            }
+        }
     }
 }
 

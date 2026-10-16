@@ -1,6 +1,6 @@
 //! Scalar operand quote handling adapted from Bashkit's operand_word and
 //! parse_marked_operand. Unlike upstream, protection never enters string data.
-use super::Work;
+use super::{Error, Work};
 use crate::executor::Cancel;
 use shell_parser::parser::{ParameterOp, Parser, WordPart};
 
@@ -68,14 +68,14 @@ impl<'a> Scanner<'a> {
         &mut self,
         work: &mut Work,
         cancel: &Cancel,
-    ) -> Result<Option<Piece<'a>>, i32> {
+    ) -> Result<Option<Piece<'a>>, Error> {
         work.checkpoint(cancel).await?;
         let start = self.cursor;
         let Some(value) = self.take() else {
             return if self.quote == Quote::None {
                 Ok(None)
             } else {
-                Err(2)
+                Err(2.into())
             };
         };
         let ch = value.chars().next().ok_or(2)?;
@@ -111,7 +111,7 @@ impl<'a> Scanner<'a> {
         self.check_literal(ch)?;
         Ok(Some(self.text(value, self.protected())))
     }
-    fn escape(&mut self, slash: &'a str) -> Result<Piece<'a>, i32> {
+    fn escape(&mut self, slash: &'a str) -> Result<Piece<'a>, Error> {
         let next = self.peek().ok_or(2)?;
         let double = self.outer_quoted || self.quote == Quote::Double;
         if double
@@ -123,20 +123,20 @@ impl<'a> Scanner<'a> {
         let value = self.take().ok_or(2)?;
         Ok(self.text(if value == "\n" { "" } else { value }, value != "\n"))
     }
-    fn check_literal(&self, ch: char) -> Result<(), i32> {
+    fn check_literal(&self, ch: char) -> Result<(), Error> {
         if ch == '`'
             || !self.protected()
                 && !self.outer_quoted
                 && matches!(ch, '<' | '>')
                 && self.peek() == Some('(')
         {
-            return Err(2);
+            return Err(2.into());
         }
         if !self.protected()
             && !self.outer_quoted
             && matches!(ch, '*' | '?' | '[' | '{' | '}' | '~')
         {
-            return Err(2);
+            return Err(2.into());
         }
         Ok(())
     }
@@ -145,20 +145,20 @@ impl<'a> Scanner<'a> {
         start: usize,
         work: &mut Work,
         cancel: &Cancel,
-    ) -> Result<Piece<'a>, i32> {
+    ) -> Result<Piece<'a>, Error> {
         match self.peek() {
             Some('{') => self.braced(work, cancel).await?,
             Some(c) if c.is_ascii_alphabetic() || c == '_' => self.identifier(work, cancel).await?,
             Some(c) if c.is_ascii_digit() || matches!(c, '?' | '#') => {
                 self.take();
             }
-            Some('(' | '\'' | '"' | '@' | '*' | '!' | '$' | '-') => return Err(2),
+            Some('(' | '\'' | '"' | '@' | '*' | '!' | '$' | '-') => return Err(2.into()),
             _ => return Ok(self.text("$", self.protected())),
         }
         let token = &self.source[start..self.cursor];
         validate_token(token)?;
         work.admit_parse(token.len(), cancel).await?;
-        // Validation permits only a basic variable or a scalar +/- header.
+        // Validation permits only a basic variable or a scalar operator header.
         // Their parser paths retain nested operands as raw text, never recursively
         // parsing scripts. The byte cap also bounds lexer and fallback allocation.
         let word = Parser::parse_word_string_with_limits(token, MAX_DEPTH, MAX_TOKEN_BYTES * 16);
@@ -166,14 +166,14 @@ impl<'a> Scanner<'a> {
         let mut parts = word.parts.into_iter();
         let part = parts.next().ok_or(2)?;
         if parts.next().is_some() || !supported(&part) {
-            return Err(2);
+            return Err(2.into());
         }
         Ok(Piece::Expansion {
             part,
             protected: self.protected(),
         })
     }
-    async fn identifier(&mut self, work: &mut Work, cancel: &Cancel) -> Result<(), i32> {
+    async fn identifier(&mut self, work: &mut Work, cancel: &Cancel) -> Result<(), Error> {
         while self
             .peek()
             .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
@@ -183,14 +183,14 @@ impl<'a> Scanner<'a> {
         }
         Ok(())
     }
-    async fn braced(&mut self, work: &mut Work, cancel: &Cancel) -> Result<(), i32> {
+    async fn braced(&mut self, work: &mut Work, cancel: &Cancel) -> Result<(), Error> {
         let start = self.cursor - 1;
         self.take();
         let mut depth: usize = 1;
         while let Some(value) = self.take() {
             work.checkpoint(cancel).await?;
             if self.cursor - start > MAX_TOKEN_BYTES {
-                return Err(2);
+                return Err(2.into());
             }
             if value == "$" && self.peek() == Some('(') {
                 self.skip_command(start, work, cancel).await?;
@@ -198,13 +198,13 @@ impl<'a> Scanner<'a> {
             }
             self.brace_step(value, &mut depth)?;
             if depth > MAX_DEPTH {
-                return Err(2);
+                return Err(2.into());
             }
             if depth == 0 {
                 return Ok(());
             }
         }
-        Err(2)
+        Err(2.into())
     }
     // A skipped nested scalar operand may contain unsupported substitution
     // text. Match its boundary without parsing or evaluating that script.
@@ -214,14 +214,14 @@ impl<'a> Scanner<'a> {
         start: usize,
         work: &mut Work,
         cancel: &Cancel,
-    ) -> Result<(), i32> {
+    ) -> Result<(), Error> {
         self.take();
         let mut quotes = [Quote::None; MAX_DEPTH];
         let mut depth: usize = 1;
         while let Some(value) = self.take() {
             work.checkpoint(cancel).await?;
             if self.cursor - start > MAX_TOKEN_BYTES {
-                return Err(2);
+                return Err(2.into());
             }
             let quote = &mut quotes[depth - 1];
             if value == "\\" && *quote != Quote::Single {
@@ -240,7 +240,7 @@ impl<'a> Scanner<'a> {
                 continue;
             }
             if value == "#" || value == "<" && self.peek() == Some('<') {
-                return Err(2);
+                return Err(2.into());
             }
             if value == "`" {
                 self.skip_backticks(start, work, cancel).await?;
@@ -255,18 +255,18 @@ impl<'a> Scanner<'a> {
                 return Ok(());
             }
         }
-        Err(2)
+        Err(2.into())
     }
     async fn skip_backticks(
         &mut self,
         start: usize,
         work: &mut Work,
         cancel: &Cancel,
-    ) -> Result<(), i32> {
+    ) -> Result<(), Error> {
         while let Some(value) = self.take() {
             work.checkpoint(cancel).await?;
             if self.cursor - start > MAX_TOKEN_BYTES {
-                return Err(2);
+                return Err(2.into());
             }
             if value == "`" {
                 return Ok(());
@@ -275,9 +275,9 @@ impl<'a> Scanner<'a> {
                 self.take().ok_or(2)?;
             }
         }
-        Err(2)
+        Err(2.into())
     }
-    fn brace_step(&mut self, value: &str, depth: &mut usize) -> Result<(), i32> {
+    fn brace_step(&mut self, value: &str, depth: &mut usize) -> Result<(), Error> {
         match value {
             "\0" | "\\" => {
                 self.take().ok_or(2)?;
@@ -298,15 +298,15 @@ fn toggle_quote(current: &mut Quote, quote: Quote) {
     };
 }
 
-fn validate_token(token: &str) -> Result<(), i32> {
+fn validate_token(token: &str) -> Result<(), Error> {
     if token.len() > MAX_TOKEN_BYTES {
-        return Err(2);
+        return Err(2.into());
     }
     let Some(body) = token.strip_prefix("${").and_then(|s| s.strip_suffix('}')) else {
         return if basic_name(&token[1..]) {
             Ok(())
         } else {
-            Err(2)
+            Err(2.into())
         };
     };
     if basic_name(body) {
@@ -318,8 +318,8 @@ fn validate_token(token: &str) -> Result<(), i32> {
     let name = &body[..name_end];
     let suffix = &body[name_end..];
     let operator = suffix.strip_prefix(':').unwrap_or(suffix);
-    if !scalar_name(name) || !operator.starts_with(['-', '+']) {
-        return Err(2);
+    if !scalar_name(name) || !operator.starts_with(['-', '+', '=', '?']) {
+        return Err(2.into());
     }
     Ok(())
 }
@@ -330,7 +330,10 @@ fn supported(part: &WordPart) -> bool {
             scalar_name(name)
                 && matches!(
                     operator,
-                    ParameterOp::UseDefault | ParameterOp::UseReplacement
+                    ParameterOp::UseDefault
+                        | ParameterOp::UseReplacement
+                        | ParameterOp::AssignDefault
+                        | ParameterOp::Error
                 )
         }
         _ => false,

@@ -6,7 +6,7 @@ use crate::{
     expand,
     io::{self, FdTable, FileSystem, OpenOptions},
     process::{GroupId, ProcessGroup, ProcessHost, SpawnRequest},
-    state::{FunctionFrame, SharedState, State, absolute},
+    state::{FunctionFrame, PrefixFrame, SharedState, State, absolute},
 };
 use futures::{
     FutureExt,
@@ -87,6 +87,7 @@ pub(crate) struct Context {
     pub cancel: Cancel,
     pub group: GroupId,
     scope: u64,
+    parameter_error_status: i32,
 }
 impl Context {
     pub(crate) fn fs(&self) -> &dyn FileSystem {
@@ -99,6 +100,23 @@ impl Context {
         Self {
             scope: self.core.allocate_id(),
             ..self.clone()
+        }
+    }
+    fn child_error_status(&self, command: &Command) -> i32 {
+        if matches!(
+            command,
+            Command::Simple(_)
+                | Command::Function(_)
+                | Command::Compound(CompoundCommand::Subshell(_), _)
+        ) {
+            return self.parameter_error_status;
+        }
+        1
+    }
+    fn isolated_command(&self, command: &Command) -> Self {
+        Self {
+            parameter_error_status: self.child_error_status(command),
+            ..self.isolated()
         }
     }
     async fn cleanup_jobs(&self) {
@@ -222,6 +240,7 @@ impl Session {
             cancel,
             group,
             scope: 0,
+            parameter_error_status: 127,
         };
         let state = self.state.clone();
         let join = self.core.executor.spawn(async move {
@@ -326,9 +345,10 @@ fn execute(
         let preserve = matches!(command, Command::Pipeline(_) | Command::List(_));
         let result = match command {
             Command::Simple(simple) => {
-                match simple_command(simple, state.clone(), fds, context.clone()).await {
+                let line = simple.span.start.line.max(1);
+                match simple_command(simple, state.clone(), fds.clone(), context.clone()).await {
                     Ok(result) => result,
-                    Err(code) => Outcome::status(code),
+                    Err(error) => expansion_failure(error, &fds, line, &context).await,
                 }
             }
             Command::Function(function) => {
@@ -365,7 +385,7 @@ fn execute(
                     let stage_context = if count == 1 {
                         context.clone()
                     } else {
-                        context.isolated()
+                        context.isolated_command(&command)
                     };
                     let stage_fds = if count == 1 {
                         fds.clone()
@@ -403,30 +423,16 @@ fn execute(
                 Outcome::status(code)
             }
             Command::List(list) => list_command(list, state.clone(), fds, context.clone()).await,
+            Command::Compound(CompoundCommand::Subshell(commands), redirs) => {
+                subshell(commands, redirs, state.clone(), fds, context.clone()).await
+            }
             Command::Compound(compound, redirs) => {
                 let mut work = expansion_work(context.limits());
-                match redirects(&redirs, &state, fds, &context, &mut work).await {
-                    Err(code) => Outcome::status(code),
+                match redirects(&redirs, &state, fds.clone(), &context, &mut work).await {
+                    Err(error) => expansion_failure(error, &fds, 1, &context).await,
                     Ok(fds) => match compound {
                         CompoundCommand::BraceGroup(commands) => {
                             sequence(commands, state.clone(), fds, context.clone()).await
-                        }
-                        CompoundCommand::Subshell(commands) => {
-                            let child = state.borrow().clone().shared();
-                            let child_context = context.isolated();
-                            let child_fds = Rc::new(RefCell::new(fds.borrow().clone()));
-                            let result = context
-                                .core
-                                .executor
-                                .spawn(async move {
-                                    let result =
-                                        sequence(commands, child, child_fds, child_context.clone())
-                                            .await;
-                                    child_context.cleanup_jobs().await;
-                                    result
-                                })
-                                .await;
-                            Outcome::status(result.code)
                         }
                         CompoundCommand::While(loop_) => {
                             let mut result = Outcome::status(0);
@@ -473,6 +479,78 @@ fn execute(
     }
     .boxed_local()
 }
+async fn expansion_failure(
+    error: expand::Error,
+    fds: &Descriptors,
+    line: usize,
+    context: &Context,
+) -> Outcome {
+    let (name, message) = match error {
+        expand::Error::Status(code) => return Outcome::status(code),
+        expand::Error::Parameter { name, message } => (name, message),
+    };
+    // The expansion adapter reserves diagnostic space before owning these
+    // strings. Check the complete spelling before format allocates its copy.
+    let size = name.len().saturating_add(message.len()).saturating_add(96);
+    if size > context.limits().expansion_bytes {
+        return Outcome::status(2);
+    }
+    let diagnostic = format!("/usr/bin/bash: line {line}: {name}: {message}\n");
+    let stderr = fds.borrow().get(2);
+    if let Some(stderr) = stderr {
+        let _ = stderr
+            .write_all(diagnostic.as_bytes(), &context.cancel)
+            .await;
+    }
+    if context.cancel.is_cancelled() {
+        return Outcome::status(130);
+    }
+    Outcome {
+        code: context.parameter_error_status,
+        flow: Flow::Exit,
+    }
+}
+
+async fn subshell(
+    commands: Vec<Command>,
+    redirs: Vec<Redirect>,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+) -> Outcome {
+    let child = state.borrow().clone().shared();
+    let child_context = context.isolated();
+    let child_fds = Rc::new(RefCell::new(fds.borrow().clone()));
+    let result = context
+        .core
+        .executor
+        .spawn(async move {
+            let mut work = expansion_work(child_context.limits());
+            let result = match redirects(
+                &redirs,
+                &child,
+                child_fds.clone(),
+                &child_context,
+                &mut work,
+            )
+            .await
+            {
+                Ok(fds) => {
+                    let body_context = Context {
+                        parameter_error_status: 1,
+                        ..child_context.clone()
+                    };
+                    sequence(commands, child, fds, body_context).await
+                }
+                Err(error) => expansion_failure(error, &child_fds, 1, &child_context).await,
+            };
+            child_context.cleanup_jobs().await;
+            result
+        })
+        .await;
+    Outcome::status(result.code)
+}
+
 async fn list_command(
     list: CommandList,
     state: SharedState,
@@ -544,6 +622,7 @@ fn background(
         cancel: cancel.clone(),
         group,
         scope: context.core.allocate_id(),
+        parameter_error_status: context.child_error_status(&command),
     };
     let child = state.borrow().clone().shared();
     let fds = Rc::new(RefCell::new(fds.borrow().clone()));
@@ -575,6 +654,7 @@ fn expansion_work(limits: &Limits) -> expand::Work {
             .source_bytes
             .saturating_add(limits.expansion_bytes)
             .saturating_add(limits.arguments),
+        limits.expansion_bytes,
     )
 }
 
@@ -632,68 +712,27 @@ async fn simple_command(
     state: SharedState,
     fds: Descriptors,
     context: Context,
-) -> Result<Outcome, i32> {
+) -> Result<Outcome, expand::Error> {
     retain_declaration_syntax(&mut simple, &context.source, &context.cancel).await?;
-    let mut assigned = Vec::new();
+    let assignment_count = simple.assignments.len();
+    if assignment_count > context.limits().arguments {
+        return Err(2.into());
+    }
     let mut bytes = 0usize;
     let mut budget = Budget::default();
     let mut work = expansion_work(context.limits());
-    let assignment_state = if simple.assignments.is_empty() {
-        state.clone()
-    } else {
-        state.borrow().clone().shared()
-    };
-    for assignment in simple.assignments {
-        budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
-        if assigned.len() >= context.limits().arguments {
-            return Err(2);
-        }
-        if assignment.index.is_some() || assignment.append {
-            return Err(2);
-        }
-        let AssignmentValue::Scalar(word) = assignment.value else {
-            return Err(2);
-        };
-        let value = expand::word(
-            &word,
-            &assignment_state,
-            &context.cancel,
-            context
-                .limits()
-                .expansion_bytes
-                .saturating_sub(bytes)
-                .saturating_sub(assignment.name.len().saturating_add(1)),
-            context.limits().expansion_bytes,
-            &mut work,
-        )
-        .await?;
-        bytes = bytes
-            .saturating_add(assignment.name.len())
-            .saturating_add(1)
-            .saturating_add(value.len());
-        if bytes > context.limits().expansion_bytes {
-            return Err(2);
-        }
-        assignment_state
-            .borrow_mut()
-            .variables
-            .insert(assignment.name.clone(), value.clone());
-        assigned.push((assignment.name, value));
-    }
     let original_fds = fds.clone();
-    let fds = redirects(&simple.redirects, &state, fds, &context, &mut work).await?;
     let mut argv = expand::fields(
         &simple.name,
         &state,
         &context.cancel,
-        context.limits().expansion_bytes.saturating_sub(bytes),
-        context.limits().arguments.saturating_sub(assigned.len()),
+        context.limits().expansion_bytes,
+        context.limits().arguments - assignment_count,
         context.limits().expansion_bytes,
         &mut work,
     )
     .await?;
     bytes += argv.iter().map(String::len).sum::<usize>();
-    drop(assignment_state);
     let declaration = builtins::declaration_command(&simple.name);
     for word in simple.args {
         budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
@@ -701,11 +740,11 @@ async fn simple_command(
         let remaining_words = context
             .limits()
             .arguments
-            .saturating_sub(assigned.len())
+            .saturating_sub(assignment_count)
             .saturating_sub(argv.len());
         let fields = if declaration && builtins::assignment_operand(&word) {
             if remaining_words == 0 {
-                return Err(2);
+                return Err(2.into());
             }
             vec![
                 expand::word(
@@ -733,17 +772,37 @@ async fn simple_command(
         bytes += fields.iter().map(String::len).sum::<usize>();
         argv.extend(fields);
     }
-    let mut fields = argv.into_iter();
-    let Some(name) = fields.next() else {
-        for (key, value) in assigned {
-            state.borrow_mut().variables.insert(key, value);
-        }
+    // Bash expands command words first. Assignment-only commands then assign
+    // before redirects; named commands redirect before expanding prefix RHSs.
+    if argv.is_empty() {
+        assignments(
+            simple.assignments,
+            &state,
+            &context,
+            &mut bytes,
+            &mut work,
+            true,
+        )
+        .await?;
+        redirects(&simple.redirects, &state, fds, &context, &mut work).await?;
         return Ok(Outcome::status(0));
-    };
+    }
+    let fds = redirects(&simple.redirects, &state, fds, &context, &mut work).await?;
+    let assigned = assignments(
+        simple.assignments,
+        &state,
+        &context,
+        &mut bytes,
+        &mut work,
+        false,
+    )
+    .await?;
+    let mut fields = argv.into_iter();
+    let name = fields.next().ok_or(2)?;
     let args: Vec<_> = fields.collect();
     if name == "exec" {
         if !args.is_empty() || !assigned.is_empty() {
-            return Err(2);
+            return Err(2.into());
         }
         *original_fds.borrow_mut() = fds.borrow().clone();
         return Ok(Outcome::status(0));
@@ -753,7 +812,7 @@ async fn simple_command(
     let function = state.borrow().functions.get(&name).cloned();
     if let Some(body) = function {
         if !assigned.is_empty() {
-            return Err(2);
+            return Err(2.into());
         }
         let _frame = FunctionFrame::enter(state.clone(), args, context.limits().function_depth)?;
         let mut outcome = execute(body, state, fds, context).await;
@@ -764,10 +823,12 @@ async fn simple_command(
     }
     if builtins::is_builtin(&name) {
         if !assigned.is_empty() {
-            return Err(2);
+            return Err(2.into());
         }
         let bindings = fds.borrow().clone();
-        return builtins::run(&name, args, state, bindings, context).await;
+        return builtins::run(&name, args, state, bindings, context)
+            .await
+            .map_err(Into::into);
     }
     let (mut env, cwd) = {
         let s = state.borrow();
@@ -797,24 +858,95 @@ async fn simple_command(
         Err(_) => {
             context.core.host.kill(pid, 2).map_err(|_| 1)?;
             context.core.host.wait(pid).await.map_err(|_| 1)?;
-            Err(130)
+            Err(130.into())
         }
     }
 }
+async fn assignments(
+    assignments: Vec<Assignment>,
+    state: &SharedState,
+    context: &Context,
+    bytes: &mut usize,
+    work: &mut expand::Work,
+    commit: bool,
+) -> Result<Vec<(String, String)>, expand::Error> {
+    if assignments.is_empty() {
+        return Ok(Vec::new());
+    }
+    let frame = PrefixFrame::enter(state.clone());
+    let mut names = Vec::new();
+    let initial_bytes = *bytes;
+    let mut budget = Budget::default();
+    for assignment in assignments {
+        budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
+        if assignment.index.is_some() || assignment.append {
+            return Err(2.into());
+        }
+        let AssignmentValue::Scalar(word) = assignment.value else {
+            return Err(2.into());
+        };
+        let value = expand::word(
+            &word,
+            state,
+            &context.cancel,
+            context
+                .limits()
+                .expansion_bytes
+                .saturating_sub(*bytes)
+                .saturating_sub(assignment.name.len().saturating_add(1)),
+            context.limits().expansion_bytes,
+            work,
+        )
+        .await?;
+        *bytes = bytes
+            .saturating_add(assignment.name.len())
+            .saturating_add(1)
+            .saturating_add(value.len());
+        if *bytes > context.limits().expansion_bytes {
+            return Err(2.into());
+        }
+        names.push(assignment.name.clone());
+        frame.set(assignment.name, value);
+    }
+    let mut assigned = Vec::new();
+    *bytes = initial_bytes;
+    for name in names {
+        budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
+        let state = state.borrow();
+        let value = state.variables.get(&name).ok_or(2)?;
+        *bytes = bytes
+            .saturating_add(name.len())
+            .saturating_add(1)
+            .saturating_add(value.len());
+        if *bytes > context.limits().expansion_bytes {
+            return Err(2.into());
+        }
+        if !commit {
+            assigned.push((name, value.clone()));
+        }
+    }
+    if commit {
+        frame.commit();
+    }
+    Ok(assigned)
+}
+
 async fn redirects(
     redirs: &[Redirect],
     state: &SharedState,
     fds: Descriptors,
     context: &Context,
     work: &mut expand::Work,
-) -> Result<Descriptors, i32> {
+) -> Result<Descriptors, expand::Error> {
     if redirs.is_empty() {
         return Ok(fds);
     }
     let mut fds = fds.borrow().clone();
+    let mut budget = Budget::default();
     for redirect in redirs {
+        budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
         if redirect.fd_var.is_some() {
-            return Err(2);
+            return Err(2.into());
         }
         let target = expand::word(
             &redirect.target,
@@ -857,7 +989,7 @@ async fn redirects(
                     .map_err(|e| e.status())?;
                 fds.insert(fd, endpoint);
             }
-            _ => return Err(2),
+            _ => return Err(2.into()),
         }
     }
     Ok(Rc::new(RefCell::new(fds)))

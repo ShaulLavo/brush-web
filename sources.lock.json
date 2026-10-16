@@ -284,5 +284,45 @@
       "shell/engine/tests/words.rs"
     ],
     "strategy": "Adapt only ordinary scalar ${v-word}, ${v:-word}, ${v+word} and ${v:+word}. Preserve unset versus empty and select operands lazily without copying unused values. A cooperative engine scanner streams quote-protected operand pieces into existing Fields; the engine injects no quote sentinels. Single quotes protect unquoted operands and remain literal inside outer double quotes. Reparse only admitted basic-variable or scalar +/- tokens through the unchanged parser API, with at most 4096 UTF-8 bytes per synchronous call and 32 scalar-operator levels. The lexer retains raw operand backslashes in outer double quotes, and nested ${...} remains structural inside literal apostrophe spans. Parser operand and quoted-word boundary scans keep raw escapes and existing lexer protection indivisible. The engine scanner removes escapes once, uses quote context for literal process-substitution lookalikes, and recognizes opaque substitution boundaries without evaluating them; heredoc/comment syntax in those skipped regions fails closed. Simple-command redirects and argv share Work. Cumulative token bytes and eight reserved work steps per parsed byte share the command Work allowance with scanning and expansion; all admission loops yield and check cancellation. Check parsed shape instead of accepting parser literal fallbacks. Large literal operands bypass reparsing and retain existing intermediate/aggregate expansion and argument limits. Tests adapt unset cases by leaving variables absent, observe argv directly, and add lazy nested unsupported operands, quotes, IFS, scalar contexts, budgets, depth, size and cancellation regressions. The existing WASI runner explicitly includes words.rs. Assignment/error operators, arrays/list operands, indirection, pattern operations, globbing, tilde, brace expansion, arithmetic and substitutions remain unsupported when selected. Independent regressions cover escaped dollars, braced variables, quoted process-substitution lookalikes and escaped backticks, including nested, scalar and IFS contexts. Parser changes are recorded under shellParser.changeLog; upstream tests, captured oracle, baseline, mapfile implementation and output buffering remain unchanged."
+  },
+  "shellParameterEffects": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "implementationSources": [
+      {
+        "path": "crates/bashkit/src/interpreter/expansion.rs",
+        "items": [
+          "ParameterExpansion dispatch (ordinary scalar assignment/error targets only)",
+          "resolve_param_expansion_name (unset/null selection)",
+          "apply_parameter_op (AssignDefault and Error arms)",
+          "expand_operand, parse_marked_operand and operand_word (selected operand quote removal)"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/interpreter/mod.rs",
+        "items": [
+          "set_parameter_expansion_target (scalar branch only)",
+          "expansion_error_result and expansion abort propagation (fatal flow only; status adapted to GNU Bash)"
+        ]
+      }
+    ],
+    "testSources": [
+      "crates/bashkit/tests/spec_cases/bash/var-op-test.test.sh:35-50,112-138",
+      "crates/bashkit/tests/spec_cases/bash/variables.test.sh:64-70,370-379",
+      "crates/bashkit/tests/spec_cases/bash/string-ops.test.sh:21-33",
+      "crates/bashkit/tests/spec_cases/bash/param-operand-quotes.test.sh:1-43 (quote-removal rules)",
+      "crates/bashkit/src/interpreter/mod.rs:test_colon_variable_side_effect"
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/expand/operand.rs",
+      "shell/engine/src/state.rs",
+      "shell/engine/src/interpreter.rs"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words.rs"
+    ],
+    "strategy": "Extend the scalar operator selection to ${v=word}, ${v:=word}, ${v?word} and ${v:?word}. Retain only selected assignment/error operands, bounded before growth, using the existing cooperative scanner and shared command Work. Store the unsplit quote-removed value, then apply outer-word protection and IFS splitting to the assignment result as verified with GNU Bash; unlike default operands, inner operand quotes do not protect returned assignment fields. Cumulative target/value storage and diagnostic space are admitted before persistent copies. A cancellation-safe prefix frame exposes earlier RHS assignments while completed parameter writes also update the saved caller value, replacing the discarded assignment_state clone. Expand argv first, then apply Bash assignment-only versus named-command redirect/RHS ordering. Typed fatal parameter errors propagate through sequences, AND/OR, loop conditions and function frames; explicit subshells, pipeline stages and background jobs contain them. GNU Bash and frozen observations require top-level/simple-child status 127, compound-child/body status 1 and explicit-subshell redirect status 127, instead of upstream hardcoded 1. Empty diagnostic operands differ from omitted operands. Diagnostics use the frozen /usr/bin/bash identity and original shell stderr, with bounded allocation. Tests add scalar nesting, lazy unsupported skipping, dynamic scope, quote removal/field boundaries, redirected and assignment-only commands, exact frozen diagnostics/stdout/status, child isolation, bounds and cancellation. Prefix-frame destruction is bounded by the admitted argument count and completes restoration synchronously just like FunctionFrame. No parser files or upstream parser tests changed. Arrays, positional/list targets and operands, substitutions, arithmetic, patterns, globbing, tilde and brace expansion remain deferred when selected; no output buffering, oracle edits or baseline changes."
   }
 }
