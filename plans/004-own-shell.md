@@ -67,7 +67,7 @@ Step 1 includes the minimum production semantics, fixture commands and session i
    1. Words: quoting, parameter expansion, word splitting, pathname expansion, tilde and brace expansion. The fixed case/oracle/environment identity is unchanged across these slices, with no lost passing cases:
       - Quote-aware fields, IFS, empty/positional fields and scalar declaration contexts (#16): Oils 288→291, Brush-suite 295→304, Bashkit-suite 445→452.
       - Lazy scalar default/alternative operators and owned-parser quote fixes (#17): Oils 291→305, Brush-suite 304→322, Bashkit-suite 452→479.
-      - Scalar assignment/error operators, durable side effects, fatal-error isolation, source-aware diagnostics and post-expansion IFS splitting (#18): Oils 305→311, Brush-suite 322→328, Bashkit-suite 479→492. Diagnostic descriptor ownership ends before dispatch so early consumer closes still deliver EPIPE.
+      - Scalar assignment/error operators, durable side effects, fatal-error isolation, source-aware diagnostics and post-expansion IFS splitting (#18): Oils 305→314, Brush-suite 322→328, Bashkit-suite 479→492. Diagnostic descriptor ownership ends before dispatch so early consumer closes still deliver EPIPE. Clean startup sets nonexported IFS once; typed lexical metadata retains individual escaped-character protection through deferred splitting.
       - Scalar length is the next sub-area; remaining parameter operators, pathname, tilde and brace expansion follow before command substitution.
    2. Command substitution and arithmetic.
    3. Control flow: `if`, `for`, `while`, `until`, `case`, `[[ ]]`, `test`, `&&`/`||`, `!`, `set -e` and its exceptions.
