@@ -77,7 +77,7 @@ fn nested_and_malformed_bracket_patterns_keep_their_parameter_boundaries() {
             &word.parts[0],
             WordPart::ParameterExpansion { .. }
         ));
-        assert_eq!(word.parts[1], WordPart::Literal("tail".into()));
+        assert!(matches!(&word.parts[1], WordPart::Literal(tail) if tail == "tail"));
     }
     for source in [r#"args ${v#['}] }"#, r#"args ${v%['{] }"#] {
         assert!(
@@ -98,11 +98,11 @@ fn pattern_bracket_fix_preserves_target_subscripts_and_literal_escape_metadata()
             matches!(&word.parts[0], WordPart::ArrayAccess { name, index }
             if name == "a" && index == expected_index)
         );
-        assert_eq!(word.parts[1], WordPart::Literal("tail".into()));
+        assert!(matches!(&word.parts[1], WordPart::Literal(tail) if tail == "tail"));
     }
     let word = argument("args ${#a[@]}tail");
-    assert_eq!(word.parts[0], WordPart::Length("a[@]".into()));
-    assert_eq!(word.parts[1], WordPart::Literal("tail".into()));
+    assert!(matches!(&word.parts[0], WordPart::Length(name) if name == "a[@]"));
+    assert!(matches!(&word.parts[1], WordPart::Literal(tail) if tail == "tail"));
     let word = argument(r#"args ${v#['}']}a\:b${IFS:=:}"#);
     assert_eq!(
         literal_characters(&word),
@@ -113,7 +113,7 @@ fn pattern_bracket_fix_preserves_target_subscripts_and_literal_escape_metadata()
         matches!(&word.parts[0], WordPart::ParameterExpansion { operand, .. }
         if operand == "'${v:-x}'")
     );
-    assert_eq!(word.parts[1], WordPart::Literal("tail".into()));
+    assert!(matches!(&word.parts[1], WordPart::Literal(tail) if tail == "tail"));
 }
 
 #[test]
