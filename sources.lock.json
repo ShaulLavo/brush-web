@@ -206,9 +206,9 @@
       "note": "Initial metadata refined from nodeMajor 26 to the exact setup-node version; script bytes, classifications and GNU bash observations unchanged."
     },
     "baselineMeasurement": {
-      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38902874011",
-      "source": "f2f88a0ab40a979e60dbdf7bb8ef2e8590594a8f",
-      "note": "Measured scalar length slice: Oils322, Brush-suite332, Bashkit-suite505; 25 gains versus merged parent9ec48b4 and zero lost passing cases. Fixed case/oracle/environment identity unchanged. Initial native CI identified an invalid function-prefix cancellation fixture, repaired separately without changing production code or limits. Fresh CI must match exact pass membership after the fixture and metadata update."
+      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38906680106",
+      "source": "0a5be3458f43a71ffe1720122fed1df8641a7b21",
+      "note": "Measured scalar prefix/suffix pattern-removal slice: Oils340, Brush-suite333, Bashkit-suite528; 42 gains versus merged parent28de9f9 and zero lost passing cases. Fixed case/oracle/environment identity unchanged. The early frozen source passed native/WASI104 word and37 streaming tests, parser178/API13 and56 browser tests. Later source-space, quoted-brace parser and nested-length snapshot repairs require fresh CI to reconfirm exact pass membership; no new source runtime results are inferred from this earlier measurement."
     }
   },
   "shellWords": {
