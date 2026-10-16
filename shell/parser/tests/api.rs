@@ -503,3 +503,14 @@ fn nested_replacements_keep_enclosing_operand_and_word_boundaries() {
         );
     }
 }
+
+#[test]
+fn lazy_default_reparse_keeps_quoted_substitution_lookalikes_literal() {
+    for source in [r#"${u:-'$(x'}"#, r#"${u:-'${x'}"#] {
+        let word = Parser::parse_word_string(source);
+        let [WordPart::ParameterExpansion { operand, .. }] = word.parts.as_slice() else {
+            panic!("lost lazy operand: {word:?}");
+        };
+        assert!(operand.ends_with('\''), "swallowed outer brace: {word:?}");
+    }
+}

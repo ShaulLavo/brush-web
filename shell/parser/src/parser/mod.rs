@@ -5072,6 +5072,19 @@ impl<'a> Parser<'a> {
                 if let Some(n) = chars.next() {
                     operand.push(n);
                 }
+            } else if c == '\'' && !outer_quoted {
+                // Lazy reparsing receives raw quotes, unlike the ordinary
+                // unquoted lexer path. A literal replacement/default span
+                // must not send its `$(` lookalikes to the script scanner.
+                operand.push(chars.next().unwrap());
+                while let Some(literal) = chars.next() {
+                    operand.push(literal);
+                    if literal == '\x00' {
+                        operand.extend(chars.next());
+                    } else if literal == '\'' {
+                        break;
+                    }
+                }
             } else if c == '$' {
                 operand.push(chars.next().unwrap());
                 if chars.peek() == Some(&'{') {
