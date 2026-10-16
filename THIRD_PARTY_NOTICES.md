@@ -10,6 +10,23 @@ The new shell's parser is vendored byte-for-byte from Bashkit's `crates/bashkit/
 
 The terminal's historical notice names an older Ghostty revision. The actual included `ghostty-vt.wasm` provenance names `7b11f3dca034d8d24369ad3856afe57946d7902a`, and the build records that correction while preserving the original notice text.
 
+The fixed compatibility oracle at `docs/evidence/own-shell-oracle.json` contains
+upstream test scripts, not production interpreter code. The corpus source paths,
+revisions and license checksums are pinned under `shellScoreboard.corpora` in
+`sources.lock.json`; the fixture also records each input file's SHA-256.
+Oils `spec/*.test.sh` at `bdc8364c253ce921e033bbc2399ea2ce0be41825` is covered by
+its retained [Apache 2.0 license](docs/evidence/licenses/oils-LICENSE.txt).
+Brush `brush-shell/tests/cases/compat/**/*.yaml` at
+`4cfba081f2f8bcda8150010a57203d020f14f0cc` is covered by the retained
+[MIT license, Copyright 2024 reuben olinsky](docs/evidence/licenses/brush-MIT.txt).
+Bashkit `crates/bashkit/tests/spec_cases/bash/*.test.sh` at
+`491c3281f668b76d64b15210b8f5d7bf97244be0`, excluding the Oils and just-bash ports,
+is covered by its [retained MIT license](shell/parser/LICENSE), Copyright
+2024–2026 Everruns. GNU bash observations were captured by running those scripts;
+GNU bash executable code is not included. Keep these notices and licenses with
+copies of the fixture. The new CLI's fixture helpers and replay/comparison scripts
+are original code; no additional upstream implementation is ported.
+
 The shell's first word-expansion area is separately adapted from Bashkit at
 `491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT, Copyright 2024–2026 Everruns).
 Implementation sources are `crates/bashkit/src/interpreter/expansion.rs`

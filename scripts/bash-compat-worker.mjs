@@ -21,7 +21,7 @@ const helpers = {
 };
 
 async function createRunner() {
-  if (engine === "brush") return brushRunner();
+  if (engine === "brush" || engine === "own-shell") return brushRunner();
   if (engine === "just-bash") return justBashRunner();
   return bashkitRunner();
 }
@@ -55,16 +55,27 @@ function brushRunner() {
     try {
       const wasi = new WASI({
         version: "preview1",
-        args: ["bash", "/.compat/case.sh"],
+        args: engine === "own-shell" ? ["shell-engine", "-c", code] : ["bash", "/.compat/case.sh"],
         env: { ...env, PWD: tmp },
-        preopens: { "/": root },
+        preopens: engine === "own-shell" ? {} : { "/": root },
         stdin,
         stdout,
         stderr,
         returnOnExit: true,
       });
-      const instance = new WebAssembly.Instance(module, {
-        wasi_snapshot_preview1: wasi.wasiImport,
+      let written = 0;
+      let instance;
+      const wasiImports = { ...wasi.wasiImport };
+      if (engine === "own-shell")
+        wasiImports.fd_write = (fd, iovs, count, result) => {
+          const memory = new DataView(instance.exports.memory.buffer);
+          for (let index = 0; index < count; index++)
+            written += memory.getUint32(iovs + index * 8 + 4, true);
+          if (written > 4 * 1024 * 1024) throw new Error("compatibility output limit exceeded");
+          return wasi.wasiImport.fd_write(fd, iovs, count, result);
+        };
+      instance = new WebAssembly.Instance(module, {
+        wasi_snapshot_preview1: wasiImports,
         browser,
       });
       status = wasi.start(instance);
