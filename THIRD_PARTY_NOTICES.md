@@ -201,3 +201,31 @@ UTF-8, assignments and stored functions; upstream assertions remain intact.
 `shellParser.changeLog` records the local paths and reason. The engine fixtures
 explicitly remove startup IFS only for observations made with native `unset IFS`.
 Separate controls retain Bash startup behavior and all 136 prior observations.
+
+Scalar parameter length expansion adapts Bashkit revision
+`491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT, Copyright 2024–2026 Everruns).
+The scalar `Length` arms of `expand_word` and `expand_operand`, and `shell_length`
+in `crates/bashkit/src/interpreter/expansion.rs`, together with `expand_variable`
+in `crates/bashkit/src/interpreter/mod.rs`, inform the implementation in
+`shell/engine/src/expand.rs` and `expand/operand.rs`. Tests in
+`shell/engine/tests/words.rs` adapt scalar cases from `variables.test.sh`,
+`string-ops.test.sh`, `unicode.test.sh`, `bashbox-utf8.test.sh` and
+`c-locale-length.test.sh`. Exact source ranges and destinations are recorded
+separately under `shellParameterLength` in `sources.lock.json`; the retained
+license is `shell/parser/LICENSE`.
+
+Local adaptations bound input snapshots before copying and count cooperatively
+under shared command work and cancellation limits, without holding state borrows
+across awaits. The decimal result uses existing quote-aware field construction.
+Current nonempty `LC_ALL`, `LC_CTYPE`, then `LANG` select byte or Unicode scalar
+counting. Case-insensitive `.UTF-8` and `.UTF8` suffixes select scalar counting;
+C/POSIX, all-empty and unrecognized locales select bytes. The all-empty C fallback
+follows native Bash, deliberately differing from Bashkit's UTF-8 default.
+Only identifiers, positive positional parameters, `?` and `#` are supported.
+Arrays, lists, patterns, nounset and substitutions remain outside this port.
+Parser behavior and tests are unchanged.
+
+Local length-target admission validates positive decimal syntax independently of
+machine index width, including leading zeros, retaining zero exclusion and the
+existing token cap. This original adapter correction leaves scalar assignment
+targets and parameter lookup unchanged.
