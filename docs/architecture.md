@@ -53,3 +53,7 @@ The `bashkit-terminal` worker owns Bashkit's source-tree `Terminal`. It sends ra
 Input, resize and cancellation can be delivered during asynchronous waits. CPU-bound WASM prevents this worker loop from running, so the native candidate does not meet Brush's tight-loop interruption contract. An idle result can describe a prompt, command stdin or a full-screen program. See the [native comparison](bashkit-comparison.md#source-tree-terminal-api) for tested behavior and bounded-buffer limits.
 
 Ghostty `presentation=immediate` permits a synchronous frame callback during `write`. The session sets its pending-render flag before invoking the output callback so its latency sample is consumed by that frame. Normal frame presentation remains the default. This change affects every engine.
+
+## Own-shell parser boundary
+
+The [new shell workspace](../shell/README.md) is separate from the browser transport. Its `shell-parser` crate exposes Bashkit's unchanged parser/AST at the revision pinned by `sources.lock.json`, with original error, parser-only resource and WASI clock adapters. Native tests exercise the upstream parser suite; CI also builds the library for `wasm32-wasip1`. No interpreter, executor, process host or alternative browser engine is wired up by this skeleton, so the transport and Brush behavior above are unchanged. Plan [004](../plans/004-own-shell.md) defines those later gates.

@@ -1,6 +1,6 @@
 {
   "name": "brush-web",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,7 +15,7 @@
     "test": "playwright test",
     "verify": "npm run build && npm run typecheck && npm run format:check && npm run test:host && npm run test:process && npm run test:bashkit && npm test",
     "measure": "node scripts/measure.mjs",
-    "test:rust": "cargo test --locked --manifest-path vendor/brush/Cargo.toml -p brush-interactive --features vt --lib vt:: && cargo test --locked --manifest-path vendor/brush/Cargo.toml -p brush-builtins --lib && cargo test --locked --manifest-path rust/brush-browser/Cargo.toml",
+    "test:rust": "node scripts/check-shell-parser.mjs && cargo test --locked --manifest-path shell/Cargo.toml --workspace && cargo test --locked --manifest-path vendor/brush/Cargo.toml -p brush-interactive --features vt --lib vt:: && cargo test --locked --manifest-path vendor/brush/Cargo.toml -p brush-builtins --lib && cargo test --locked --manifest-path rust/brush-browser/Cargo.toml",
     "serve": "node dist/serve.mjs",
     "compare": "node scripts/compare-commands.mjs",
     "test:host": "node scripts/test-host.mjs",
@@ -31,7 +31,8 @@
     "compat": "node scripts/bash-compat.mjs",
     "build:programs": "node scripts/build-programs.mjs",
     "measure:external": "node scripts/measure-external.mjs",
-    "test:process": "node scripts/test-process-host.mjs"
+    "test:process": "node scripts/test-process-host.mjs",
+    "build:shell": "cargo build --locked --release --target wasm32-wasip1 --manifest-path shell/Cargo.toml --workspace"
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "0.4.2",

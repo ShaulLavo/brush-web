@@ -19,7 +19,9 @@ jobs:
           components: rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust/brush-browser -> ../../.build/rust
+          workspaces: |
+            rust/brush-browser -> ../../.build/rust
+            shell -> ../.build/shell
       - uses: actions/cache@v4
         with:
           path: |
@@ -33,3 +35,7 @@ jobs:
         env:
           CARGO_TARGET_DIR: .build/rust
       - run: cargo fmt --manifest-path rust/brush-browser/Cargo.toml --check
+      - run: cargo fmt --manifest-path shell/Cargo.toml --all --check
+      - run: npm run build:shell
+        env:
+          CARGO_TARGET_DIR: .build/shell

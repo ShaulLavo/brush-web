@@ -17,22 +17,24 @@ async function include(label, directory) {
     if (text) output += `\n\n## ${label} / ${name}\n\n${text}\n`;
   }
 }
-const metadata = JSON.parse(
-  execFileSync(
-    "cargo",
-    [
-      "metadata",
-      "--locked",
-      "--format-version",
-      "1",
-      "--manifest-path",
-      "rust/brush-browser/Cargo.toml",
-    ],
-    { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
-  ),
-);
-for (const pkg of metadata.packages.sort((a, b) => a.name.localeCompare(b.name)))
-  await include(`${pkg.name} ${pkg.version}`, dirname(pkg.manifest_path));
+const includedRust = new Set();
+for (const manifest of ["rust/brush-browser/Cargo.toml", "shell/Cargo.toml"]) {
+  const metadata = JSON.parse(
+    execFileSync(
+      "cargo",
+      ["metadata", "--locked", "--format-version", "1", "--manifest-path", manifest],
+      { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+    ),
+  );
+  for (const pkg of metadata.packages.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (includedRust.has(pkg.manifest_path) || pkg.name === "shell-parser") continue;
+    includedRust.add(pkg.manifest_path);
+    await include(`${pkg.name} ${pkg.version}`, dirname(pkg.manifest_path));
+  }
+}
+// Required vendored notice: fail the build if the pinned parser license is missing.
+const parserLicense = await readFile(resolve(root, pins.shellParser.directory, "LICENSE"), "utf8");
+output += `\n\n## Bashkit parser ${pins.shellParser.revision} / LICENSE\n\n${parserLicense}\n`;
 const lock = JSON.parse(await readFile(resolve(root, "package-lock.json"), "utf8"));
 for (const [path, pkg] of Object.entries(lock.packages)) {
   if (!path || pkg.dev) continue;

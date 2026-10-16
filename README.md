@@ -81,6 +81,10 @@ The just-bash baseline uses the same terminal and byte bridge, but its public `e
 
 The source revisions and archive checksum are in [sources.lock.json](sources.lock.json). Brush is a pinned Git submodule with a checked-in patch; terminal source is downloaded from the public mirror, whose `src/` matches the inspected canonical revision. No dependency requires an existing local checkout. The build generates `dist/THIRD_PARTY_NOTICES.txt` with dependency licenses and the terminal's notices.
 
+## New shell parser
+
+Plan [004](plans/004-own-shell.md) starts a separate Rust workspace at [`shell/`](shell/README.md). Its `shell-parser` library vendors Bashkit's parser and public AST unchanged, with original parser-only adapters. `npm run test:rust` runs the upstream parser tests and verifies its pinned source checksums; `npm run build:shell` checks the library on `wasm32-wasip1`. This skeleton adds no engine and does not replace Brush or change the browser demo.
+
 ## Choose the next architecture change
 
 The [architecture research](reports/Browser%20shell%20architecture%20choices.md) separates avoidable host I/O costs from session, pipeline, and process requirements. It compares supported just-bash improvements and browser-runtime precedents, then defines one bounded experiment before considering a fork.
