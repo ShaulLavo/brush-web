@@ -75,11 +75,17 @@ AND/OR lists, background lists, brace groups, subshells, `while`, pipelines,
 streaming/state builtins. The first word area adds quote-aware fields for literals,
 ordinary variables, positional parameters and `PIPESTATUS`, including IFS splitting,
 quoted `@` boundaries, `*` joins and command-name field promotion. Assignment and
-`export`/`local` assignment operands retain scalar expansion. Scalar default/alternative operators (`-`, `:-`, `+`, `:+`) lazily expand selected
-operands with quote protection and shared work limits. Other parameter operators,
-globbing, substitution, arrays, traps, aliases, `lastpipe`, directory validation
-and full utility option coverage are not implemented. Unsupported AST forms return status 2. Utility
-names/format options here are not claims of full Bash compatibility.
+`export`/`local` assignment operands retain scalar expansion. Scalar default and
+alternative operators (`-`, `:-`, `+`, `:+`) lazily expand selected operands with
+quote protection and shared work limits. Scalar assignment operators (`=`, `:=`)
+store selected, quote-removed values without field splitting; their completed
+writes persist in the calling shell. Scalar error operators (`?`, `:?`) stop the
+containing shell, while subshells, pipeline stages and background jobs contain
+those failures. All eight forms currently require ordinary identifier targets.
+Other parameter operators, globbing, substitution, arrays, traps, aliases,
+`lastpipe`, directory validation and full utility option coverage are not
+implemented. Unsupported AST forms return status 2. Utility names/format options
+here are not claims of full Bash compatibility.
 
 The scheduler, descriptors, process adapter and streaming execution are original
 implementations. Word expansion and its focused `tests/words.rs` cases adapt the
