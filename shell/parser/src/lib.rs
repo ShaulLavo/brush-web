@@ -1,4 +1,4 @@
-//! Bashkit's unchanged parser and public AST, with original parser-only adapters.
+//! Our parser and public AST, starting from Bashkit with parser-only adapters.
 //!
 //! [`parse`] applies the configured input, depth, fuel, timeout and work limits.
 //! The upstream [`Parser`] API is also exposed unchanged for incremental parsing
@@ -7,7 +7,7 @@
 
 pub mod error;
 pub mod limits;
-// Preserve the pinned upstream files byte-for-byte, including their formatting.
+// Keep upstream formatting separate from the original adapters.
 #[rustfmt::skip]
 pub mod parser;
 mod time_compat;
