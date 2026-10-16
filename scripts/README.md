@@ -36,8 +36,9 @@ plus minimized mismatches with Bash and shell stdout as both text and base64 byt
 ## Recorded CI gate
 
 Bash 5.3.15 is not available on every CI runner, so the two checked-in fixtures under
-`scripts/fixtures/` contain the Bash stdout/status oracle for seeds 1 and 42. Record or
-refresh one only on a machine with the pinned Bash version and a clean native run:
+`scripts/fixtures/` contain the Bash stdout/status oracle for 3,000 generated cases plus
+fixed regressions at seeds 1 and 42. Recording rejects any Bash version other than 5.3.15
+and requires a clean native run:
 
 ```sh
 npm run fuzz:shell-words -- --count 3000 --seed 1 \
@@ -53,5 +54,5 @@ this fuzzer, then compares native status and stdout bytes with the recorded orac
 npm run fuzz:shell-words:ci -- --shell .build/shell/release/shell-engine
 ```
 
-The CI replay is strict: only an explicitly recorded known unsupported case may be
-`UNSUPPORTED`; every other status or byte difference is a mismatch and exits non-zero.
+The CI replay is strict: it pins the fixture count to 3,000 generated cases and treats
+both `UNSUPPORTED` and every status or byte difference as a failure, exiting non-zero.

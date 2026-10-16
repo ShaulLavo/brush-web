@@ -496,6 +496,9 @@ function execute(testCase, bashBin, shellBin, timeoutMs) {
 }
 
 function recordFixture(path, options, cases, bashBin, shellBin) {
+  const bash = bashVersion(bashBin);
+  if (!bash.startsWith("GNU bash, version 5.3.15"))
+    throw new Error(`recording requires GNU Bash 5.3.15, got ${bash}`);
   const recorded = [];
   let mismatch = null;
   for (const testCase of cases) {
@@ -517,7 +520,7 @@ function recordFixture(path, options, cases, bashBin, shellBin) {
     seed: options.seed,
     count: options.count,
     timeoutMs: options.timeoutMs,
-    bash: bashVersion(bashBin),
+    bash,
     operators,
     coverage: coverage(cases),
     cases: recorded,
@@ -527,10 +530,14 @@ function recordFixture(path, options, cases, bashBin, shellBin) {
   return fixture;
 }
 
-function replayFixture(path, shellBin) {
+function replayFixture(path, shellBin, expectedCount) {
   const fixture = JSON.parse(readFileSync(path, "utf8"));
+  if (fixture.count !== expectedCount)
+    throw new Error(
+      `fixture count ${fixture.count} does not match requested count ${expectedCount}`,
+    );
   const cases = generateCases(fixture.seed, fixture.count);
-  validateFixture(path, fixture, cases, fixture.seed, fixture.count);
+  validateFixture(path, fixture, cases, fixture.seed, expectedCount);
   const counts = { MATCH: 0, UNSUPPORTED: 0, MISMATCH: 0 };
   const mismatches = [];
   for (let index = 0; index < cases.length; index++) {
@@ -643,7 +650,7 @@ function main() {
   try {
     const shellBin = buildShell(options, scratch);
     if (options.replays.length) {
-      const reports = options.replays.map((path) => replayFixture(path, shellBin));
+      const reports = options.replays.map((path) => replayFixture(path, shellBin, options.count));
       const replayReport = { mode: "replay", reports };
       const text = JSON.stringify(replayReport, null, 2) + "\n";
       if (options.output) writeFileSync(options.output, text);
@@ -652,7 +659,8 @@ function main() {
           `replay ${report.path}: MATCH=${report.counts.MATCH} UNSUPPORTED=${report.counts.UNSUPPORTED} MISMATCH=${report.counts.MISMATCH}`,
         );
       process.stdout.write(text);
-      if (reports.some((report) => report.counts.MISMATCH > 0)) process.exitCode = 1;
+      if (reports.some((report) => report.counts.MISMATCH > 0 || report.counts.UNSUPPORTED > 0))
+        process.exitCode = 1;
       return;
     }
     const bashBin = process.env.BASH_BIN ?? "bash";
