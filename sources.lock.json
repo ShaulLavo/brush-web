@@ -116,6 +116,14 @@
         ],
         "change": "Replace the source byte-identity requirement with this base-revision and change record. No upstream parser behavior or tests changed.",
         "reason": "The parser is maintained as our own code; fixes may diverge freely from Bashkit."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/mod.rs"
+        ],
+        "change": "Keep double-quoted parameter operand backslashes raw, preserve nested ${...} inside literal apostrophe spans, and treat raw escapes and existing lexer protection as indivisible when matching operand and quoted-word boundaries. Share the double-quote and literal-apostrophe span scanner. No upstream tests removed or changed.",
+        "reason": "The engine needs the original escape and quote context to distinguish escaped dollars/backticks and braced variables from literal text without context-specific decoding state."
       }
     ],
     "removedUpstreamTests": []
@@ -245,14 +253,14 @@
       {
         "path": "crates/bashkit/src/parser/lexer.rs",
         "items": [
-          "read_unquoted_param_body and read_param_expansion_into (existing quote/escape normalization contract; no parser changes)"
+          "read_unquoted_param_body and read_param_expansion_into (base quote/escape handling; local double-quoted operands retain raw escapes and nested scalar braces)"
         ]
       },
       {
         "path": "crates/bashkit/src/parser/mod.rs",
         "items": [
           "parse_word_string_with_limits (unchanged API, called only after engine admission)",
-          "read_brace_operand (opaque nested substitution boundaries adapted to bounded engine scanning)"
+          "read_brace_operand (opaque nested substitution boundaries adapted to bounded engine scanning; local parser keeps raw escapes indivisible)"
         ]
       }
     ],
@@ -267,11 +275,13 @@
       "shell/engine/src/expand.rs",
       "shell/engine/src/expand/operand.rs",
       "shell/engine/src/state.rs",
-      "shell/engine/src/interpreter.rs"
+      "shell/engine/src/interpreter.rs",
+      "shell/parser/src/parser/lexer.rs",
+      "shell/parser/src/parser/mod.rs"
     ],
     "testDestinations": [
       "shell/engine/tests/words.rs"
     ],
-    "strategy": "Adapt only ordinary scalar ${v-word}, ${v:-word}, ${v+word} and ${v:+word}. Preserve unset versus empty and select operands lazily without copying unused values. A cooperative engine scanner streams quote-protected operand pieces into existing Fields; there are no injected quote sentinels. Single quotes protect unquoted operands and remain literal inside outer double quotes. Reparse only admitted basic-variable or scalar +/- tokens through the unchanged parser API, with at most 4096 UTF-8 bytes per synchronous call and 32 scalar-operator levels. The scanner retains the existing lexer escape normalization and recognizes opaque substitution boundaries without evaluating them; heredoc/comment syntax in those skipped regions fails closed. Simple-command redirects and argv share Work. Cumulative token bytes and eight reserved work steps per parsed byte share the command Work allowance with scanning and expansion; all admission loops yield and check cancellation. Check parsed shape instead of accepting parser literal fallbacks. Large literal operands bypass reparsing and retain existing intermediate/aggregate expansion and argument limits. Tests adapt unset cases by leaving variables absent, observe argv directly, and add lazy nested unsupported operands, quotes, IFS, scalar contexts, budgets, depth, size and cancellation regressions. The existing WASI runner explicitly includes words.rs. Assignment/error operators, arrays/list operands, indirection, pattern operations, globbing, tilde, brace expansion, arithmetic and substitutions remain unsupported when selected. No parser bytes, captured oracle, baseline, mapfile implementation or output buffering are changed."
+    "strategy": "Adapt only ordinary scalar ${v-word}, ${v:-word}, ${v+word} and ${v:+word}. Preserve unset versus empty and select operands lazily without copying unused values. A cooperative engine scanner streams quote-protected operand pieces into existing Fields; the engine injects no quote sentinels. Single quotes protect unquoted operands and remain literal inside outer double quotes. Reparse only admitted basic-variable or scalar +/- tokens through the unchanged parser API, with at most 4096 UTF-8 bytes per synchronous call and 32 scalar-operator levels. The lexer retains raw operand backslashes in outer double quotes, and nested ${...} remains structural inside literal apostrophe spans. Parser operand and quoted-word boundary scans keep raw escapes and existing lexer protection indivisible. The engine scanner removes escapes once, uses quote context for literal process-substitution lookalikes, and recognizes opaque substitution boundaries without evaluating them; heredoc/comment syntax in those skipped regions fails closed. Simple-command redirects and argv share Work. Cumulative token bytes and eight reserved work steps per parsed byte share the command Work allowance with scanning and expansion; all admission loops yield and check cancellation. Check parsed shape instead of accepting parser literal fallbacks. Large literal operands bypass reparsing and retain existing intermediate/aggregate expansion and argument limits. Tests adapt unset cases by leaving variables absent, observe argv directly, and add lazy nested unsupported operands, quotes, IFS, scalar contexts, budgets, depth, size and cancellation regressions. The existing WASI runner explicitly includes words.rs. Assignment/error operators, arrays/list operands, indirection, pattern operations, globbing, tilde, brace expansion, arithmetic and substitutions remain unsupported when selected. Independent regressions cover escaped dollars, braced variables, quoted process-substitution lookalikes and escaped backticks, including nested, scalar and IFS contexts. Parser changes are recorded under shellParser.changeLog; upstream tests, captured oracle, baseline, mapfile implementation and output buffering remain unchanged."
   }
 }

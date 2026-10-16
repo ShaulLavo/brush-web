@@ -84,8 +84,13 @@ Local operand handling streams structural protection into the existing field
 splitter instead of inserting upstream quote markers. Only selected scalar
 operands are scanned or reparsed. Each synchronous scalar-token reparse is
 admitted at 4,096 bytes, with cumulative token-byte/work accounting, cooperative
-checkpoints, a 32-level operator limit and a parsed-shape check. The parser stays
-byte-identical. Assignment and error operators, list operands, arrays,
+checkpoints, a 32-level operator limit and a parsed-shape check. Local changes in
+`lexer.rs` retain raw backslashes in double-quoted parameter operands and nested
+scalar braces inside literal apostrophe spans. Operand matching in `mod.rs` and
+the lexer's quoted-word boundary scan keep raw escapes and existing lexer
+protection indivisible. The engine removes escapes once and distinguishes quoted
+process-substitution lookalikes from unsupported substitutions. Assignment and
+error operators, list operands, arrays,
 indirection, patterns, pathname/tilde/brace expansion,
 arithmetic and substitutions are not ported. The original async engine keeps
 its aggregate bounds and cancellation guards; no `mapfile` or output-buffering
@@ -95,5 +100,5 @@ The parser starts from Bashkit revision `491c3281f668b76d64b15210b8f5d7bf97244be
 and is now maintained freely as our own code. Its base revision, local change log
 and any deliberately removed upstream tests with reasons are recorded under
 `shellParser` in `sources.lock.json`. The provenance check validates that record
-and the retained license, not byte identity. This policy change alters no parser
-behavior and removes no upstream tests.
+and the retained license, not byte identity. All upstream parser tests remain in
+place; the local quote and escape changes are recorded there.

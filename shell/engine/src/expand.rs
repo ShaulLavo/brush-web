@@ -230,7 +230,6 @@ impl Expansion<'_> {
         quoted: bool,
         scalar: bool,
         depth: usize,
-        encoded_escapes: bool,
     ) -> LocalBoxFuture<'a, Result<(), i32>> {
         async move {
             if let WordPart::ParameterExpansion {
@@ -250,7 +249,6 @@ impl Expansion<'_> {
                         quoted,
                         scalar,
                         depth,
-                        encoded_escapes,
                     )
                     .await;
             }
@@ -270,7 +268,6 @@ impl Expansion<'_> {
         quoted: bool,
         scalar: bool,
         depth: usize,
-        encoded_escapes: bool,
     ) -> Result<(), i32> {
         if !operand::scalar_name(name) || depth >= operand::MAX_DEPTH {
             return Err(2);
@@ -286,7 +283,7 @@ impl Expansion<'_> {
             .is_none_or(|v| colon && v.is_empty());
         if replacement != absent {
             return self
-                .operand(operand, state, quoted, scalar, depth + 1, encoded_escapes)
+                .operand(operand, state, quoted, scalar, depth + 1)
                 .await;
         }
         let value = if replacement {
@@ -308,9 +305,8 @@ impl Expansion<'_> {
         quoted: bool,
         scalar: bool,
         depth: usize,
-        encoded_escapes: bool,
     ) -> Result<(), i32> {
-        let mut scanner = operand::Scanner::new(source, quoted, encoded_escapes);
+        let mut scanner = operand::Scanner::new(source, quoted);
         while let Some(piece) = scanner.next(self.work, self.cancel).await? {
             self.operand_piece(piece, state, quoted, scalar, depth)
                 .await?;
@@ -335,20 +331,9 @@ impl Expansion<'_> {
                 )
                 .await
             }
-            operand::Piece::Expansion {
-                part,
-                protected,
-                encoded_escapes,
-            } => {
-                self.part(
-                    &part,
-                    state,
-                    quoted || protected,
-                    scalar,
-                    depth,
-                    encoded_escapes,
-                )
-                .await
+            operand::Piece::Expansion { part, protected } => {
+                self.part(&part, state, quoted || protected, scalar, depth)
+                    .await
             }
         }
     }
@@ -537,9 +522,7 @@ async fn expand(
             expansion.segment(value, true, scalar || quoted).await?;
             continue;
         }
-        expansion
-            .part(part, state, quoted, scalar, 0, quoted)
-            .await?;
+        expansion.part(part, state, quoted, scalar, 0).await?;
     }
     expansion.fields.end_group()?;
     Ok(expansion.fields.out)

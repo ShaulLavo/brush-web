@@ -4926,8 +4926,8 @@ impl<'a> Parser<'a> {
         let mut operand = String::new();
         let mut depth = 1; // Track nested braces
         while let Some(&c) = chars.peek() {
-            if c == '\x00' {
-                // Lexer escape: keep the pair, never count the escaped char.
+            if matches!(c, '\x00' | '\\') {
+                // Keep lexer protection and raw operand escapes indivisible.
                 operand.push(chars.next().unwrap());
                 if let Some(n) = chars.next() {
                     operand.push(n);

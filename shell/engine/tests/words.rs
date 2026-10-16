@@ -830,3 +830,56 @@ fn literal_apostrophe_spans_and_substitution_lookalikes_keep_operand_meaning() {
         &[&["'$v'", "'VALUE'", "<(", "`"]],
     );
 }
+
+#[test]
+fn escaped_dollars_in_literal_apostrophe_spans_stay_literal() {
+    check(
+        r#"u=; v=VALUE; args "${u:-'\$v'}" "${u:-'\${v}'}" "${u:-'\\$v'}" ${u:-'\$v'}"#,
+        &[&["'$v'", "'${v}'", "'\\VALUE'", "\\$v"]],
+    );
+    check(
+        r#"u=; v=VALUE; x="${u:-'\$v'}"; export y="${u:-'\${v}'}"; args "$x" "$y" "${u:-${other:-'\$v'}}""#,
+        &[&["'$v'", "'${v}'", "'$v'"]],
+    );
+}
+
+#[test]
+fn braced_variables_in_literal_apostrophe_spans_expand() {
+    check(
+        r#"u=; v=VALUE; args "${u:-'${v}'}" "${u:-'${v:-fallback}'}" "${u:-${other:-'${v}'}}""#,
+        &[&["'VALUE'", "'VALUE'", "'VALUE'"]],
+    );
+    check(
+        r#"u=; IFS=:; v='a:b'; args "${u:-'${v}'}" ${u:-"'${v}'"}; x="${u:-'${v}'}"; args "$x""#,
+        &[&["'a:b'", "'a:b'"], &["'a:b'"]],
+    );
+}
+
+#[test]
+fn quoted_process_substitution_lookalikes_are_text() {
+    check(
+        r#"u=; args ${u:-"<("} ${u:-">("} "${u:-<(printf X)}" ${u:-${other:-"<("}}"#,
+        &[&["<(", ">(", "<(printf X)", "<("]],
+    );
+    for source in [
+        "args ${u:-<(args forbidden)}",
+        "args ${u:->(args forbidden)}",
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 2, "{source}");
+        assert!(rig.calls.borrow().is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn escaped_backticks_and_operand_delimiters_stay_literal() {
+    check(
+        r#"u=; args "${u:-\`}" ${u:-\`} ${u:-"\`"} ${u:-'`'} "${u:-${other:-\`}}""#,
+        &[&["`", "`", "`", "`", "`"]],
+    );
+    check(
+        r#"u=; args "${u:-\\}" "${u:-a\}b}" "${u:-\"q\"}" "${u:-a\{b}" p"${u:-a\}b}"s"#,
+        &[&["\\", "a}b", "\"q\"", "a\\{b", "pa}bs"]],
+    );
+    check(r#"u=; args "${u:-'a\'}""#, &[&["'a\\'"]]);
+}

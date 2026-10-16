@@ -24,15 +24,8 @@ fn basic_name(name: &str) -> bool {
 }
 
 pub(super) enum Piece<'a> {
-    Text {
-        value: &'a str,
-        protected: bool,
-    },
-    Expansion {
-        part: WordPart,
-        protected: bool,
-        encoded_escapes: bool,
-    },
+    Text { value: &'a str, protected: bool },
+    Expansion { part: WordPart, protected: bool },
 }
 #[derive(Clone, Copy, PartialEq)]
 enum Quote {
@@ -46,16 +39,14 @@ pub(super) struct Scanner<'a> {
     cursor: usize,
     quote: Quote,
     outer_quoted: bool,
-    encoded_escapes: bool,
 }
 impl<'a> Scanner<'a> {
-    pub(super) fn new(source: &'a str, outer_quoted: bool, encoded_escapes: bool) -> Self {
+    pub(super) fn new(source: &'a str, outer_quoted: bool) -> Self {
         Self {
             source,
             cursor: 0,
             quote: Quote::None,
             outer_quoted,
-            encoded_escapes,
         }
     }
     fn protected(&self) -> bool {
@@ -121,21 +112,21 @@ impl<'a> Scanner<'a> {
         Ok(Some(self.text(value, self.protected())))
     }
     fn escape(&mut self, slash: &'a str) -> Result<Piece<'a>, i32> {
-        // The unchanged lexer's outer-double-quote parameter path already
-        // decodes backslash escapes. Inner double-quoted spans keep raw escapes.
-        if self.encoded_escapes && self.quote == Quote::None {
-            return Ok(self.text(slash, true));
-        }
         let next = self.peek().ok_or(2)?;
         let double = self.outer_quoted || self.quote == Quote::Double;
-        if double && !matches!(next, '$' | '`' | '"' | '\\' | '\n') {
+        if double && !matches!(next, '$' | '`' | '"' | '\\' | '}' | '\n') {
             return Ok(self.text(slash, true));
         }
         let value = self.take().ok_or(2)?;
         Ok(self.text(if value == "\n" { "" } else { value }, value != "\n"))
     }
     fn check_literal(&self, ch: char) -> Result<(), i32> {
-        if ch == '`' || matches!(ch, '<' | '>') && self.peek() == Some('(') {
+        if ch == '`'
+            || !self.protected()
+                && !self.outer_quoted
+                && matches!(ch, '<' | '>')
+                && self.peek() == Some('(')
+        {
             return Err(2);
         }
         if !self.protected()
@@ -177,7 +168,6 @@ impl<'a> Scanner<'a> {
         Ok(Piece::Expansion {
             part,
             protected: self.protected(),
-            encoded_escapes: self.encoded_escapes && self.quote != Quote::Double,
         })
     }
     async fn identifier(&mut self, work: &mut Work, cancel: &Cancel) -> Result<(), i32> {
@@ -286,7 +276,7 @@ impl<'a> Scanner<'a> {
     }
     fn brace_step(&mut self, value: &str, depth: &mut usize) -> Result<(), i32> {
         match value {
-            "\0" => {
+            "\0" | "\\" => {
                 self.take().ok_or(2)?;
             }
             "{" => *depth += 1,
