@@ -197,9 +197,9 @@
       "note": "Initial metadata refined from nodeMajor 26 to the exact setup-node version; script bytes, classifications and GNU bash observations unchanged."
     },
     "baselineMeasurement": {
-      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38901235619",
-      "source": "922c4becfa5ab2b40cf4adbf0425f89661f0d819",
-      "note": "Measured scalar assignment/error and lexical-protection slice: Oils314, Brush-suite328, Bashkit-suite492; 28 gains versus merged parent12f9a17 and zero lost passing cases. Fixed case/oracle/environment identity unchanged. Native and WASI pass80 word and37 streaming tests; release WASI886832 bytes raw,201618 Brotli-11. Fresh CI must match exact pass membership after this metadata update."
+      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38902874011",
+      "source": "f2f88a0ab40a979e60dbdf7bb8ef2e8590594a8f",
+      "note": "Measured scalar length slice: Oils322, Brush-suite332, Bashkit-suite505; 25 gains versus merged parent9ec48b4 and zero lost passing cases. Fixed case/oracle/environment identity unchanged. Initial native CI identified an invalid function-prefix cancellation fixture, repaired separately without changing production code or limits. Fresh CI must match exact pass membership after the fixture and metadata update."
     }
   },
   "shellWords": {
