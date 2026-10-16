@@ -11,17 +11,25 @@ use std::{
 pub type SharedState = Rc<RefCell<State>>;
 
 #[derive(Clone, Debug)]
+pub(crate) struct LocalVariable {
+    previous: Option<String>,
+    exported: bool,
+    readonly: bool,
+}
+
+#[derive(Clone, Debug)]
 pub struct State {
     pub shell_name: String,
     pub variables: BTreeMap<String, String>,
     pub exported: BTreeSet<String>,
+    pub readonly: BTreeSet<String>,
     pub cwd: String,
     pub functions: BTreeMap<String, Command>,
     pub status: i32,
     pub pipestatus: Vec<i32>,
     pub pipefail: bool,
     pub(crate) positional: Vec<String>,
-    pub(crate) locals: Vec<BTreeMap<String, (Option<String>, bool)>>,
+    pub(crate) locals: Vec<BTreeMap<String, LocalVariable>>,
     prefixes: Vec<BTreeMap<String, Option<String>>>,
 }
 impl Default for State {
@@ -30,6 +38,7 @@ impl Default for State {
             shell_name: "bash".into(),
             variables: BTreeMap::from([("IFS".into(), " \t\n".into())]),
             exported: BTreeSet::new(),
+            readonly: BTreeSet::new(),
             cwd: "/home/guest".into(),
             functions: BTreeMap::new(),
             status: 0,
@@ -72,7 +81,10 @@ impl State {
             .last()
             .is_some_and(|saved| saved.contains_key(name))
     }
-    pub(crate) fn assign_parameter(&mut self, name: String, value: String) {
+    pub(crate) fn assign_parameter(&mut self, name: String, value: String) -> Result<(), i32> {
+        if self.is_readonly(&name) {
+            return Err(1);
+        }
         if let Some(saved) = self
             .prefixes
             .last_mut()
@@ -81,6 +93,36 @@ impl State {
             *saved = Some(value.clone());
         }
         self.variables.insert(name, value);
+        Ok(())
+    }
+    pub(crate) fn is_readonly(&self, name: &str) -> bool {
+        self.locals
+            .iter()
+            .rev()
+            .find_map(|locals| locals.get(name))
+            .map_or_else(|| self.readonly.contains(name), |local| local.readonly)
+    }
+    fn current_local_readonly(&self, name: &str) -> bool {
+        self.locals
+            .last()
+            .and_then(|locals| locals.get(name))
+            .is_some_and(|local| local.readonly)
+    }
+    pub(crate) fn readonly(&mut self, name: String, value: Option<String>) -> Result<(), i32> {
+        if let Some(value) = value {
+            self.assign_parameter(name.clone(), value)?;
+        }
+        let owner = self
+            .locals
+            .iter_mut()
+            .rev()
+            .find_map(|locals| locals.get_mut(&name));
+        if let Some(local) = owner {
+            local.readonly = true;
+            return Ok(());
+        }
+        self.readonly.insert(name);
+        Ok(())
     }
     pub(crate) fn environment(&self) -> BTreeMap<String, String> {
         self.exported
@@ -89,10 +131,14 @@ impl State {
             .collect()
     }
     pub(crate) fn local(&mut self, name: String, value: String) -> Result<(), i32> {
-        let previous = (
-            self.variables.get(&name).cloned(),
-            self.exported.contains(&name),
-        );
+        if self.readonly.contains(&name) || self.current_local_readonly(&name) {
+            return Err(1);
+        }
+        let previous = LocalVariable {
+            previous: self.variables.get(&name).cloned(),
+            exported: self.exported.contains(&name),
+            readonly: false,
+        };
         self.locals
             .last_mut()
             .ok_or(1)?
@@ -118,8 +164,11 @@ impl PrefixFrame {
             active: true,
         }
     }
-    pub(crate) fn set(&self, name: String, value: String) {
+    pub(crate) fn set(&self, name: String, value: String) -> Result<(), String> {
         let mut state = self.state.borrow_mut();
+        if state.is_readonly(&name) {
+            return Err(name);
+        }
         let previous = state.variables.insert(name.clone(), value);
         state
             .prefixes
@@ -127,6 +176,7 @@ impl PrefixFrame {
             .unwrap()
             .entry(name)
             .or_insert(previous);
+        Ok(())
     }
     pub(crate) fn commit(mut self) {
         self.state.borrow_mut().prefixes.pop();
@@ -175,15 +225,15 @@ impl Drop for FunctionFrame {
         let mut s = self.state.borrow_mut();
         s.positional = std::mem::take(&mut self.positional);
         if let Some(locals) = s.locals.pop() {
-            for (name, (value, exported)) in locals {
+            for (name, local) in locals {
                 // Only local declarations restore their export attribute;
                 // ordinary export changes in functions belong to the caller.
-                if exported {
+                if local.exported {
                     s.exported.insert(name.clone());
                 } else {
                     s.exported.remove(&name);
                 }
-                if let Some(value) = value {
+                if let Some(value) = local.previous {
                     s.variables.insert(name, value);
                 } else {
                     s.variables.remove(&name);

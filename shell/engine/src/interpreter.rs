@@ -602,6 +602,9 @@ async fn arithmetic_command(
         Err(
             error @ expand::Error::Arithmetic {
                 expansion: false, ..
+            }
+            | error @ expand::Error::Readonly {
+                expansion: false, ..
             },
         ) => {
             let mut outcome = expansion_failure(error.into(), fds, context).await;
@@ -621,6 +624,9 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
     };
     let (name, message, line, status) = match error {
         expand::Error::Status(code) => return Outcome::status(code),
+        expand::Error::Readonly { name, line, .. } => {
+            (name, "readonly variable".to_owned(), line, 1)
+        }
         expand::Error::Arithmetic { message, line, .. } => (
             "arithmetic expression".to_owned(),
             message.to_owned(),
@@ -1059,6 +1065,9 @@ async fn dispatch_simple_command(
                         expand::Error::Arithmetic {
                             expansion: false,
                             ..
+                        } | expand::Error::Readonly {
+                            expansion: false,
+                            ..
                         }
                     );
                     result = expansion_failure(error.into(), &fds, &context).await;
@@ -1153,7 +1162,14 @@ async fn assignments(
             return Err(2.into());
         }
         names.push(assignment.name.clone());
-        frame.set(assignment.name, value);
+        if let Err(name) = frame.set(assignment.name, value) {
+            work.admit_storage(name.len().saturating_add(160))?;
+            return Err(expand::Error::Readonly {
+                name,
+                line: None,
+                expansion: true,
+            });
+        }
     }
     let mut assigned = Vec::new();
     *bytes = initial_bytes;

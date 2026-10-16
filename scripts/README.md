@@ -51,3 +51,15 @@ npm run fuzz:shell-words:ci -- --shell .build/shell/release/shell-engine
 
 The CI replay is strict: it pins the fixture count to 3,000 generated cases and treats
 both `UNSUPPORTED` and every status or byte difference as a failure, exiting non-zero.
+
+## Readonly scalar gate
+
+`npm run fuzz:shell-readonly` checks readonly declarations, rejected local and
+arithmetic writes, nested local shadowing, and assignment expansion errors against
+GNU Bash 5.3.15. It includes 256 deterministic generated cases and eight fixed
+regressions. Supply an existing native binary with `--shell PATH`.
+
+Record the oracle with `--record scripts/fixtures/shell-readonly-seed-17.json`.
+`npm run fuzz:shell-readonly:ci -- --shell PATH` replays status and stdout bytes
+without invoking Bash. Replay verifies the generator hash, seed, count, timeout,
+Bash version, and every regenerated script. Stderr is recorded for diagnosis.

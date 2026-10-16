@@ -4009,3 +4009,6 @@ fn cancellation_during_redirect_target_keeps_effects_and_restores_frames() {
 mod arithmetic;
 #[path = "words/indirect.rs"]
 mod indirect;
+
+#[path = "words/readonly.rs"]
+mod readonly;

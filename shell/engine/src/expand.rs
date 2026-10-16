@@ -21,6 +21,11 @@ use std::{borrow::Cow, collections::BTreeSet};
 /// The interpreter supplies the shell environment's status and diagnostic line.
 pub(crate) enum Error {
     Status(i32),
+    Readonly {
+        name: String,
+        line: Option<usize>,
+        expansion: bool,
+    },
     Arithmetic {
         message: &'static str,
         line: Option<usize>,
@@ -44,6 +49,11 @@ pub(crate) enum Error {
 impl Error {
     pub(crate) fn in_expansion(self) -> Self {
         match self {
+            Self::Readonly { name, line, .. } => Self::Readonly {
+                name,
+                line,
+                expansion: true,
+            },
             Self::Arithmetic { message, line, .. } => Self::Arithmetic {
                 message,
                 line,
@@ -54,6 +64,13 @@ impl Error {
     }
     pub(crate) fn at_line(self, line: Option<usize>) -> Self {
         match self {
+            Self::Readonly {
+                name, expansion, ..
+            } => Self::Readonly {
+                name,
+                line,
+                expansion,
+            },
             Self::Arithmetic {
                 message, expansion, ..
             } => Self::Arithmetic {
@@ -1461,9 +1478,18 @@ impl Expansion<'_> {
             self.work
                 .admit_storage(name.len().saturating_add(captured.value.len()))?;
         }
-        state
+        let assigned = state
             .borrow_mut()
             .assign_parameter(name.to_owned(), captured.value.clone());
+        if assigned.is_err() {
+            self.work
+                .admit_storage(name.len().saturating_mul(2).saturating_add(160))?;
+            return Err(Error::Readonly {
+                name: name.to_owned(),
+                line: None,
+                expansion: true,
+            });
+        }
         self.ifs_changed |= ifs_changed;
         if ifs_changed {
             self.ifs = None;

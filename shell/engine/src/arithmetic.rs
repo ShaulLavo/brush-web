@@ -478,10 +478,16 @@ fn store(
     work.admit_storage(name.len().saturating_mul(2).saturating_add(80 + 128))?;
     let text = value.to_string();
     let mut state = state.borrow_mut();
-    if state.scalar_parameter(name) != Some(text.as_str()) {
-        work.arithmetic_writes = work.arithmetic_writes.wrapping_add(1);
+    let changed = state.scalar_parameter(name) != Some(text.as_str());
+    if state.assign_parameter(name.to_owned(), text).is_err() {
+        work.admit_storage(name.len().saturating_mul(2).saturating_add(160))?;
+        return Err(Error::Readonly {
+            name: name.to_owned(),
+            line: None,
+            expansion: false,
+        });
     }
-    state.assign_parameter(name.to_owned(), text);
+    work.arithmetic_writes = work.arithmetic_writes.wrapping_add(u64::from(changed));
     Ok(())
 }
 

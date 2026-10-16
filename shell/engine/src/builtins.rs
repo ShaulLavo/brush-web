@@ -18,7 +18,7 @@ pub(crate) fn declaration_command(word: &Word) -> bool {
     let [WordPart::Literal(name)] = word.parts.as_slice() else {
         return false;
     };
-    matches!(name.as_str(), "export" | "local")
+    matches!(name.as_str(), "export" | "local" | "readonly")
         && word
             .raw
             .as_deref()
@@ -75,6 +75,7 @@ pub(crate) fn is_builtin(name: &str) -> bool {
             | "read"
             | "export"
             | "local"
+            | "readonly"
             | "cd"
             | "pwd"
             | "set"
@@ -83,6 +84,12 @@ pub(crate) fn is_builtin(name: &str) -> bool {
             | "wait"
             | "kill"
     )
+}
+fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.bytes().enumerate().all(|(index, byte)| {
+            byte == b'_' || byte.is_ascii_alphabetic() || (index > 0 && byte.is_ascii_digit())
+        })
 }
 fn endpoint(fds: &FdTable, fd: u32) -> Result<Endpoint, i32> {
     fds.get(fd).ok_or(1)
@@ -269,45 +276,14 @@ pub(crate) async fn run(
                 }
                 bytes.push(byte[0]);
             };
-            state.borrow_mut().variables.insert(
+            state.borrow_mut().assign_parameter(
                 name.unwrap_or_else(|| "REPLY".into()),
                 String::from_utf8(bytes).map_err(|_| 2)?,
-            );
+            )?;
             return Ok(Outcome::status(code));
         }
-        "export" | "local" => {
-            let mut budget = Budget::default();
-            for arg in args {
-                budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
-                let (key, value) = arg
-                    .split_once('=')
-                    .map(|(k, v)| (k.to_owned(), v.to_owned()))
-                    .unwrap_or_else(|| {
-                        (
-                            arg.clone(),
-                            state
-                                .borrow()
-                                .variables
-                                .get(&arg)
-                                .cloned()
-                                .unwrap_or_default(),
-                        )
-                    });
-                if key.is_empty()
-                    || !key.bytes().enumerate().all(|(i, b)| {
-                        b == b'_' || b.is_ascii_alphabetic() || (i > 0 && b.is_ascii_digit())
-                    })
-                {
-                    return Err(2);
-                }
-                if name == "local" {
-                    state.borrow_mut().local(key, value)?;
-                } else {
-                    let mut s = state.borrow_mut();
-                    s.exported.insert(key.clone());
-                    s.variables.insert(key, value);
-                }
-            }
+        "export" | "local" | "readonly" => {
+            return declarations(name, args, &state, &fds, &context).await;
         }
         "cd" => {
             if args.len() != 1 {
@@ -345,4 +321,69 @@ pub(crate) async fn run(
         _ => return Err(127),
     }
     Ok(Outcome::status(0))
+}
+
+async fn declarations(
+    name: &str,
+    args: Vec<String>,
+    state: &SharedState,
+    fds: &FdTable,
+    context: &Context,
+) -> Result<Outcome, i32> {
+    let mut budget = Budget::default();
+    let mut status = 0;
+    for arg in args {
+        budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
+        let (key, value) = arg
+            .split_once('=')
+            .map(|(key, value)| (key.to_owned(), Some(value.to_owned())))
+            .unwrap_or((arg, None));
+        if !valid_name(&key) {
+            return Err(2);
+        }
+        if apply_declaration(name, &key, value, &mut state.borrow_mut()).is_ok() {
+            continue;
+        }
+        status = 1;
+        if state.borrow().is_readonly(&key) {
+            readonly_diagnostic(name, &key, fds, context).await?;
+        }
+    }
+    Ok(Outcome::status(status))
+}
+
+fn apply_declaration(
+    name: &str,
+    key: &str,
+    value: Option<String>,
+    state: &mut crate::state::State,
+) -> Result<(), i32> {
+    if name == "readonly" {
+        return state.readonly(key.to_owned(), value);
+    }
+    if name == "local" {
+        let value = value.unwrap_or_else(|| state.variables.get(key).cloned().unwrap_or_default());
+        return state.local(key.to_owned(), value);
+    }
+    if let Some(value) = value {
+        state.assign_parameter(key.to_owned(), value)?;
+    }
+    state.exported.insert(key.to_owned());
+    Ok(())
+}
+
+async fn readonly_diagnostic(
+    builtin: &str,
+    key: &str,
+    fds: &FdTable,
+    context: &Context,
+) -> Result<(), i32> {
+    let diagnostic = format!("{builtin}: {key}: readonly variable\n");
+    if let Some(stderr) = fds.get(2) {
+        stderr
+            .write_all(diagnostic.as_bytes(), &context.cancel)
+            .await
+            .map_err(|error| error.status())?;
+    }
+    Ok(())
 }
