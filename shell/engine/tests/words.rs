@@ -1239,3 +1239,213 @@ fn review_multiline_compound_redirect_errors_keep_source_line() {
         assert!(rig.calls.borrow().is_empty());
     }
 }
+
+#[test]
+fn multiline_parameter_errors_use_bash_parse_time_diagnostic_lines() {
+    // Exact expectations from bounded GNU Bash probes, independent of the
+    // evaluator's location metadata. These native regressions await CI.
+    for (case, source, status, stdout, stderr) in [
+        (
+            "simple continued target",
+            "echo >\\\n${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+        ),
+        (
+            "simple multiline first word",
+            "\"cmd\n\" >${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "simple multiline prefix",
+            "a=\"one\ntwo\" echo >${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "simple prefix redirect",
+            ">\\\n${u:?bad} echo",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "simple later multiline word",
+            "echo \"one\ntwo\" >${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+        ),
+        (
+            "simple later multiline operand",
+            "echo >\"${u:?first\nsecond}\"",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: first\nsecond\n",
+        ),
+        (
+            "simple first multiline operand",
+            "\"${u:?first\nsecond}\"",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: first\nsecond\n",
+        ),
+        (
+            "assignment multiline operand",
+            "a=\"${u:?first\nsecond}\"",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: first\nsecond\n",
+        ),
+        (
+            "bare continued redirect",
+            "\n>\\\n${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 3: u: bad\n",
+        ),
+        (
+            "brace redirect",
+            "{\n :\n} >${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 3: u: bad\n",
+        ),
+        (
+            "brace continued target",
+            "{\n :\n} >\\\n${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 4: u: bad\n",
+        ),
+        (
+            "brace multiline operand",
+            "{\n :\n} >\"${u:?first\nsecond}\"",
+            127,
+            "",
+            "/usr/bin/bash: line 4: u: first\nsecond\n",
+        ),
+        (
+            "brace nested multiline operand",
+            "{ :; } >${x:-${u:?one\ntwo}}",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: one\ntwo\n",
+        ),
+        (
+            "brace last redirect anchors earlier error",
+            "{ :; } >${u:?bad} >\"later\nword\"",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "subshell redirect",
+            "(\n :\n) >${u:?bad}; echo status=$?",
+            0,
+            "status=127\n",
+            "/usr/bin/bash: line 3: u: bad\n",
+        ),
+        (
+            "subshell multiline redirect",
+            "(\n :\n) >\"${u:?one\ntwo}\"; echo status=$?",
+            0,
+            "status=127\n",
+            "/usr/bin/bash: line 3: u: one\ntwo\n",
+        ),
+        (
+            "subshell continued target",
+            "(\n :\n) >\\\n${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 3: u: bad\n",
+        ),
+        (
+            "function body simple redirect",
+            "f() {\n : >${u:?bad};\n}\nf",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "function brace redirect",
+            "\nf() {\n :\n} >${u:?bad}\nf",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "function brace on next line",
+            "f()\n{\n :\n} >${u:?bad}\nf",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "function keyword brace redirect",
+            "\nfunction f {\n :\n} >${u:?bad}\nf",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "function multiline brace redirect",
+            "\nf() {\n :\n} >\"${u:?one\ntwo}\"\nf",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: one\ntwo\n",
+        ),
+        (
+            "function invocation redirect",
+            "f() { :; }\nf >\\\n${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "function subshell redirect",
+            "f() (\n :\n) >${u:?bad}\nf",
+            127,
+            "",
+            "/usr/bin/bash: line 3: u: bad\n",
+        ),
+        (
+            "while redirect",
+            "while false; do\n :\ndone >${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 3: u: bad\n",
+        ),
+        (
+            "while multiline redirect",
+            "while false; do\n :\ndone >\"${u:?one\ntwo}\"",
+            127,
+            "",
+            "/usr/bin/bash: line 4: u: one\ntwo\n",
+        ),
+        (
+            "while condition redirect",
+            "while : >\\\n${u:?bad}; do :; done",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+        ),
+        (
+            "function while redirect",
+            "\nf() while false; do\n :\ndone >${u:?bad}\nf",
+            127,
+            "",
+            "/usr/bin/bash: u: bad\n",
+        ),
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), status, "{case}: {source}");
+        assert_eq!(rig.output.bytes(), stdout.as_bytes(), "{case}: {source}");
+        assert_eq!(rig.errors.bytes(), stderr.as_bytes(), "{case}: {source}");
+        assert!(rig.calls.borrow().is_empty(), "{case}: {source}");
+    }
+}

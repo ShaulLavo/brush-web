@@ -128,3 +128,16 @@ and background jobs. Shared command work/storage bounds and cancellation
 checkpoints remain in force. This slice changes no parser files or upstream
 parser tests, includes no substitution/array/pattern implementation, and adds no
 whole-output buffering.
+
+The assignment/error diagnostic follow-on extends the owned Bashkit-derived
+`SimpleCommand` and `Redirect` structures in `crates/bashkit/src/parser/ast.rs`
+and their grammar construction in `crates/bashkit/src/parser/mod.rs`, at the
+same base revision and under the same retained MIT license. Local adaptations
+in `shell/parser/src/parser/{ast.rs,mod.rs}` preserve parse-time diagnostic line
+anchors before lexer lookahead, including multiline targets and stored function
+bodies. Constructor metadata in `budget.rs` and upstream AST tests retains every
+original assertion. The original engine adapter carries these anchors with fatal
+parameter errors; it changes no exit statuses or control flow. New original
+regressions in `shell/parser/tests/api.rs` and `shell/engine/tests/words.rs` use
+bounded GNU Bash observations. `shellParser.changeLog` and
+`shellParameterEffects` in `sources.lock.json` record the paths and reasons.

@@ -16,7 +16,23 @@ use std::{borrow::Cow, collections::BTreeSet};
 /// The interpreter supplies the shell environment's status and diagnostic line.
 pub(crate) enum Error {
     Status(i32),
-    Parameter { name: String, message: String },
+    Parameter {
+        name: String,
+        message: String,
+        line: Option<usize>,
+    },
+}
+impl Error {
+    pub(crate) fn at_line(self, line: Option<usize>) -> Self {
+        match self {
+            Self::Parameter { name, message, .. } => Self::Parameter {
+                name,
+                message,
+                line,
+            },
+            status => status,
+        }
+    }
 }
 impl From<i32> for Error {
     fn from(code: i32) -> Self {
@@ -408,6 +424,7 @@ impl Expansion<'_> {
                 captured.value
             };
             return Err(Error::Parameter {
+                line: None,
                 name: name.to_owned(),
                 message,
             });

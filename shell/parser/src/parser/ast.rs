@@ -60,6 +60,9 @@ pub enum Command {
 /// A simple command with arguments and redirections.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SimpleCommand {
+    /// Parse-time line used by expansion diagnostics: the end of the first
+    /// command element, including a leading assignment or redirection.
+    pub expansion_line: Option<usize>,
     /// Command name
     pub name: Word,
     /// Command arguments
@@ -610,6 +613,10 @@ pub enum ParameterOp {
 /// I/O redirection.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Redirect {
+    /// Bash's grammar-selected diagnostic line. Compound redirects share the
+    /// final target line; subshells use their closing parenthesis. Brace function
+    /// bodies use their opening brace; other non-subshell function bodies omit it.
+    pub expansion_line: Option<usize>,
     /// File descriptor (default: 1 for output, 0 for input)
     pub fd: Option<i32>,
     /// Variable name for `{var}` fd-variable redirects (e.g. `exec {myfd}>&-`)
@@ -1123,6 +1130,7 @@ mod tests {
     #[test]
     fn simple_command_construction() {
         let cmd = SimpleCommand {
+            expansion_line: Some(1),
             name: Word::literal("ls"),
             args: vec![Word::literal("-la")],
             redirects: vec![],
@@ -1137,9 +1145,11 @@ mod tests {
     #[test]
     fn simple_command_with_redirects() {
         let cmd = SimpleCommand {
+            expansion_line: Some(1),
             name: Word::literal("echo"),
             args: vec![Word::literal("hi")],
             redirects: vec![Redirect {
+                expansion_line: Some(1),
                 fd: Some(1),
                 fd_var: None,
                 kind: RedirectKind::Output,
@@ -1157,6 +1167,7 @@ mod tests {
     #[test]
     fn simple_command_with_assignments() {
         let cmd = SimpleCommand {
+            expansion_line: Some(1),
             name: Word::literal("env"),
             args: vec![],
             redirects: vec![],
@@ -1181,6 +1192,7 @@ mod tests {
             negated: false,
             commands: vec![
                 Command::Simple(SimpleCommand {
+                    expansion_line: Some(1),
                     name: Word::literal("ls"),
                     args: vec![],
                     redirects: vec![],
@@ -1188,6 +1200,7 @@ mod tests {
                     span: Span::new(),
                 }),
                 Command::Simple(SimpleCommand {
+                    expansion_line: Some(1),
                     name: Word::literal("grep"),
                     args: vec![Word::literal("foo")],
                     redirects: vec![],
@@ -1216,6 +1229,7 @@ mod tests {
     #[test]
     fn command_list_with_operators() {
         let first = Command::Simple(SimpleCommand {
+            expansion_line: Some(1),
             name: Word::literal("true"),
             args: vec![],
             redirects: vec![],
@@ -1223,6 +1237,7 @@ mod tests {
             span: Span::new(),
         });
         let second = Command::Simple(SimpleCommand {
+            expansion_line: Some(1),
             name: Word::literal("echo"),
             args: vec![Word::literal("ok")],
             redirects: vec![],
@@ -1270,6 +1285,7 @@ mod tests {
     #[test]
     fn redirect_default_fd_none() {
         let r = Redirect {
+            expansion_line: Some(1),
             fd: None,
             fd_var: None,
             kind: RedirectKind::Input,
@@ -1404,6 +1420,7 @@ mod tests {
         let func = FunctionDef {
             name: "my_func".into(),
             body: Box::new(Command::Simple(SimpleCommand {
+                expansion_line: Some(1),
                 name: Word::literal("echo"),
                 args: vec![Word::literal("hello")],
                 redirects: vec![],
@@ -1436,6 +1453,7 @@ mod tests {
     #[test]
     fn command_variants_constructible() {
         let simple = Command::Simple(SimpleCommand {
+            expansion_line: Some(1),
             name: Word::literal("echo"),
             args: vec![],
             redirects: vec![],
@@ -1457,6 +1475,7 @@ mod tests {
         let func = Command::Function(FunctionDef {
             name: "f".into(),
             body: Box::new(Command::Simple(SimpleCommand {
+                expansion_line: Some(1),
                 name: Word::literal("true"),
                 args: vec![],
                 redirects: vec![],

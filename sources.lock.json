@@ -125,6 +125,16 @@
         ],
         "change": "Keep double-quoted parameter operand backslashes raw, preserve nested ${...} inside literal apostrophe spans, and treat raw escapes and existing lexer protection as indivisible when matching operand and quoted-word boundaries. Share the double-quote and literal-apostrophe span scanner. No upstream tests removed or changed. An explicit quote-context stack resumes outer spans after nested parameters and includes enclosing depth in the substitution ceiling. Original API regressions check the configured limit.",
         "reason": "The engine needs the original escape and quote context to distinguish escaped dollars/backticks and braced variables from literal text without context-specific decoding state. Nested parameter quotes must not close the enclosing span or reset its depth accounting."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/ast.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/budget.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "change": "Add parse-time expansion_line metadata to SimpleCommand and Redirect, retaining the consumed-token end line before lookahead. Anchor simple diagnostics at their first complete command element, compound redirect lists at their final target, subshell redirects at the closing parenthesis, and brace function redirects at the opening brace. Other non-subshell function-body redirects intentionally omit the line as GNU Bash does. Preserve all upstream test assertions; test-built AST constructors now supply explicit synthetic diagnostic lines. Add original API metadata regressions.",
+        "reason": "A command physical start span or redirect-local target span cannot reproduce GNU Bash expansion diagnostic lines for multiline commands and stored functions. Preserve the grammar-selected source anchor once, without rescanning source or changing parser token/escape semantics. The redirect annotation pass consumes the existing parser fuel/cancellation budget."
       }
     ],
     "removedUpstreamTests": []
@@ -305,6 +315,18 @@
           "set_parameter_expansion_target (scalar branch only)",
           "expansion_error_result and expansion abort propagation (fatal flow only; status adapted to GNU Bash)"
         ]
+      },
+      {
+        "path": "crates/bashkit/src/parser/ast.rs",
+        "items": [
+          "SimpleCommand and Redirect (locally extended with parse-time diagnostic anchors)"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/parser/mod.rs",
+        "items": [
+          "parse_simple_command, parse_compound_with_redirects, parse_function_body and advance_token (local diagnostic source-position preservation)"
+        ]
       }
     ],
     "testSources": [
@@ -323,6 +345,6 @@
     "testDestinations": [
       "shell/engine/tests/words.rs"
     ],
-    "strategy": "Extend the scalar operator selection to ${v=word}, ${v:=word}, ${v?word} and ${v:?word}. Retain only selected assignment/error operands, bounded before growth, using the existing cooperative scanner and shared command Work. Store the unsplit quote-removed value, then apply outer-word protection and IFS splitting to the assignment result as verified with GNU Bash; unlike default operands, inner operand quotes do not protect returned assignment fields. Cumulative target/value storage and diagnostic space are admitted before persistent copies. A cancellation-safe prefix frame exposes earlier RHS assignments while completed parameter writes also update the saved caller value, replacing the discarded assignment_state clone. Expand argv first, then apply Bash assignment-only versus named-command redirect/RHS ordering. Typed fatal parameter errors propagate through sequences, AND/OR, loop conditions and function frames; explicit subshells, pipeline stages and background jobs contain them. GNU Bash and frozen observations require top-level/simple-child status 127, compound-child/body status 1 and explicit-subshell redirect status 127, instead of upstream hardcoded 1. Empty diagnostic operands differ from omitted operands. Diagnostics use the frozen /usr/bin/bash identity and original shell stderr, with bounded allocation. Tests add scalar nesting, lazy unsupported skipping, dynamic scope, quote removal/field boundaries, redirected and assignment-only commands, exact frozen diagnostics/stdout/status, child isolation, bounds and cancellation. Prefix-frame destruction is bounded by the admitted argument count and completes restoration synchronously just like FunctionFrame. No parser files or upstream parser tests changed. Arrays, positional/list targets and operands, substitutions, arithmetic, patterns, globbing, tilde and brace expansion remain deferred when selected; no output buffering, oracle edits or baseline changes."
+    "strategy": "Extend the scalar operator selection to ${v=word}, ${v:=word}, ${v?word} and ${v:?word}. Retain only selected assignment/error operands, bounded before growth, using the existing cooperative scanner and shared command Work. Store the unsplit quote-removed value, then apply outer-word protection and IFS splitting to the assignment result as verified with GNU Bash; unlike default operands, inner operand quotes do not protect returned assignment fields. Cumulative target/value storage and diagnostic space are admitted before persistent copies. A cancellation-safe prefix frame exposes earlier RHS assignments while completed parameter writes also update the saved caller value, replacing the discarded assignment_state clone. Expand argv first, then apply Bash assignment-only versus named-command redirect/RHS ordering. Typed fatal parameter errors propagate through sequences, AND/OR, loop conditions and function frames; explicit subshells, pipeline stages and background jobs contain them. GNU Bash and frozen observations require top-level/simple-child status 127, compound-child/body status 1 and explicit-subshell redirect status 127, instead of upstream hardcoded 1. Empty diagnostic operands differ from omitted operands. Diagnostics use the frozen /usr/bin/bash identity and original shell stderr, with bounded allocation. Tests add scalar nesting, lazy unsupported skipping, dynamic scope, quote removal/field boundaries, redirected and assignment-only commands, exact frozen diagnostics/stdout/status, child isolation, bounds and cancellation. Prefix-frame destruction is bounded by the admitted argument count and completes restoration synchronously just like FunctionFrame. No parser files or upstream parser tests changed. Arrays, positional/list targets and operands, substitutions, arithmetic, patterns, globbing, tilde and brace expansion remain deferred when selected; no output buffering, oracle edits or baseline changes. Diagnostic follow-on: original engine error metadata carries parser-selected optional line anchors through parameter failures. Local parser adaptations record consumed-token end lines and grammar context; multiline simple, brace, subshell, function and while redirect diagnostics follow bounded GNU Bash observations. The parser change and unchanged upstream assertions are recorded in shellParser.changeLog. No status/control-flow, oracle, case-set or baseline changes accompany this correction."
   }
 }

@@ -96,3 +96,51 @@ fn syntax_error_locations_are_preserved() {
         })
     ));
 }
+
+#[test]
+fn simple_expansion_lines_use_the_first_complete_command_element() {
+    for (source, line) in [
+        ("echo >\\\n${u:?bad}", 1),
+        ("a=\"one\ntwo\" echo >${u:?bad}", 2),
+        (">\\\n${u:?bad} echo", 2),
+        ("echo \"one\ntwo\" >${u:?bad}", 1),
+        ("\"cmd\n\" >${u:?bad}", 2),
+    ] {
+        let script = Parser::new(source).parse().unwrap();
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple command: {source}");
+        };
+        assert_eq!(command.expansion_line, Some(line), "{source}");
+        assert_eq!(command.redirects[0].expansion_line, Some(line), "{source}");
+    }
+}
+
+#[test]
+fn compound_redirect_lines_follow_the_grammar_and_survive_function_storage() {
+    for (source, line) in [
+        ("{\n :\n} >\\\n${u:?bad}", Some(4)),
+        ("{ :; } >${u:?bad} >\"later\nword\"", Some(2)),
+        ("(\n :\n) >\\\n${u:?bad}", Some(3)),
+        ("while false; do\n :\ndone >\"${u:?one\ntwo}\"", Some(4)),
+        ("\nf() {\n :\n} >${u:?bad}", Some(2)),
+        ("f()\n{\n :\n} >${u:?bad}", Some(2)),
+        ("f() (\n :\n) >\"${u:?one\ntwo}\"", Some(3)),
+        ("f() while false; do :; done >${u:?bad}", None),
+    ] {
+        let script = Parser::new(source).parse().unwrap();
+        let command = match &script.commands[0] {
+            Command::Function(function) => function.body.as_ref(),
+            command => command,
+        };
+        let Command::Compound(_, redirects) = command else {
+            panic!("expected compound command: {source}");
+        };
+        assert!(!redirects.is_empty(), "{source}");
+        assert!(
+            redirects
+                .iter()
+                .all(|redirect| redirect.expansion_line == line),
+            "{source}"
+        );
+    }
+}

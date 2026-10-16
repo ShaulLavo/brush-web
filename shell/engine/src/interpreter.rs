@@ -345,10 +345,10 @@ fn execute(
         let preserve = matches!(command, Command::Pipeline(_) | Command::List(_));
         let result = match command {
             Command::Simple(simple) => {
-                let line = simple.span.start.line.max(1);
+                let line = simple.expansion_line;
                 match simple_command(simple, state.clone(), fds.clone(), context.clone()).await {
                     Ok(result) => result,
-                    Err(error) => expansion_failure(error, &fds, line, &context).await,
+                    Err(error) => expansion_failure(error.at_line(line), &fds, &context).await,
                 }
             }
             Command::Function(function) => {
@@ -429,7 +429,7 @@ fn execute(
             Command::Compound(compound, redirs) => {
                 let mut work = expansion_work(context.limits());
                 match redirects(&redirs, &state, fds.clone(), &context, &mut work).await {
-                    Err(error) => expansion_failure(error, &fds, 1, &context).await,
+                    Err(error) => expansion_failure(error, &fds, &context).await,
                     Ok(fds) => match compound {
                         CompoundCommand::BraceGroup(commands) => {
                             sequence(commands, state.clone(), fds, context.clone()).await
@@ -479,15 +479,14 @@ fn execute(
     }
     .boxed_local()
 }
-async fn expansion_failure(
-    error: expand::Error,
-    fds: &Descriptors,
-    line: usize,
-    context: &Context,
-) -> Outcome {
-    let (name, message) = match error {
+async fn expansion_failure(error: expand::Error, fds: &Descriptors, context: &Context) -> Outcome {
+    let (name, message, line) = match error {
         expand::Error::Status(code) => return Outcome::status(code),
-        expand::Error::Parameter { name, message } => (name, message),
+        expand::Error::Parameter {
+            name,
+            message,
+            line,
+        } => (name, message, line),
     };
     // The expansion adapter reserves diagnostic space before owning these
     // strings. Check the complete spelling before format allocates its copy.
@@ -495,7 +494,10 @@ async fn expansion_failure(
     if size > context.limits().expansion_bytes {
         return Outcome::status(2);
     }
-    let diagnostic = format!("/usr/bin/bash: line {line}: {name}: {message}\n");
+    let diagnostic = match line {
+        Some(line) => format!("/usr/bin/bash: line {line}: {name}: {message}\n"),
+        None => format!("/usr/bin/bash: {name}: {message}\n"),
+    };
     let stderr = fds.borrow().get(2);
     if let Some(stderr) = stderr {
         let _ = stderr
@@ -542,7 +544,7 @@ async fn subshell(
                     };
                     sequence(commands, child, fds, body_context).await
                 }
-                Err(error) => expansion_failure(error, &child_fds, 1, &child_context).await,
+                Err(error) => expansion_failure(error, &child_fds, &child_context).await,
             };
             child_context.cleanup_jobs().await;
             result
@@ -956,7 +958,8 @@ async fn redirects(
             context.limits().expansion_bytes,
             work,
         )
-        .await?;
+        .await
+        .map_err(|error| error.at_line(redirect.expansion_line))?;
         let input = matches!(redirect.kind, RedirectKind::Input | RedirectKind::DupInput);
         let fd = redirect.fd.unwrap_or(if input { 0 } else { 1 });
         let fd = u32::try_from(fd).map_err(|_| 2)?;

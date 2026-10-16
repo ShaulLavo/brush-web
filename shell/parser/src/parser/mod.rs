@@ -123,6 +123,8 @@ pub struct Parser<'a> {
     /// End offset of the token consumed last: a token that starts there
     /// touches it (`x<(true)` is one word, see `join_adjacent_word`).
     prev_token_end: usize,
+    /// End line of the consumed token, before lookahead advances the lexer.
+    last_token_line: usize,
     /// The next `parse_command_list` call reads a top-level command: a
     /// newline after `;` or `&` ends it, as bash's reader ends a line.
     top_level_list: bool,
@@ -200,6 +202,7 @@ impl<'a> Parser<'a> {
             current_plain,
             current_after_blank: false,
             prev_token_end: usize::MAX,
+            last_token_line: 1,
             top_level_list: false,
             top_starts: Vec::new(),
             failed_command_start: (0, 1),
@@ -630,6 +633,7 @@ impl<'a> Parser<'a> {
         };
         if self.current_token.is_some() {
             self.prev_token_end = self.current_span.end.offset;
+            self.last_token_line = self.current_span.end.line;
         }
         match next {
             Some(st) => {
@@ -818,6 +822,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
+                            expansion_line: None,
                             fd: None,
                             fd_var: None,
                             kind,
@@ -830,6 +835,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
+                            expansion_line: None,
                             fd: None,
                             fd_var: None,
                             kind: RedirectKind::Append,
@@ -842,6 +848,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
+                            expansion_line: None,
                             fd: None,
                             fd_var: None,
                             kind: RedirectKind::Input,
@@ -854,6 +861,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
+                            expansion_line: None,
                             fd: None,
                             fd_var: None,
                             kind: RedirectKind::OutputBoth,
@@ -872,6 +880,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
+                            expansion_line: None,
                             fd: Some(1),
                             fd_var: None,
                             kind: RedirectKind::DupOutput,
@@ -885,6 +894,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
+                            expansion_line: None,
                             fd: Some(fd),
                             fd_var: None,
                             kind: RedirectKind::Output,
@@ -898,6 +908,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
+                            expansion_line: None,
                             fd: Some(fd),
                             fd_var: None,
                             kind: RedirectKind::Append,
@@ -911,6 +922,7 @@ impl<'a> Parser<'a> {
                     let dst_fd = *dst_fd;
                     self.advance();
                     redirects.push(Redirect {
+                        expansion_line: None,
                         fd: Some(src_fd),
                         fd_var: None,
                         kind: RedirectKind::DupOutput,
@@ -922,6 +934,7 @@ impl<'a> Parser<'a> {
                     let fd = *fd;
                     self.advance();
                     redirects.push(Redirect {
+                        expansion_line: None,
                         fd: Some(fd),
                         fd_var: None,
                         kind: RedirectKind::DupOutput,
@@ -934,6 +947,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
+                            expansion_line: None,
                             fd: Some(fd),
                             fd_var: None,
                             kind: RedirectKind::DupOutput,
@@ -946,6 +960,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
+                            expansion_line: None,
                             fd: Some(0),
                             fd_var: None,
                             kind: RedirectKind::DupInput,
@@ -959,6 +974,7 @@ impl<'a> Parser<'a> {
                     let dst_fd = *dst_fd;
                     self.advance();
                     redirects.push(Redirect {
+                        expansion_line: None,
                         fd: Some(src_fd),
                         fd_var: None,
                         kind: RedirectKind::DupInput,
@@ -970,6 +986,7 @@ impl<'a> Parser<'a> {
                     let fd = *fd;
                     self.advance();
                     redirects.push(Redirect {
+                        expansion_line: None,
                         fd: Some(fd),
                         fd_var: None,
                         kind: RedirectKind::DupInput,
@@ -982,6 +999,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
+                            expansion_line: None,
                             fd: Some(fd),
                             fd_var: None,
                             kind: RedirectKind::Input,
@@ -994,6 +1012,7 @@ impl<'a> Parser<'a> {
                     self.advance();
                     if let Ok(target) = self.expect_word() {
                         redirects.push(Redirect {
+                            expansion_line: None,
                             fd: None,
                             fd_var: None,
                             kind: RedirectKind::HereString,
@@ -1062,8 +1081,41 @@ impl<'a> Parser<'a> {
         parser: impl FnOnce(&mut Self) -> Result<CompoundCommand>,
     ) -> Result<Option<Box<Command>>> {
         let compound = parser(self)?;
-        let redirects = self.parse_trailing_redirects()?;
+        let closing_line = self.last_token_line;
+        let mut redirects = self.parse_trailing_redirects()?;
+        let line = if matches!(compound, CompoundCommand::Subshell(_)) {
+            closing_line
+        } else {
+            self.last_token_line
+        };
+        self.anchor_redirects(&mut redirects, Some(line))?;
         Ok(Some(Box::new(Command::Compound(compound, redirects))))
+    }
+
+    /// A redirect list uses one grammar-selected diagnostic anchor, even when
+    /// an earlier target fails. Charge the pass to the existing parser budget.
+    fn anchor_redirects(&mut self, redirects: &mut [Redirect], line: Option<usize>) -> Result<()> {
+        for redirect in redirects {
+            self.tick()?;
+            redirect.expansion_line = line;
+        }
+        Ok(())
+    }
+
+    fn anchor_function_redirects(
+        &mut self,
+        mut command: Command,
+        body_line: usize,
+    ) -> Result<Command> {
+        if matches!(command, Command::Compound(CompoundCommand::Subshell(_), _)) {
+            return Ok(command);
+        }
+        let Command::Compound(compound, redirects) = &mut command else {
+            return Ok(command);
+        };
+        let line = matches!(compound, CompoundCommand::BraceGroup(_)).then_some(body_line);
+        self.anchor_redirects(redirects, line)?;
+        Ok(command)
     }
 
     /// The subscript of `name[sub]=...` as written in the source.
@@ -2582,6 +2634,7 @@ impl<'a> Parser<'a> {
     /// A function body: any compound command with its redirections
     /// (`f() ( sub )`, `f() if ...; fi`, `f() { ...; } >log`), like bash.
     fn parse_function_body(&mut self) -> Result<Command> {
+        let body_line = self.current_span.end.line;
         let compound_start = match &self.current_token {
             Some(
                 tokens::Token::LeftBrace
@@ -2599,7 +2652,9 @@ impl<'a> Parser<'a> {
             return Err(self.error("expected '{' for function body"));
         }
         match self.parse_command()? {
-            Some(cmd) if matches!(*cmd, Command::Compound(..)) => Ok(*cmd),
+            Some(cmd) if matches!(*cmd, Command::Compound(..)) => {
+                self.anchor_function_redirects(*cmd, body_line)
+            }
             _ => Err(self.error("expected '{' for function body")),
         }
     }
@@ -3175,6 +3230,7 @@ impl<'a> Parser<'a> {
         };
 
         redirects.push(Redirect {
+            expansion_line: None,
             fd,
             fd_var,
             kind,
@@ -3208,6 +3264,7 @@ impl<'a> Parser<'a> {
     #[inline(never)]
     fn push_append_both(redirects: &mut Vec<Redirect>, fd_var: Option<String>, target: Word) {
         redirects.push(Redirect {
+            expansion_line: None,
             fd: None,
             fd_var,
             kind: RedirectKind::Append,
@@ -3215,6 +3272,7 @@ impl<'a> Parser<'a> {
             heredoc_delim: None,
         });
         redirects.push(Redirect {
+            expansion_line: None,
             fd: Some(2),
             fd_var: None,
             kind: RedirectKind::DupOutput,
@@ -3266,6 +3324,7 @@ impl<'a> Parser<'a> {
         self.skip_newlines()?;
         self.check_error_token()?;
         let start_span = self.current_span;
+        let mut expansion_line = None;
 
         let mut assignments = Vec::new();
         let mut words = Vec::new();
@@ -3376,6 +3435,9 @@ impl<'a> Parser<'a> {
                 | None => break,
                 _ => break,
             }
+            if expansion_line.is_none() {
+                expansion_line = Some(self.last_token_line);
+            }
             join_end = if words.len() > counts.0 || assignments.len() > counts.1 {
                 self.prev_token_end
             } else {
@@ -3383,11 +3445,13 @@ impl<'a> Parser<'a> {
             };
         }
 
+        self.anchor_redirects(&mut redirects, expansion_line)?;
         finish_simple_command(
             words,
             assignments,
             redirects,
             start_span.merge(self.current_span),
+            expansion_line,
         )
     }
 
@@ -3577,6 +3641,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: None,
                     fd_var,
                     kind,
@@ -3589,6 +3654,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: None,
                     fd_var,
                     kind: RedirectKind::Append,
@@ -3601,6 +3667,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: None,
                     fd_var,
                     kind: RedirectKind::Input,
@@ -3613,6 +3680,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: None,
                     fd_var,
                     kind: RedirectKind::HereString,
@@ -3625,6 +3693,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: None,
                     fd_var,
                     kind: RedirectKind::OutputBoth,
@@ -3637,6 +3706,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: if fd_var.is_some() { None } else { Some(1) },
                     fd_var,
                     kind: RedirectKind::DupOutput,
@@ -3649,6 +3719,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: Some(fd),
                     fd_var: None,
                     kind: RedirectKind::Output,
@@ -3661,6 +3732,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: Some(fd),
                     fd_var: None,
                     kind: RedirectKind::Append,
@@ -3673,6 +3745,7 @@ impl<'a> Parser<'a> {
                 let dst_fd = *dst_fd;
                 self.advance();
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: Some(src_fd),
                     fd_var: None,
                     kind: RedirectKind::DupOutput,
@@ -3684,6 +3757,7 @@ impl<'a> Parser<'a> {
                 let fd = *fd;
                 self.advance();
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: Some(fd),
                     fd_var: None,
                     kind: RedirectKind::DupOutput,
@@ -3696,6 +3770,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: Some(fd),
                     fd_var: None,
                     kind: RedirectKind::DupOutput,
@@ -3708,6 +3783,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: if fd_var.is_some() { None } else { Some(0) },
                     fd_var,
                     kind: RedirectKind::DupInput,
@@ -3720,6 +3796,7 @@ impl<'a> Parser<'a> {
                 let dst_fd = *dst_fd;
                 self.advance();
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: Some(src_fd),
                     fd_var: None,
                     kind: RedirectKind::DupInput,
@@ -3731,6 +3808,7 @@ impl<'a> Parser<'a> {
                 let fd = *fd;
                 self.advance();
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: Some(fd),
                     fd_var: None,
                     kind: RedirectKind::DupInput,
@@ -3743,6 +3821,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: Some(fd),
                     fd_var: None,
                     kind: RedirectKind::Input,
@@ -3755,6 +3834,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: None,
                     fd_var,
                     kind: RedirectKind::ReadWrite,
@@ -3772,6 +3852,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 let target = self.expect_word()?;
                 redirects.push(Redirect {
+                    expansion_line: None,
                     fd: Some(fd),
                     fd_var: None,
                     kind,
@@ -4968,6 +5049,7 @@ impl<'a> Parser<'a> {
 #[inline(never)]
 fn add_stderr_to_pipe(cmd: &mut Command) {
     let dup = Redirect {
+        expansion_line: None,
         fd: Some(2),
         fd_var: None,
         kind: RedirectKind::DupOutput,
@@ -5089,12 +5171,14 @@ fn finish_simple_command(
     assignments: Vec<Assignment>,
     redirects: Vec<Redirect>,
     span: Span,
+    expansion_line: Option<usize>,
 ) -> Result<Option<SimpleCommand>> {
     // Handle assignment-only and redirect-only commands (`VAR=value`,
     // `< file`, `> file`): bash runs them as null commands that still
     // perform their assignments/redirections (#2448: `$(<file)`).
     if words.is_empty() && (!assignments.is_empty() || !redirects.is_empty()) {
         return Ok(Some(SimpleCommand {
+            expansion_line,
             name: Word::literal(""),
             args: Vec::new(),
             redirects,
@@ -5111,6 +5195,7 @@ fn finish_simple_command(
     let args = words;
 
     Ok(Some(SimpleCommand {
+        expansion_line,
         name,
         args,
         redirects,
@@ -5123,9 +5208,11 @@ fn finish_simple_command(
 /// Keep its `Command` temporary off the recursive list frame (TM-DOS-044).
 #[inline(never)]
 fn empty_background(span: Span) -> (ListOperator, Command) {
+    let expansion_line = Some(span.end.line);
     (
         ListOperator::Background,
         Command::Simple(SimpleCommand {
+            expansion_line,
             name: Word::literal(""),
             args: vec![],
             redirects: vec![],
