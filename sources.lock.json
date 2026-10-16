@@ -109,5 +109,49 @@
       "tokens.rs": "14d7c19d7cda696bca22e723c891de9d4bec5922ebd33894b43748ace3797d37"
     },
     "licenseSha256": "b3e3b2f3fd15c45106e08434a52c5ad9ca97f15a1cc9894ab5b01078124cf613"
+  },
+  "shellWords": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "implementationSources": [
+      {
+        "path": "crates/bashkit/src/interpreter/expansion.rs",
+        "items": [
+          "expand_word_to_fields",
+          "is_assignment_prefix",
+          "unquoted_positional_fields",
+          "split_word_segments",
+          "mixed_word_segment",
+          "split_marked_segments",
+          "expand_at_word_fields",
+          "ifs_split_marked",
+          "push_ifs_field"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/interpreter/mod.rs",
+        "items": [
+          "execute_simple_command_body command-name field promotion and declaration operands",
+          "is_decl_assignment_word"
+        ]
+      }
+    ],
+    "testSources": [
+      "crates/bashkit/tests/spec_cases/bash/word-split.test.sh",
+      "crates/bashkit/tests/spec_cases/bash/command-word-expansion.test.sh",
+      "crates/bashkit/tests/spec_cases/bash/quote.test.sh",
+      "crates/bashkit/src/interpreter/mod.rs:15435-15462,18002-18062"
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/interpreter.rs",
+      "shell/engine/src/state.rs",
+      "shell/engine/src/builtins.rs"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words.rs"
+    ],
+    "strategy": "Adapt quote-aware literal/basic variable/positional/PIPESTATUS fields, IFS rules, scalar contexts and command-name promotion into the original streaming engine. Structural protection replaces sentinel strings. Cooperative Budget work, intermediate byte/element bounds and aggregate command field/byte limits reject overflow instead of truncating. No parser modifications, general parameter operators, globbing, substitutions, mapfile or output buffering are ported."
   }
 }

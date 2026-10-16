@@ -6,7 +6,24 @@ use crate::{
     io::{Endpoint, FdTable, OpenOptions},
     state::{SharedState, absolute},
 };
+use shell_parser::parser::{Word, WordPart};
 use std::fmt::Write as _;
+
+/// Adapted from Bashkit is_assignment_prefix/is_decl_assignment_word. Only
+/// syntactic assignment operands of declaration builtins suppress splitting.
+pub(crate) fn assignment_operand(word: &Word) -> bool {
+    let Some(WordPart::Literal(prefix)) = word.parts.first() else {
+        return false;
+    };
+    let Some((name, _)) = prefix.split_once('=') else {
+        return false;
+    };
+    let mut bytes = name.bytes();
+    bytes
+        .next()
+        .is_some_and(|b| b == b'_' || b.is_ascii_alphabetic())
+        && bytes.all(|b| b == b'_' || b.is_ascii_alphanumeric())
+}
 
 pub(crate) fn is_builtin(name: &str) -> bool {
     matches!(

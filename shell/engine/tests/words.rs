@@ -1,0 +1,354 @@
+//! Word cases adapted from the pinned Bashkit sources in sources.lock.json.
+//! The fixture observes argv directly, without relying on printf's format rules.
+use futures::FutureExt;
+use shell_engine::{
+    Limits, Session,
+    executor::{Executor, JoinHandle},
+    io::MemoryFs,
+    process::InProcessHost,
+};
+use std::{cell::RefCell, rc::Rc};
+
+struct Rig {
+    ex: Executor,
+    shell: Session,
+    host: InProcessHost,
+    calls: Rc<RefCell<Vec<Vec<String>>>>,
+}
+impl Rig {
+    fn new(limits: Limits) -> Self {
+        let ex = Executor::new();
+        let host = InProcessHost::new(ex.clone());
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let observed = calls.clone();
+        host.register("args", move |req, _| {
+            let observed = observed.clone();
+            async move {
+                observed.borrow_mut().push(req.argv[1..].to_vec());
+                0
+            }
+            .boxed_local()
+        });
+        let shell = Session::new(
+            ex.clone(),
+            Rc::new(host.clone()),
+            Rc::new(MemoryFs::new(1024)),
+            limits,
+        );
+        Self {
+            ex,
+            shell,
+            host,
+            calls,
+        }
+    }
+    fn finish(&self, job: JoinHandle<i32>) -> i32 {
+        for _ in 0..100_000 {
+            if job.is_finished() {
+                return job.now_or_never().unwrap();
+            }
+            let turn = self.ex.drive(64);
+            assert!(turn.runnable || job.is_finished(), "unexpected parked job");
+        }
+        panic!("expansion did not finish within bounded turns");
+    }
+    fn run(&self, source: &str) -> i32 {
+        self.finish(self.shell.start(source).unwrap())
+    }
+    fn variable(&self, name: &str, value: &str) {
+        self.shell
+            .state()
+            .borrow_mut()
+            .variables
+            .insert(name.into(), value.into());
+    }
+}
+impl Drop for Rig {
+    fn drop(&mut self) {
+        let shutdown = self.shell.shutdown();
+        futures::pin_mut!(shutdown);
+        for _ in 0..1000 {
+            self.ex.drive(64);
+            if shutdown.as_mut().now_or_never().is_some() {
+                assert_eq!(self.ex.drive(64).pending, 0);
+                assert_eq!(self.host.active_count(), 0);
+                assert_eq!(self.host.retained_count(), 0);
+                return;
+            }
+        }
+        panic!("fixture shutdown did not finish");
+    }
+}
+fn check(source: &str, expected: &[&[&str]]) {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(source), 0, "{source}");
+    assert_eq!(*rig.calls.borrow(), expected, "{source}");
+}
+
+#[test]
+fn missing_empty_and_literal_fields() {
+    check(
+        r#"e=; args $missing "$missing" $e "$e" "" '' a\ b '$missing'"#,
+        &[&["", "", "", "", "a b", "$missing"]],
+    );
+}
+
+#[test]
+fn mixed_segments_split_only_unquoted_expansions() {
+    check(
+        r#"a='1 2'; b='3 4'; c='5 6'; d='7 8'; args $a"$b"; args "$a"$b; args $a"$b"$c"$d""#,
+        &[&["1", "23 4"], &["1 23", "4"], &["1", "23 45", "67 8"]],
+    );
+    check(
+        r#"a=' '; b=q; args p$a"$b"; args $a""; args ""$a"""#,
+        &[&["p", "q"], &[""], &["", ""]],
+    );
+}
+
+#[test]
+fn default_empty_and_custom_ifs() {
+    check(
+        "v=' \ta\n b  '; args $v; IFS=; args $v $missing",
+        &[&["a", "b"], &[" \ta\n b  "]],
+    );
+    check(
+        r#"IFS=_; v='_a__b_'; args $v; args 'a_b'; v=' '; args $v; v=_; args $v"#,
+        &[&["", "a", "", "b"], &["a_b"], &[" "], &[""]],
+    );
+    check(
+        r#"IFS='_ '; v='_ a  b _ '; args $v; v='a_b _ _ _ c  _d e'; args $v"#,
+        &[&["", "a", "b"], &["a", "b", "", "", "c", "d", "e"]],
+    );
+    check(
+        r#"IFS=:; v=a:; args ${v}:b ${v}:; IFS=z; v=az; args ${v}zb"#,
+        &[&["a", ":b", "a", ":"], &["a", "zb"]],
+    );
+    check("IFS=ç; v='çxççyç'; args $v", &[&["", "x", "", "y"]]);
+}
+
+#[test]
+fn protected_empty_segments_preserve_split_boundaries() {
+    check(
+        r#"v='  abc  def  '; args ""$v""; IFS=:; v=:; args ""$v"""#,
+        &[&["", "abc", "def", ""], &["", ""]],
+    );
+}
+
+#[test]
+fn quoted_and_unquoted_positional_fields() {
+    check(
+        r#"f() { args "$@"; args "x$@y"; args "$*"; args $@; args $*; }; f 'a b' '' c"#,
+        &[
+            &["a b", "", "c"],
+            &["xa b", "", "cy"],
+            &["a b  c"],
+            &["a", "b", "c"],
+            &["a", "b", "c"],
+        ],
+    );
+    check(
+        r#"f() { args "$@"; args "x$@y"; args "$*"; args $@; args ""$@; args "$@"""; }; f"#,
+        &[&[], &["xy"], &[""], &[], &[""], &[""]],
+    );
+    check(r#"f() { args "x$@y$@z"; }; f a b"#, &[&["xa", "bya", "bz"]]);
+}
+
+#[test]
+fn positional_ifs_joins_and_null_ifs_groups() {
+    check(
+        r#"f() { IFS=:; args "$*"; args $@; args =$*=; IFS=; args "$*"; args $@; args =$*=; }; f 'a b' '' c"#,
+        &[
+            &["a b::c"],
+            &["a b", "", "c"],
+            &["=a b", "", "c="],
+            &["a bc"],
+            &["a b", "c"],
+            &["=a b", "c="],
+        ],
+    );
+}
+
+#[test]
+fn pipestatus_at_star_and_index_fields() {
+    check(
+        r#"false | true; args "${PIPESTATUS[@]}"; false | true; IFS=:; false | true; args "x${PIPESTATUS[@]}y"; false | true; args "${PIPESTATUS[*]}"; false | true; args ${PIPESTATUS[@]}; false | true; args "${PIPESTATUS[0]}" ${PIPESTATUS[99]}"#,
+        &[&["1", "0"], &["x1", "0y"], &["1:0"], &["1", "0"], &["1"]],
+    );
+}
+
+#[test]
+fn command_name_fields_promote_and_preserve_quoted_empty() {
+    check(
+        r#"c='args hi there'; $c tail; $missing $missing args promoted; f() { "$@" tail; }; f args a b"#,
+        &[&["hi", "there", "tail"], &["promoted"], &["a", "b", "tail"]],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("$missing"), 0);
+    assert_eq!(rig.run(r#""$missing""#), 127);
+    assert_eq!(rig.run(r#""" args no"#), 127);
+    assert_eq!(rig.run(r#"f() { "$@"; }; f '' args"#), 127);
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn scalar_assignments_and_declaration_operands() {
+    check(
+        r#"v='a b'; x=$v; export y=$v; args "$x" "$y"; f() { local z=$v; args "$z"; }; f; args z=$v; key='k=a b'; export $key; args "$k"; args "$b""#,
+        &[&["a b", "a b"], &["a b"], &["z=a", "b"], &["a"], &[""]],
+    );
+    check(
+        r#"f() { IFS=:; x="$@"; y=$*; export z="$*"; args "$x" "$y" "$z"; }; f a 'b c'"#,
+        &[&["a b c", "a:b c", "a:b c"]],
+    );
+    check(
+        r#"v='a b'; n=export; $n x=$v; args "$x"; $missing export y=$v; args "$y""#,
+        &[&["a b"], &["a b"]],
+    );
+}
+
+#[test]
+fn split_limits_reject_all_fields_without_dispatch_or_truncation() {
+    for source in [
+        "args $v",
+        "$cmd",
+        "A=x args $v",
+        "f() { args \"$@\" extra; }; f a b",
+    ] {
+        let rig = Rig::new(Limits {
+            arguments: 3,
+            ..Limits::default()
+        });
+        rig.variable("v", "a b c");
+        rig.variable("cmd", "args a b c");
+        assert_eq!(rig.run(source), 2, "{source}");
+        assert!(rig.calls.borrow().is_empty());
+    }
+    let rig = Rig::new(Limits {
+        arguments: 3,
+        ..Limits::default()
+    });
+    rig.variable("v", ":");
+    rig.variable("IFS", ":");
+    assert_eq!(rig.run("args $v $v $v"), 2);
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn aggregate_expansion_bytes_include_all_fields_and_scalar_operands() {
+    for source in ["args $v", "args $v $v", "export x=$v", "A=$v args"] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: 8,
+            ..Limits::default()
+        });
+        rig.variable("v", "abc def");
+        assert_eq!(rig.run(source), 2, "{source}");
+        assert!(rig.calls.borrow().is_empty());
+    }
+    let rig = Rig::new(Limits {
+        expansion_bytes: 8,
+        ..Limits::default()
+    });
+    rig.variable("v", "ab cd");
+    assert_eq!(rig.run("args $v"), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["ab", "cd"]]);
+}
+
+#[test]
+fn long_splitting_yields_and_cancellation_restores_frames() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("IFS", ":");
+    rig.variable("v", &" ".repeat(300_000));
+    let job = rig
+        .shell
+        .start("f() { local IFS=' '; args $v; }; f inner")
+        .unwrap();
+    for _ in 0..200 {
+        rig.ex.drive(1);
+        if rig
+            .shell
+            .state()
+            .borrow()
+            .variables
+            .get("IFS")
+            .map(String::as_str)
+            == Some(" ")
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.shell.state().borrow().variables.get("IFS").unwrap(),
+        " "
+    );
+    let peer = rig.ex.spawn(async { 42 });
+    rig.ex.drive(4);
+    assert!(
+        peer.is_finished(),
+        "splitting must yield to another ready task"
+    );
+    assert!(!job.is_finished(), "long split must remain interruptible");
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(
+        rig.run(r#"args "$#" "$IFS"; f() { args "$@"; }; f restored"#),
+        0
+    );
+    assert_eq!(*rig.calls.borrow(), &[vec!["0", ":"], vec!["restored"]]);
+}
+
+#[test]
+fn quote_protection_accepts_marker_characters_as_data() {
+    let rig = Rig::new(Limits::default());
+    let data = (0..=0x1f)
+        .chain(0xe000..=0xe0ff)
+        .chain(0xfdd0..=0xfdef)
+        .chain(0xf0000..=0xf00ff)
+        .filter_map(char::from_u32)
+        .collect::<String>();
+    rig.variable("v", &data);
+    rig.variable("space", " ");
+    assert_eq!(rig.run(r#"args "$v"$space"""#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec![data, String::new()]]);
+}
+
+#[test]
+fn vanished_words_do_not_consume_argument_capacity() {
+    let rig = Rig::new(Limits {
+        arguments: 1,
+        ..Limits::default()
+    });
+    assert_eq!(rig.run("args $missing $missing $missing"), 0);
+    assert_eq!(*rig.calls.borrow(), &[Vec::<String>::new()]);
+    let rig = Rig::new(Limits {
+        arguments: 0,
+        expansion_bytes: 0,
+        ..Limits::default()
+    });
+    assert_eq!(rig.run("$missing"), 0);
+    assert_eq!(rig.run(r#""""#), 2);
+}
+
+#[test]
+fn aggregate_work_is_bounded_even_when_every_expansion_disappears() {
+    let rig = Rig::new(Limits {
+        source_bytes: 256,
+        expansion_bytes: 128,
+        ..Limits::default()
+    });
+    rig.variable("v", &" ".repeat(128));
+    let source = format!("args {}", "$v ".repeat(40));
+    assert_eq!(rig.run(&source), 2);
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn intermediate_expansion_overflow_rejects_before_dispatch() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 16,
+        ..Limits::default()
+    });
+    rig.variable("v", &" ".repeat(17));
+    assert_eq!(rig.run("args $v"), 2);
+    assert!(rig.calls.borrow().is_empty());
+}
