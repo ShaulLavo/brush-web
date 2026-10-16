@@ -168,9 +168,9 @@
       "note": "Initial metadata refined from nodeMajor 26 to the exact setup-node version; script bytes, classifications and GNU bash observations unchanged."
     },
     "baselineMeasurement": {
-      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38886633355",
-      "source": "1149096283079ec18b7b1fe3b5a4d6bd0801588f",
-      "note": "Measured word-field outcomes: Oils 291, Brush-suite 304, Bashkit-suite 452; nineteen gains and no lost cases. Oracle, classification and environment identity unchanged. Fresh CI must match this pass membership."
+      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38889591844",
+      "source": "0522b2a36f4e79f20a9ec0b45785bbc3d14ba3cf",
+      "note": "Measured lazy scalar default/alternative outcomes: Oils304, Brush-suite321, Bashkit-suite478; 56 gains and zero lost cases. Oracle, classification and environment identity unchanged. Fresh CI must match this pass membership."
     }
   },
   "shellWords": {
