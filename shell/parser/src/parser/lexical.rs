@@ -36,8 +36,8 @@ impl LiteralEscape {
 }
 
 /// Remap literal escapes while a lexer transformation copies ordered byte spans.
-/// Inserted quote markers remain outside an escape; inserted glob quoting stays
-/// inside the copied character's span. Every range is visited at most twice.
+/// Inserted quote markers remain outside an escape. Every range is visited
+/// at most twice; literal characters are never encoded as pattern escapes.
 pub(crate) struct EscapeMap {
     source: Vec<LiteralEscape>,
     mapped: Vec<LiteralEscape>,

@@ -41,6 +41,20 @@ pub enum LimitExceeded {
     InputTooLarge(usize, usize),
     #[error("parser timeout ({0:?})")]
     ParserTimeout(Duration),
+    #[error("parser fuel exhausted ({used} operations, max {limit})")]
+    ParserFuel { used: usize, limit: usize },
+    #[error("AST nesting too deep ({depth} levels, max {limit})")]
+    AstDepth { depth: usize, limit: usize },
+    #[error("parameter expansion nesting too deep")]
+    ParameterDepth,
+    #[error("AST nesting too deep in parameter")]
+    ParameterBoundaryDepth,
+    #[error("AST nesting too deep in parameter command")]
+    ParameterCommandDepth,
+    #[error("parser fuel exhausted in parameter command")]
+    ParameterCommandFuel,
+    #[error("conditional expression nested too deeply")]
+    ConditionalDepth,
     #[error("request work exhausted ({used} units requested, max {limit})")]
     WorkUnits { used: u64, limit: u64 },
     #[error("request timeout ({0:?})")]
@@ -106,9 +120,14 @@ impl ExecutionBudget {
         Ok(())
     }
 
+    pub(crate) fn record_failure(&self, failure: LimitExceeded) -> LimitExceeded {
+        let first = self.0.failure.get().unwrap_or(failure);
+        self.0.failure.set(Some(first));
+        first
+    }
+
     fn fail(&self, failure: LimitExceeded) -> Result<(), LimitExceeded> {
-        self.0.failure.set(Some(failure));
-        Err(failure)
+        Err(self.record_failure(failure))
     }
 }
 

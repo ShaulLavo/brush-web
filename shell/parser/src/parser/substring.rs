@@ -4,6 +4,7 @@ use super::parameter_scan::{ParameterScan, Step};
 use super::subst_scan::{Step as CommandStep, SubstScanner};
 use super::{HARD_MAX_AST_DEPTH, Parser, WordChars};
 use crate::error::{Error, Result};
+use crate::limits::LimitExceeded;
 
 impl Parser<'_> {
     /// Validate while the complete word is read, before lazy operands or
@@ -65,7 +66,7 @@ impl Parser<'_> {
                 self.read_parameter_command(chars)?;
                 Ok(false)
             }
-            Step::Limit => Err(self.error("AST nesting too deep in parameter")),
+            Step::Limit => Err(self.limit_error(LimitExceeded::ParameterBoundaryDepth)),
             _ => Ok(false),
         }
     }
@@ -85,7 +86,7 @@ impl Parser<'_> {
         for (index, c) in source.char_indices() {
             self.tick()?;
             if index > 4096 {
-                return Err(self.error("parser fuel exhausted in parameter command"));
+                return Err(self.limit_error(LimitExceeded::ParameterCommandFuel));
             }
             if scanner.feed(c) == CommandStep::Close {
                 end = Some(index);
@@ -106,7 +107,7 @@ impl Parser<'_> {
     fn validate_parameter_command(&self, body: &str) -> Result<()> {
         self.tick_units(body.len())?;
         if self.current_depth >= self.max_depth {
-            return Err(self.error("AST nesting too deep in parameter command"));
+            return Err(self.limit_error(LimitExceeded::ParameterCommandDepth));
         }
         let mut parser = Box::new(Parser::with_limits_timeout_options(
             body,
@@ -123,7 +124,7 @@ impl Parser<'_> {
         self.fuel.set(parser.fuel.get());
         match result {
             Ok(_) => Ok(()),
-            Err(error) if Self::is_parser_budget_error(&error) => Err(error),
+            Err(error @ Error::ResourceLimit(_)) => Err(error),
             Err(_) => Err(Error::ShellWord {
                 line: self.current_span.start.line,
             }),

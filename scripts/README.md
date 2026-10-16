@@ -73,3 +73,23 @@ The check compares stdout and status. Alias and shopt diagnostics remain outside
 engine's supported subset. `--record PATH` records Bash observations after a clean
 comparison. CI uses `--replay scripts/fixtures/shell-parse-boundaries.json` without
 invoking Bash and verifies the generator hash and every regenerated script.
+
+## Brace lists and ranges
+
+`npm run fuzz:shell-braces -- --shell PATH --seed 1` compares 3,000 generated
+word/scalar-context cases plus fixed controls with GNU Bash 5.3.15. Also run seed
+42 and `--self-control` (two independent Bash processes). The original bounded
+grammar covers lists, adjacent/nested products, invalid enclosing groups,
+signed/padded numeric and ASCII-letter ranges, escapes, quotes, empty fields,
+arithmetic order, variable-name boundaries, and a source alternative above
+4 KiB. Cartesian products are capped at 128 fields; resource tests are separate.
+
+The command never builds a binary and self-queues through the host's light
+admission wrapper. Each invocation cleans its own scratch directory. Exact
+stdout bytes and numeric status decide matches; signals, timeouts and spawn
+errors cannot match. There are no unsupported exemptions.
+
+`--record scripts/fixtures/shell-braces-seed-1.json` records only after every
+candidate case matches. `npm run fuzz:shell-braces:ci -- --shell PATH` strictly
+validates and replays seeds 1 and 42 without Bash.
+`npm run test:fuzz-shell-braces` tests generation, matching and fixture rejection.

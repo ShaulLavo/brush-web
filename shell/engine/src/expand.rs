@@ -9,6 +9,7 @@ use crate::{
 use futures::{FutureExt, future::LocalBoxFuture};
 use shell_parser::parser::{ParameterOp, Word, WordPart};
 
+mod braces;
 mod case;
 mod indirect;
 mod operand;
@@ -1693,14 +1694,7 @@ fn slice_shell_grammar(source: &str) -> Result<(), shell_parser::error::Error> {
 }
 
 fn shell_parser_budget_error(error: &shell_parser::error::Error) -> bool {
-    match error {
-        shell_parser::error::Error::ResourceLimit(_) => true,
-        shell_parser::error::Error::ShellWord { .. } => false,
-        shell_parser::error::Error::Parse { message, .. } => {
-            message.starts_with("AST nesting too deep")
-                || message.starts_with("parser fuel exhausted")
-        }
-    }
+    matches!(error, shell_parser::error::Error::ResourceLimit(_))
 }
 
 fn scalar_value(
@@ -1769,13 +1763,14 @@ fn part_quoted(word: &Word, index: usize, has_part_quotes: bool) -> bool {
     word.quoted
 }
 
-async fn expand(
+async fn expand_one(
     word: &Word,
     state: &SharedState,
     cancel: &Cancel,
     max_bytes: usize,
     max_fields: usize,
     max_raw: usize,
+    raw_remaining: &mut usize,
     scalar: bool,
     work: &mut Work,
 ) -> Result<Vec<String>, Error> {
@@ -1791,22 +1786,16 @@ async fn expand(
         work,
         cancel,
         max_raw,
-        raw_remaining: max_raw,
+        raw_remaining: *raw_remaining,
         elements_remaining: max_raw.saturating_add(max_fields),
     };
     if scalar {
         expansion.segments.empty(expansion.work)?;
     }
-    // QuotedWord tokens set Word.quoted after parsing their unmarked text, so
-    // an all-false part vector is not an override of whole-word quoting.
-    // Bashkit uses per-part flags only when at least one flag is true.
     let mut has_part_quotes = false;
     for &quoted in &word.part_quoted {
         expansion.work.checkpoint(cancel).await?;
-        if quoted {
-            has_part_quotes = true;
-            break;
-        }
+        has_part_quotes |= quoted;
     }
     for (index, part) in word.parts.iter().enumerate() {
         expansion.work.checkpoint(cancel).await?;
@@ -1821,12 +1810,127 @@ async fn expand(
         }
         expansion.part(part, state, quoted, scalar, 0).await?;
     }
+    *raw_remaining = expansion.raw_remaining;
     expansion.current_ifs(state).await?;
     let ifs = expansion.ifs.take().ok_or(2)?;
     expansion
         .segments
         .split(ifs, max_bytes, max_fields, expansion.work, cancel)
         .await
+}
+
+async fn expand(
+    word: &Word,
+    state: &SharedState,
+    cancel: &Cancel,
+    max_bytes: usize,
+    max_fields: usize,
+    max_raw: usize,
+    scalar: bool,
+    work: &mut Work,
+) -> Result<Vec<String>, Error> {
+    let variants = if scalar {
+        None
+    } else {
+        braces::variants(word, max_fields.max(1), work, cancel).await?
+    };
+    let mut raw_remaining = max_raw;
+    let Some(variants) = variants else {
+        return expand_one(
+            word,
+            state,
+            cancel,
+            max_bytes,
+            max_fields,
+            max_raw,
+            &mut raw_remaining,
+            scalar,
+            work,
+        )
+        .await;
+    };
+    let mut values = Vec::new();
+    let mut bytes_remaining = max_bytes;
+    for variant in variants {
+        work.checkpoint(cancel).await?;
+        if variant.is_empty() {
+            continue;
+        }
+        work.admit_parse(variant.len(), cancel).await?;
+        // Text copies and lexical metadata scale with bytes; AST vectors scale
+        // with syntax, not text length. Alternating `a\\a` creates two 112-byte
+        // WordParts per escape on native, whose doubled vector capacity alone
+        // exceeds 128 * source bytes. Count potential part/command boundaries
+        // cooperatively; four slots allow two parts and geometric Vec growth.
+        // Command/Word slots also cover parsed (but unsupported) substitutions.
+        let mut syntax = 0usize;
+        for ch in variant.chars() {
+            work.checkpoint(cancel).await?;
+            if ch.is_whitespace()
+                || matches!(
+                    ch,
+                    '$' | '\\'
+                        | '\''
+                        | '"'
+                        | '`'
+                        | '<'
+                        | '>'
+                        | '('
+                        | ')'
+                        | ';'
+                        | '|'
+                        | '&'
+                        | '\0'
+                        | '\u{1e}'
+                        | '\u{1f}'
+                )
+            {
+                syntax = syntax.saturating_add(1);
+            }
+        }
+        let slot = std::mem::size_of::<WordPart>()
+            .saturating_add(std::mem::size_of::<Word>())
+            .saturating_add(std::mem::size_of::<shell_parser::parser::Command>());
+        work.admit_storage(
+            variant
+                .len()
+                .saturating_mul(128)
+                .saturating_add(syntax.saturating_mul(4).saturating_mul(slot))
+                .saturating_add(512),
+        )?;
+        let parsed = shell_parser::parser::Parser::parse_expanded_word_with_limits(
+            &variant,
+            // Brace spelling removes syntax; it must not impose the lower
+            // recursive operand-evaluation cap on already-accepted lazy text.
+            shell_parser::limits::ExecutionLimits::default().max_ast_depth,
+            variant.len().saturating_add(3).saturating_mul(16),
+        )
+        .map_err(|error| match error {
+            shell_parser::Error::ResourceLimit(_) => Error::Status(2),
+            _ => Error::BadSubstitution {
+                message: "invalid generated word",
+                line: None,
+            },
+        })?;
+        let expanded = expand_one(
+            &parsed,
+            state,
+            cancel,
+            bytes_remaining,
+            max_fields.saturating_sub(values.len()),
+            max_raw,
+            &mut raw_remaining,
+            scalar,
+            work,
+        )
+        .await?;
+        for value in expanded {
+            bytes_remaining = bytes_remaining.checked_sub(value.len()).ok_or(2)?;
+            admit_vec_slot(&mut values, work)?;
+            values.push(value);
+        }
+    }
+    Ok(values)
 }
 
 /// Textual expansion precedes arithmetic parsing, even in skipped branches.

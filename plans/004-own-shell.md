@@ -98,8 +98,8 @@ The runtime itself (plan 001 step 2 and `handoff-runtime.md`), the terminal choi
 
 ## Follow-up: IFS snapshot storage admission
 
-Status: Approved. Fold this into the next word-expansion unit before adding more
-allocation paths. This was found during arithmetic review and predates that PR.
+Status: Approved. Fold this into the immediately ordered ANSI-C word unit below,
+before adding more allocation paths. This was found during arithmetic review and predates that PR.
 
 `Ifs::new` in `shell/engine/src/expand.rs` copies the IFS string and inserts
 characters into a `BTreeSet` without calling `Work::admit_storage`. It checks
@@ -126,3 +126,70 @@ protection, final-IFS updates, list separators, and Unicode delimiter semantics.
 Run all native/WASI word tests, regenerate word fixtures 1/42 independently and
 diff byte-for-byte, and require zero lost fixed-corpus cases. Own and clean any
 task-created targets and scratch under the usual lane rules.
+
+
+## Next word unit: ANSI-C operands and two-phase parameter extraction
+
+Status: Approved. This is the **very next unit after brace expansion merges**,
+before the IFS storage-admission follow-up above. It is not a CI exemption.
+
+Brace controls exposed an existing scalar-parameter bug, independent of braces.
+The first reproduction is:
+
+```bash
+printf '<%s>\n' "${u:-$'\''}"
+```
+
+Confirmed with a fresh native release build of exact main
+`5deb70ddcee9ec82e208168455a760f9544867a2`: GNU Bash 5.3.15 exits **1**
+with no stdout; main exits **0**, stdout bytes `3c273e0a` (an apostrophe field).
+The detached proof worktree and build output were removed after measurement.
+The brace lane records the same evidence in the PR. These additional operand spellings exercise the same phase:
+
+```bash
+v=SET; printf '<%s>\n' "${v:-$'\''}"
+printf '<%s>\n' "${u:-$'\x27'}"
+printf '<%s>\n' "${u:-$'\x27\x27'}"
+v=VALUE; printf '<%s>\n' "${u:-$'$v'}"
+v=SET; printf '<%s>\n' "${v:-$'}'}"
+printf '<%s>\n' "${u:-$'\x22'}"
+```
+
+Decoded apostrophes affect extraction even when the operand is unselected;
+decoded `}` can end the parameter early, decoded `$` expands, and decoded
+double quotes affect expansion-time quoting without becoming original shell
+syntax. In contrast, unquoted ANSI-C operands retain literal protection.
+
+**First step:** extend `scripts/fuzz-shell-words.mjs` to generate `$'…'` and
+decoded specials (apostrophes, braces, dollars, double quotes, escapes, empty
+text) in **every operator's operand**, both quoted and unquoted, selected and
+unselected. Existing seeds 1/42 do not reach this phase. Run Bash self-controls
+and failing-first comparisons before implementation; retain exact status and
+stdout observations, including Bash failures. No unsupported/CI exemptions.
+
+Implement general **two-phase parameter extraction**, not quote-specific
+patches or raw decoded-text insertion into the outer shell grammar. Inspect
+`shell/parser/src/parser/lexer.rs` (`read_parameter_body` and ANSI-C decoding),
+`shell/parser/src/parser/parameter_scan.rs`, parameter extraction in
+`shell/parser/src/parser/mod.rs`, and lazy operand decoding in
+`shell/engine/src/expand/operand.rs`. Keep early shell-word syntax separate
+from later extraction, preserve storage/work/raw admission and cancellation,
+regenerate all affected fixtures with independent byte comparison, and run the
+full native/WASI suites and per-case score ratchet before pushing.
+
+
+## Follow-up: redirect word expansion contexts
+
+Status: Approved. After the immediately ordered ANSI-C unit and the IFS
+admission fix, handle redirect-target contexts separately from scalar assignment
+RHSs. Current `interpreter.rs::redirects` calls `expand::word` (scalar), which
+intentionally suppresses brace expansion and field splitting. Reproducer:
+`echo hi >/dev/null{1,2}`. Bash 5.3.15 reports an ambiguous redirect/status 1;
+our memory filesystem instead receives a literal `/dev/null{1,2}` filename.
+Start with generator controls for redirect brace lists/ranges, quoted and
+escaped variants, parameter/IFS splitting, zero/one/multiple fields, and
+side-effect order. Do not run host-writing controls except in an owned scratch
+filesystem. Then introduce a redirect-specific expansion contract with correct
+ambiguity diagnostics, preserving scalar assignments/declarations. Confirm
+Bash results before implementation, run full native/WASI tests and exact pass
+membership ratchet, and keep zero CI exemptions.

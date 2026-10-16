@@ -159,7 +159,7 @@ impl<'a> Scanner<'a> {
         }
         if !self.protected()
             && !self.outer_quoted
-            && (ch == '~' || !self.pattern && matches!(ch, '*' | '?' | '[' | '{' | '}'))
+            && (ch == '~' || !self.pattern && matches!(ch, '*' | '?' | '['))
         {
             return Err(2.into());
         }

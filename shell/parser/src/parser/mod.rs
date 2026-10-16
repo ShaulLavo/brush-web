@@ -89,12 +89,10 @@ pub struct Parser<'a> {
     current_span: Span,
     /// Lookahead token for function parsing
     peeked_token: Option<SpannedToken>,
-    /// Source text of the current word token (only inside function bodies).
+    /// Source text of the current word token, before quote removal and
+    /// parameter parsing. Brace expansion precedes those transformations.
     current_raw: Option<String>,
     current_escapes: Vec<LiteralEscape>,
-    /// Nesting depth of function definitions being parsed; word source text
-    /// is captured while it is non-zero.
-    function_depth: usize,
     /// Maximum allowed AST nesting depth
     max_depth: usize,
     /// Current nesting depth
@@ -203,10 +201,11 @@ impl<'a> Parser<'a> {
     ) -> Self {
         let mut lexer = Lexer::with_max_subst_depth(input, max_depth.min(HARD_MAX_AST_DEPTH));
         lexer.set_extglob_bang(options.extglob);
+        lexer.set_capture_raw(true);
         let spanned = lexer.next_spanned_token();
-        let (current_token, current_span, current_escapes) = match spanned {
-            Some(st) => (Some(st.token), st.span, st.literal_escapes),
-            None => (None, Span::new(), Vec::new()),
+        let (current_token, current_span, current_escapes, current_raw) = match spanned {
+            Some(st) => (Some(st.token), st.span, st.literal_escapes, st.raw),
+            None => (None, Span::new(), Vec::new(), None),
         };
         // The first token was lexed before any alias table was attached:
         // it is plain when it reads exactly as its source text.
@@ -218,9 +217,8 @@ impl<'a> Parser<'a> {
             current_token,
             current_span,
             peeked_token: None,
-            current_raw: None,
+            current_raw,
             current_escapes,
-            function_depth: 0,
             max_depth: max_depth.min(HARD_MAX_AST_DEPTH),
             current_depth: 0,
             fuel: Cell::new(max_fuel),
@@ -343,6 +341,81 @@ impl<'a> Parser<'a> {
     pub fn parse_word_string_with_limits(input: &str, max_depth: usize, max_fuel: usize) -> Word {
         let parser = Parser::with_limits(input, max_depth, max_fuel);
         parser.parse_word(input.to_string())
+    }
+
+    /// Parse one already-admitted word produced by textual brace expansion.
+    /// This is word lexing only: reserved words, assignments and a standalone
+    /// `{` are data, not command grammar. The caller bounds input and admits
+    /// synchronous work/storage before entering this API. Generated syntax
+    /// characters that are literal data must retain their lexical protection.
+    /// No brace expansion is performed here.
+    pub fn parse_expanded_word_with_limits(
+        input: &str,
+        max_depth: usize,
+        max_fuel: usize,
+    ) -> Result<Word> {
+        // First read an inert word to leave lexical assignment position:
+        // a generated `[` is a literal, not an unterminated array subscript.
+        // A second inert prefix forces word context for empty text, reserved
+        // words and standalone braces. Remove only that prefix structurally.
+        let size = input.len().checked_add(3)
+            .filter(|size| *size <= max_fuel)
+            .ok_or(LimitExceeded::ParserFuel { used: max_fuel, limit: max_fuel })?;
+        // Admit storage before copying, then share work across every child:
+        // sibling substitutions must not each receive a fresh allowance.
+        let budget = crate::limits::ExecutionBudget::new(
+            &crate::limits::ExecutionLimits {
+                max_work_units: u64::try_from(max_fuel).unwrap_or(u64::MAX),
+                timeout: Duration::MAX,
+                ..crate::limits::ExecutionLimits::default()
+            },
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let mut prefixed = String::with_capacity(size);
+        prefixed.push_str("x x");
+        prefixed.push_str(input);
+        let mut parser = Parser::with_limits(&prefixed, max_depth, max_fuel)
+            .with_execution_budget(budget.clone());
+        parser.tick_units(size)?;
+        parser.advance();
+        parser.check_error_token()?;
+        let (text, quoted, glob) = match &parser.current_token {
+            Some(tokens::Token::Word(text)) => (text.clone(), false, false),
+            Some(tokens::Token::QuotedWord(text)) => (text.clone(), true, false),
+            Some(tokens::Token::QuotedGlobWord(text)) => (text.clone(), true, true),
+            _ => return Err(parser.error("expected one expanded word")),
+        };
+        let mut word = parser.parse_word_inner(text, &parser.current_escapes, true);
+        budget.check()?;
+        if let Some(error) = parser.deferred_error.take() {
+            return Err(error);
+        }
+        let Some(WordPart::Literal(prefix)) = word.parts.first_mut() else {
+            return Err(parser.error("expanded word lost its literal prefix"));
+        };
+        if !prefix.starts_with('x') {
+            return Err(parser.error("expanded word lost its literal prefix"));
+        }
+        prefix.remove(0);
+        if prefix.is_empty() && word.parts.len() > 1 {
+            word.parts.remove(0);
+            word.part_quoted.remove(0);
+        }
+        // A plain quoted token uses the whole-word flag; mixed tokens retain
+        // per-part protection. Removing the prefix can make every part quoted.
+        word.quoted = quoted || word.part_quoted.iter().all(|quoted| *quoted);
+        word.has_unquoted_glob |= glob;
+        word.raw = Some(input.to_string());
+        parser.advance();
+        parser.check_error_token()?;
+        if parser.current_token.is_some() {
+            return Err(parser.error("expected one expanded word"));
+        }
+        if let Some(error) = parser.deferred_error.take() {
+            return Err(error);
+        }
+        budget.check()?;
+        Ok(word)
     }
 
     /// Parse one already-admitted `${...}` token, retaining its enclosing
@@ -479,21 +552,16 @@ impl<'a> Parser<'a> {
         word
     }
 
-    /// Start capturing word source text for a function body.
-    fn enter_function_body(&mut self) {
-        self.function_depth += 1;
-        self.lexer.set_capture_raw(true);
-    }
-
-    fn leave_function_body(&mut self) {
-        self.function_depth = self.function_depth.saturating_sub(1);
-        if self.function_depth == 0 {
-            self.lexer.set_capture_raw(false);
-        }
-    }
-
     fn source_slice(&self, start_offset: usize, end_offset: usize) -> Option<String> {
         self.input.get(start_offset..end_offset).map(str::to_owned)
+    }
+
+    fn limit_error(&self, limit: LimitExceeded) -> Error {
+        // Infallible word readers defer errors and can keep scanning. Poison
+        // their shared budget so an earlier syntax error cannot mask a limit.
+        self.execution_budget.as_ref()
+            .map_or(limit, |budget| budget.record_failure(limit))
+            .into()
     }
 
     /// Consume one unit of fuel, returning an error if exhausted
@@ -508,10 +576,7 @@ impl<'a> Parser<'a> {
         }
         if self.fuel.get() == 0 {
             let used = self.max_fuel;
-            return Err(Error::parse(format!(
-                "parser fuel exhausted ({} operations, max {})",
-                used, self.max_fuel
-            )));
+            return Err(self.limit_error(LimitExceeded::ParserFuel { used, limit: self.max_fuel }));
         }
         self.fuel.set(self.fuel.get() - 1);
         Ok(())
@@ -532,10 +597,7 @@ impl<'a> Parser<'a> {
         }
         if self.fuel.get() < units {
             let used = self.max_fuel;
-            return Err(Error::parse(format!(
-                "parser fuel exhausted ({} operations, max {})",
-                used, self.max_fuel
-            )));
+            return Err(self.limit_error(LimitExceeded::ParserFuel { used, limit: self.max_fuel }));
         }
         self.fuel.set(self.fuel.get() - units);
         Ok(())
@@ -545,10 +607,10 @@ impl<'a> Parser<'a> {
     fn push_depth(&mut self) -> Result<()> {
         self.current_depth += 1;
         if self.current_depth > self.max_depth {
-            return Err(Error::parse(format!(
-                "AST nesting too deep ({} levels, max {})",
-                self.current_depth, self.max_depth
-            )));
+            return Err(self.limit_error(LimitExceeded::AstDepth {
+                depth: self.current_depth,
+                limit: self.max_depth,
+            }));
         }
         Ok(())
     }
@@ -562,6 +624,9 @@ impl<'a> Parser<'a> {
 
     /// Check if current token is an error token and return the error if so
     fn check_error_token(&self) -> Result<()> {
+        if let Some(limit) = self.lexer.limit_exceeded() {
+            return Err(self.limit_error(limit));
+        }
         if let Some(tokens::Token::Error(msg)) = &self.current_token {
             // bash: `unexpected EOF while looking for matching `"'`.
             let close = match msg.as_str() {
@@ -2407,12 +2472,15 @@ impl<'a> Parser<'a> {
             }
         }
 
-        if let Err(msg) = check_conditional(&kinds) {
-            return Err(Error::parse_at(
-                msg,
-                self.current_span.start.line,
-                self.current_span.start.column,
-            ));
+        if let Err(error) = check_conditional(&kinds) {
+            return Err(match error {
+                ConditionalError::Syntax(message) => Error::parse_at(
+                    message,
+                    self.current_span.start.line,
+                    self.current_span.start.column,
+                ),
+                ConditionalError::Depth => self.limit_error(LimitExceeded::ConditionalDepth),
+            });
         }
         Ok(CompoundCommand::Conditional(words))
     }
@@ -2680,9 +2748,7 @@ impl<'a> Parser<'a> {
             Some(tokens::Token::Word(w)) => w.clone(),
             _ => return Err(self.error("expected function name")),
         };
-        self.enter_function_body();
         let body = self.parse_function_keyword_rest();
-        self.leave_function_body();
         let body = body?;
         let end_offset = self.current_command_end_offset();
 
@@ -2713,9 +2779,7 @@ impl<'a> Parser<'a> {
         if !matches!(self.current_token, Some(tokens::Token::RightParen)) {
             return Err(self.error("expected ')' in function definition"));
         }
-        self.enter_function_body();
         let body = self.parse_function_posix_rest();
-        self.leave_function_body();
         let body = body?;
         let end_offset = self.current_command_end_offset();
 
@@ -3081,10 +3145,9 @@ impl<'a> Parser<'a> {
     /// Parse the value side of an assignment (`VAR=value`).
     /// Returns `Some((Assignment, needs_advance))` if the current word is an assignment.
     /// The bool indicates whether the caller must call `self.advance()` afterward.
-    /// `glob_escaped` marks a `QuotedGlobWord` token: the lexer backslash-
-    /// escaped its quoted glob characters, which an assignment (no globbing)
-    /// must drop again so `x="a*"b*` stores `a*b*`.
-    fn try_parse_assignment(&mut self, w: &str, glob_escaped: bool) -> Option<(Assignment, bool)> {
+    /// Literal text is already quote-removed data. Protection stays in
+    /// `part_quoted` and literal-escape metadata, including for mixed globs.
+    fn try_parse_assignment(&mut self, w: &str) -> Option<(Assignment, bool)> {
         let (name, index, value, is_append) = Self::is_assignment(w)?;
         let value_start = w.len() - value.len();
         let operator_start = value_start - if is_append { 2 } else { 1 };
@@ -3211,13 +3274,6 @@ impl<'a> Parser<'a> {
         // The lexer has already removed source quotes. Quote bytes in this
         // spelling are data, and only the lexical metadata can protect them.
         let mut value_word = self.parse_word_with_escapes(value_str, &value_escapes);
-        if glob_escaped {
-            for part in &mut value_word.parts {
-                if let WordPart::Literal(s) = part {
-                    *s = unescape_glob_literal(s);
-                }
-            }
-        }
         value_word.raw = value_raw;
         Some((
             Assignment {
@@ -3676,7 +3732,7 @@ impl<'a> Parser<'a> {
         // Check for assignment (only before the command name, not for literal words)
         if words.is_empty()
             && !is_literal
-            && let Some((assignment, needs_advance)) = self.try_parse_assignment(&w, is_glob_quoted)
+            && let Some((assignment, needs_advance)) = self.try_parse_assignment(&w)
         {
             if needs_advance {
                 self.advance();
@@ -4087,6 +4143,9 @@ impl<'a> Parser<'a> {
                             self.advance();
                         }
                         Some(tokens::Token::Error(e)) => {
+                            if let Some(limit) = self.lexer.limit_exceeded() {
+                                return Err(self.limit_error(limit));
+                            }
                             let msg = e.clone();
                             self.advance();
                             return Err(Error::parse(format!(
@@ -4114,11 +4173,10 @@ impl<'a> Parser<'a> {
                 // repeated near-full-size String bodies; charge body bytes because the
                 // child lexer must rescan whitespace/comments that produce no tokens.
                 if self.current_depth >= self.max_depth {
-                    return Err(Error::parse(format!(
-                        "AST nesting too deep ({} levels, max {})",
-                        self.current_depth + 1,
-                        self.max_depth
-                    )));
+                    return Err(self.limit_error(LimitExceeded::AstDepth {
+                        depth: self.current_depth + 1,
+                        limit: self.max_depth,
+                    }));
                 }
                 let inner_result = {
                     let cmd_src = self
@@ -4139,15 +4197,14 @@ impl<'a> Parser<'a> {
                     let result = inner_parser
                         .parse_script_into(&mut commands)
                         .map(|()| commands.into_iter().map(|(cmd, _)| cmd).collect::<Vec<_>>());
-                    let raw = (self.function_depth > 0)
-                        .then(|| format!("{}({cmd_src})", if is_input { '<' } else { '>' }));
+                    let raw = Some(format!("{}({cmd_src})", if is_input { '<' } else { '>' }));
                     (result, inner_parser.fuel.get(), raw)
                 };
                 let (parse_result, remaining_fuel, raw) = inner_result;
                 self.fuel.set(remaining_fuel);
                 let commands = match parse_result {
                     Ok(commands) => commands,
-                    Err(err) if self.strict_command_separators || Self::is_parser_budget_error(&err) => return Err(err),
+                    Err(err) if self.strict_command_separators || matches!(err, Error::ResourceLimit(_)) => return Err(err),
                     Err(_) => Vec::new(),
                 };
 
@@ -4160,17 +4217,6 @@ impl<'a> Parser<'a> {
                 })
             }
             _ => Err(self.error("expected word")),
-        }
-    }
-
-    fn is_parser_budget_error(err: &Error) -> bool {
-        match err {
-            Error::ResourceLimit(_) => true,
-            Error::Parse { message, .. } => {
-                message.starts_with("AST nesting too deep")
-                    || message.starts_with("parser fuel exhausted")
-            }
-            _ => false,
         }
     }
 
@@ -4225,11 +4271,10 @@ impl<'a> Parser<'a> {
     #[inline(never)]
     fn nested_parser<'b>(&self, src: &'b str) -> Result<Box<Parser<'b>>> {
         if self.current_depth >= self.max_depth {
-            return Err(Error::parse(format!(
-                "AST nesting too deep ({} levels, max {})",
-                self.current_depth + 1,
-                self.max_depth
-            )));
+            return Err(self.limit_error(LimitExceeded::AstDepth {
+                depth: self.current_depth + 1,
+                limit: self.max_depth,
+            }));
         }
         let mut parser = Box::new(Parser::with_limits_and_timeout(
             src,
@@ -4898,6 +4943,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_word_with_escapes(&self, s: String, escapes: &[LiteralEscape]) -> Word {
+        self.parse_word_inner(s, escapes, false)
+    }
+
+    fn parse_word_inner(&self, s: String, escapes: &[LiteralEscape], preserve_empty: bool) -> Word {
         let mut parts = Vec::new();
         let mut part_quoted = Vec::new();
         let mut chars = WordChars::new(&s, escapes);
@@ -5101,6 +5150,7 @@ impl<'a> Parser<'a> {
             parts,
             part_quoted,
             has_empty_quoted,
+            preserve_empty,
             saw_quote_marker,
             in_quoted_segment,
         )
@@ -5156,7 +5206,7 @@ impl<'a> Parser<'a> {
                 Step::Limit => {
                     let first = self.deferred_error.take();
                     self.deferred_error
-                        .set(first.or(Some(self.error("parameter expansion nesting too deep"))));
+                        .set(first.or(Some(self.limit_error(LimitExceeded::ParameterDepth))));
                     break;
                 }
                 step => {
@@ -5245,6 +5295,7 @@ fn finish_word(
     mut parts: Vec<WordPart>,
     mut part_quoted: Vec<bool>,
     has_empty_quoted: bool,
+    preserve_empty: bool,
     saw_quote_marker: bool,
     in_quoted_segment: bool,
 ) -> Word {
@@ -5252,7 +5303,7 @@ fn finish_word(
     // (`""$x""` keeps empty fields) or a quoted `@` expansion (`"$@"""`
     // is one empty field when there are no positional parameters);
     // elsewhere drop them so the word keeps its plain shape.
-    if has_empty_quoted {
+    if has_empty_quoted && !preserve_empty {
         let unquoted_expansion = parts
             .iter()
             .zip(&part_quoted)
@@ -5730,28 +5781,6 @@ fn cond_regex_literal(raw: &str) -> String {
     out
 }
 
-/// Undo the lexer's glob escaping of quoted text (`\*` -> `*`, `\\` -> `\`)
-/// for contexts that never glob.
-pub(crate) fn unescape_glob_literal(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\\'
-            && let Some(&next) = chars.peek()
-            && matches!(
-                next,
-                '\\' | '*' | '?' | '[' | ']' | '{' | '}' | '@' | '!' | '+' | '(' | ')' | '|' | '-'
-            )
-        {
-            out.push(next);
-            chars.next();
-            continue;
-        }
-        out.push(ch);
-    }
-    out
-}
-
 /// Split the text of `for ((init; cond; step))` at top-level `;`.
 fn split_arith_for_parts(body: &str) -> Vec<String> {
     let mut parts = Vec::new();
@@ -5867,17 +5896,22 @@ enum CondTok {
     Op(&'static str),
 }
 
+enum ConditionalError {
+    Syntax(String),
+    Depth,
+}
+
 /// bash's `[[ ]]` grammar (parse.y `cond_expr`), checked at parse time so
 /// `[[ a $op b ]]`, `[[ -z ]]` or `[[ '(' x ]]` are syntax errors (status
 /// 2) as in bash, not runtime tests. Evaluation still runs on the words.
-fn check_conditional(toks: &[CondTok]) -> std::result::Result<(), String> {
+fn check_conditional(toks: &[CondTok]) -> std::result::Result<(), ConditionalError> {
     let mut pos = 0;
     cond_or(toks, &mut pos, 0)?;
     if pos < toks.len() {
-        return Err(format!(
+        return Err(ConditionalError::Syntax(format!(
             "syntax error in conditional expression: unexpected token `{}'",
             cond_shown(toks.get(pos))
-        ));
+        )));
     }
     Ok(())
 }
@@ -5908,9 +5942,9 @@ fn cond_word_text(tok: Option<&CondTok>) -> Option<&str> {
     }
 }
 
-fn cond_or(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result<(), String> {
+fn cond_or(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result<(), ConditionalError> {
     if depth > COND_MAX_DEPTH {
-        return Err("conditional expression nested too deeply".to_string());
+        return Err(ConditionalError::Depth);
     }
     cond_and(t, pos, depth)?;
     while matches!(t.get(*pos), Some(CondTok::Op("||"))) {
@@ -5920,7 +5954,7 @@ fn cond_or(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result<
     Ok(())
 }
 
-fn cond_and(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result<(), String> {
+fn cond_and(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result<(), ConditionalError> {
     cond_term(t, pos, depth)?;
     while matches!(t.get(*pos), Some(CondTok::Op("&&"))) {
         *pos += 1;
@@ -5929,23 +5963,23 @@ fn cond_and(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result
     Ok(())
 }
 
-fn cond_term(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result<(), String> {
+fn cond_term(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result<(), ConditionalError> {
     if depth > COND_MAX_DEPTH {
-        return Err("conditional expression nested too deeply".to_string());
+        return Err(ConditionalError::Depth);
     }
     match t.get(*pos) {
-        None => Err("syntax error in conditional expression".to_string()),
+        None => Err(ConditionalError::Syntax("syntax error in conditional expression".to_string())),
         Some(CondTok::Op("(")) => {
             *pos += 1;
             if matches!(t.get(*pos), Some(CondTok::Op(")"))) {
-                return Err("unexpected token `)' in conditional command".to_string());
+                return Err(ConditionalError::Syntax("unexpected token `)' in conditional command".to_string()));
             }
             cond_or(t, pos, depth + 1)?;
             if !matches!(t.get(*pos), Some(CondTok::Op(")"))) {
-                return Err(format!(
+                return Err(ConditionalError::Syntax(format!(
                     "unexpected token `{}', expected `)'",
                     cond_shown(t.get(*pos))
-                ));
+                )));
             }
             *pos += 1;
             Ok(())
@@ -5959,10 +5993,10 @@ fn cond_term(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Resul
             *pos += 1;
             if first.is_some_and(|w| COND_UNARY.contains(&w)) {
                 if !matches!(t.get(*pos), Some(CondTok::Word(_))) {
-                    return Err(format!(
+                    return Err(ConditionalError::Syntax(format!(
                         "unexpected argument `{}' to conditional unary operator",
                         cond_shown(t.get(*pos))
-                    ));
+                    )));
                 }
                 *pos += 1;
                 return Ok(());
@@ -5974,19 +6008,19 @@ fn cond_term(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Resul
                 _ => false,
             };
             if !binary {
-                return Err("conditional binary operator expected".to_string());
+                return Err(ConditionalError::Syntax("conditional binary operator expected".to_string()));
             }
             *pos += 1;
             if !matches!(t.get(*pos), Some(CondTok::Word(_))) {
-                return Err(format!(
+                return Err(ConditionalError::Syntax(format!(
                     "unexpected argument `{}' to conditional binary operator",
                     cond_shown(t.get(*pos))
-                ));
+                )));
             }
             *pos += 1;
             Ok(())
         }
-        Some(CondTok::Op(op)) => Err(format!("unexpected token `{op}' in conditional command")),
+        Some(CondTok::Op(op)) => Err(ConditionalError::Syntax(format!("unexpected token `{op}' in conditional command"))),
     }
 }
 

@@ -104,6 +104,10 @@ impl<const N: usize> ParameterScan<N> {
         self.frames[self.depth - 1].quote.is_none()
     }
 
+    pub(crate) fn single_quoted(&self) -> bool {
+        self.frames[self.depth - 1].quote == Some('\'')
+    }
+
     pub fn feed(&mut self, ch: char, next: Option<char>) -> Step {
         if self.limit == 0 {
             return Step::Limit;

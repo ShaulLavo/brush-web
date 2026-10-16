@@ -736,3 +736,410 @@ fn substring_fields_ignore_delimiters_inside_quoted_operands() {
         );
     }
 }
+
+#[test]
+fn brace_punctuation_stays_literal_data_with_structural_protection() {
+    for (source, segments) in [
+        (
+            "args {'a,b',c}",
+            vec![("{", false), ("a,b", true), (",c}", false)],
+        ),
+        (
+            r#"args {"a,b",c}"#,
+            vec![("{", false), ("a,b", true), (",c}", false)],
+        ),
+        (
+            "args {a,'}'}",
+            vec![("{a,", false), ("}", true), ("}", false)],
+        ),
+        (
+            "args {'{a,b}',c}",
+            vec![("{", false), ("{a,b}", true), (",c}", false)],
+        ),
+        (
+            r"args {'a\,b',c}",
+            vec![("{", false), (r"a\,b", true), (",c}", false)],
+        ),
+        (
+            r#"args {"a\,b",c}"#,
+            vec![("{", false), (r"a\,b", true), (",c}", false)],
+        ),
+        (
+            r"args {a\,b,c}",
+            vec![("{a", false), (",", true), ("b,c}", false)],
+        ),
+        (
+            r"args {a\\,b}",
+            vec![("{a", false), ("\\", true), (",b}", false)],
+        ),
+        (
+            r"args {'\\',x}",
+            vec![("{", false), (r"\\", true), (",x}", false)],
+        ),
+        (
+            r#"args {"\\",x}"#,
+            vec![("{", false), ("\\", true), (",x}", false)],
+        ),
+        (
+            r"args \{a,b\}",
+            vec![("{", true), ("a,b", false), ("}", true)],
+        ),
+        (
+            r#"args {"'",'"'}"#,
+            vec![
+                ("{", false),
+                ("'", true),
+                (",", false),
+                ("\"", true),
+                ("}", false),
+            ],
+        ),
+        (
+            r#"args {"*?[]",x}"#,
+            vec![("{", false), ("*?[]", true), (",x}", false)],
+        ),
+    ] {
+        let word = argument(source);
+        let expected: Vec<_> = segments
+            .into_iter()
+            .flat_map(|(text, quoted)| text.chars().map(move |ch| (ch, quoted)))
+            .collect();
+        assert_eq!(literal_characters(&word), expected, "{source}: {word:?}");
+        assert!(
+            word.parts
+                .iter()
+                .all(|part| matches!(part, WordPart::Literal(_)))
+        );
+    }
+}
+
+#[test]
+fn empty_quoted_parts_survive_inside_and_beside_brace_groups() {
+    for source in [
+        "args {'',a}",
+        "args {a,''}",
+        r#"args {"",a}"#,
+        r#"args {a,""}"#,
+        "args ''{a,b}",
+        r#"args ""{a,b}"#,
+        "args {a,b}''",
+        r#"args {a,b}"""#,
+    ] {
+        let word = argument(source);
+        assert!(
+            word.parts
+                .iter()
+                .zip(&word.part_quoted)
+                .any(|(part, quoted)| {
+                    *quoted && matches!(part, WordPart::Literal(text) if text.is_empty())
+                }),
+            "{source}: {word:?}"
+        );
+        assert!(
+            literal_characters(&word).contains(&('{', false)),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn mixed_assignment_literals_do_not_decode_source_backslashes_as_glob_escapes() {
+    for (source, expected) in [
+        (r"out='a\,b'{c,d}", r"a\,b{c,d}"),
+        (r"out='a\*'b*", r"a\*b*"),
+        (r"out='\\'{a,b}", r"\\{a,b}"),
+        (r#"out="\\"{a,b}"#, r"\{a,b}"),
+        (r"out=a\\{b,c}", r"a\{b,c}"),
+    ] {
+        let script = Parser::new(source).parse().unwrap();
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected assignment: {source}");
+        };
+        let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+            panic!("expected scalar: {source}");
+        };
+        assert_eq!(word.to_string(), expected, "{source}: {word:?}");
+    }
+}
+
+#[test]
+fn brace_neighbors_do_not_change_parameter_operand_boundaries_or_quote_context() {
+    for source in ["args ${u:-{a,b}}", r#"args "${u:-{a,b}}""#] {
+        let word = argument(source);
+        assert!(
+            matches!(word.parts.as_slice(), [WordPart::ParameterExpansion {
+                name, operator: ParameterOp::UseDefault, operand, colon_variant: true,
+            }, WordPart::Literal(suffix)] if name == "u" && operand == "{a,b" && suffix == "}"),
+            "{source}: {word:?}"
+        );
+    }
+    let word = argument(r#"args {"${u:-a,b}",c}"#);
+    assert!(
+        matches!(word.parts.as_slice(), [WordPart::Literal(open),
+            WordPart::ParameterExpansion { name, operand, .. }, WordPart::Literal(tail)]
+            if open == "{" && name == "u" && operand == "a,b" && tail == ",c}"),
+        "{word:?}"
+    );
+    assert_eq!(word.part_quoted, [false, true, false]);
+}
+
+#[test]
+fn raw_words_are_retained_before_quote_and_parameter_removal() {
+    let source =
+        r#"first{a,b} '${u:-{a,b}}' ${u:-{{a,b},{c,d}}}; f() { :; }; after{c,d} > 'file{a,b}'"#;
+    let script = Parser::new(source).parse().unwrap();
+    let Command::List(list) = &script.commands[0] else {
+        panic!("expected list");
+    };
+    let Command::Simple(first) = list.first.as_ref() else {
+        panic!("expected first command");
+    };
+    assert_eq!(first.name.raw.as_deref(), Some("first{a,b}"));
+    assert_eq!(first.args[0].raw.as_deref(), Some("'${u:-{a,b}}'"));
+    assert_eq!(first.args[1].raw.as_deref(), Some("${u:-{{a,b},{c,d}}}"));
+    let Command::Simple(last) = &list.rest.last().unwrap().1 else {
+        panic!("expected final command");
+    };
+    assert_eq!(last.name.raw.as_deref(), Some("after{c,d}"));
+    assert_eq!(last.redirects[0].target.raw.as_deref(), Some("'file{a,b}'"));
+}
+
+#[test]
+fn expanded_word_api_uses_word_context_not_command_grammar() {
+    for source in [
+        "",
+        "{",
+        "}",
+        "[",
+        "]",
+        "if",
+        "then",
+        "out=value",
+        "!",
+        "#text",
+    ] {
+        let word = Parser::parse_expanded_word_with_limits(source, 16, 4096).unwrap();
+        assert_eq!(word.to_string(), source, "{source}: {word:?}");
+        assert_eq!(word.raw.as_deref(), Some(source));
+        assert!(!word.quoted, "{source}: {word:?}");
+    }
+    for source in ["one two", "a;b", "a|b", "a>b", "a\nb", "'unclosed", "$(|)"] {
+        assert!(
+            Parser::parse_expanded_word_with_limits(source, 16, 4096).is_err(),
+            "{source}"
+        );
+    }
+    assert!(Parser::parse_expanded_word_with_limits("abc", 16, 3).is_err());
+    assert!(Parser::parse_expanded_word_with_limits("\\a", 16, 3).is_err());
+    let nested = format!("{}: {}", "$(".repeat(20), ")".repeat(20));
+    assert!(Parser::parse_expanded_word_with_limits(&nested, 4, 4096).is_err());
+}
+
+#[test]
+fn expanded_word_api_distinguishes_resource_limits_from_generated_syntax() {
+    for source in ["abc", "\\a"] {
+        assert!(matches!(
+            Parser::parse_expanded_word_with_limits(source, 16, 3),
+            Err(Error::ResourceLimit(LimitExceeded::ParserFuel { .. }))
+        ));
+    }
+    // The source fits, but its literal-escape metadata needs more work.
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(r"\a", 16, 5),
+        Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
+    ));
+    // The source fits, but parsing its command body exhausts the shared work.
+    let command = "$(echo x)";
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(command, 16, command.len() + 3),
+        Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
+    ));
+    assert!(matches!(
+        Parser::with_fuel("echo x", 0).parse(),
+        Err(Error::ResourceLimit(LimitExceeded::ParserFuel {
+            used: 0,
+            limit: 0
+        }))
+    ));
+    for source in [
+        "`",
+        "'unclosed",
+        "\"unclosed",
+        "$(|)",
+        "$( [[ a == ]] )",
+        "one two",
+        "a;b",
+    ] {
+        assert!(
+            matches!(
+                Parser::parse_expanded_word_with_limits(source, 16, 4096),
+                Err(Error::Parse { .. } | Error::ShellWord { .. })
+            ),
+            "{source:?}"
+        );
+    }
+}
+
+#[test]
+fn expanded_word_api_types_ast_and_lexical_depth_limits() {
+    let command = format!("{}: {}", "$(".repeat(5), ")".repeat(5));
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(&command, 4, 4096),
+        Err(Error::ResourceLimit(LimitExceeded::AstDepth { .. }))
+    ));
+    let parameter = format!("{}value{}", "${v:-".repeat(5), "}".repeat(5));
+    for source in [parameter.clone(), format!("\"{parameter}\"")] {
+        assert!(
+            matches!(
+                Parser::parse_expanded_word_with_limits(&source, 4, 4096),
+                Err(Error::ResourceLimit(LimitExceeded::ParameterDepth))
+            ),
+            "{source}"
+        );
+    }
+    let conditional = format!("$( [[ {}x ]] )", "! ".repeat(258));
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(&conditional, 100, 20_000),
+        Err(Error::ResourceLimit(LimitExceeded::ConditionalDepth))
+    ));
+    // A syntax error in an earlier substitution cannot hide a later limit.
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(&format!("$(|){command}"), 4, 4096),
+        Err(Error::ResourceLimit(LimitExceeded::AstDepth { .. }))
+    ));
+}
+
+#[test]
+fn expanded_word_api_preserves_initial_depth_for_skipped_defaults() {
+    let source = format!("{}value{}", "${v:-".repeat(80), "}".repeat(80));
+    Parser::new(&format!("echo {source}")).parse().unwrap();
+    let word = Parser::parse_expanded_word_with_limits(
+        &source,
+        ExecutionLimits::default().max_ast_depth,
+        4096,
+    )
+    .unwrap();
+    assert_eq!(word.raw.as_deref(), Some(source.as_str()));
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(&source, 16, 4096),
+        Err(Error::ResourceLimit(LimitExceeded::ParameterDepth))
+    ));
+}
+
+#[test]
+fn expanded_word_api_shares_work_across_sibling_substitutions() {
+    let child = "$(a;a;a;a)";
+    Parser::parse_expanded_word_with_limits(child, 16, child.len() + 3 + 20).unwrap();
+    let source = child.repeat(16);
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(&source, 16, source.len() + 3 + 20),
+        Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
+    ));
+}
+
+#[test]
+fn expanded_word_api_keeps_substring_admission_failures_typed() {
+    let source = format!("${{v:<({})}}", ":".repeat(4100));
+    let error = Parser::parse_expanded_word_with_limits(&source, 16, 30_000).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            Error::ResourceLimit(LimitExceeded::ParameterCommandFuel)
+        ),
+        "{error}"
+    );
+    assert_eq!(
+        LimitExceeded::ParameterCommandFuel.to_string(),
+        "parser fuel exhausted in parameter command"
+    );
+    let error =
+        Parser::parse_expanded_word_with_limits("$(echo ${v:-${w:-x}>})", 2, 4096).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            Error::ResourceLimit(LimitExceeded::ParameterBoundaryDepth)
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn expanded_word_api_retains_literal_protection_and_expansion_name_boundaries() {
+    for source in [r"'a\,b'", r#""a\,b""#, r"a\,b", r"'\\'", r#""\\""#] {
+        let word = Parser::parse_expanded_word_with_limits(source, 16, 4096).unwrap();
+        let ordinary = argument(&format!("args {source}"));
+        assert_eq!(word.to_string(), ordinary.to_string(), "{source}");
+        assert_eq!(word.quoted, ordinary.quoted, "{source}");
+        let protection = |word: &Word| {
+            let has_part_quotes = word.part_quoted.iter().any(|quoted| *quoted);
+            word.parts
+                .iter()
+                .enumerate()
+                .flat_map(|(index, part)| {
+                    let quoted = if has_part_quotes {
+                        word.part_quoted[index]
+                    } else {
+                        word.quoted
+                    };
+                    let WordPart::Literal(text) = part else {
+                        panic!("expected literal")
+                    };
+                    text.chars().map(move |ch| (ch, quoted))
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(protection(&word), protection(&ordinary), "{source}");
+    }
+    let word = Parser::parse_expanded_word_with_limits(r"\`", 16, 4096).unwrap();
+    assert_eq!(word.to_string(), "`");
+    assert_eq!(word.part_quoted, [true]);
+    let word = Parser::parse_expanded_word_with_limits("$va", 16, 4096).unwrap();
+    assert!(matches!(word.parts.as_slice(), [WordPart::Variable(name)] if name == "va"));
+    let word = Parser::parse_expanded_word_with_limits(r#""$v"a"#, 16, 4096).unwrap();
+    assert!(
+        matches!(word.parts.as_slice(), [WordPart::Variable(name), WordPart::Literal(tail)]
+        if name == "v" && tail == "a")
+    );
+    assert_eq!(word.part_quoted, [true, false]);
+    for source in [r#""""#, "''"] {
+        let word = Parser::parse_expanded_word_with_limits(source, 16, 4096).unwrap();
+        assert!(word.quoted, "{source}: {word:?}");
+        assert_eq!(word.to_string(), "", "{source}");
+    }
+    let word = Parser::parse_expanded_word_with_limits(r#"""a"#, 16, 4096).unwrap();
+    assert!(word.parts.iter().zip(&word.part_quoted).any(
+        |(part, quoted)| *quoted && matches!(part, WordPart::Literal(text) if text.is_empty())
+    ));
+}
+
+#[test]
+fn ansi_control_backslash_does_not_close_an_escaped_apostrophe() {
+    for (source, expected) in [(r"$'\c\''", "\u{1c}'"), (r"$'\c\\'", "\u{1c}")] {
+        let word = Parser::parse_expanded_word_with_limits(source, 16, 4096).unwrap();
+        assert_eq!(word.to_string(), expected, "{source}: {word:?}");
+        assert!(word.quoted, "{source}: {word:?}");
+    }
+    assert!(Parser::parse_expanded_word_with_limits(r"$'\c\'", 16, 4096).is_err());
+}
+
+#[test]
+fn dollar_continuations_preserve_logical_openers_and_raw_spelling() {
+    for (source, logical) in [
+        ("$\\\n'\\''", r"$'\''"),
+        ("\"x\"$\\\n'\\''", r#""x"$'\''"#),
+        ("$\\\n{u:-a,b}", "${u:-a,b}"),
+        ("\"$\\\n{u:-a,b}\"", r#""${u:-a,b}""#),
+        ("${u:-$\\\n'\\''}", r"${u:-$'\''}"),
+        ("\"$\\\n'abc'\"", r#""$'abc'""#),
+    ] {
+        let word = Parser::parse_expanded_word_with_limits(source, 16, 4096).unwrap();
+        let control = Parser::parse_expanded_word_with_limits(logical, 16, 4096).unwrap();
+        assert_eq!(
+            format!("{:?}", word.parts),
+            format!("{:?}", control.parts),
+            "{source}"
+        );
+        assert_eq!(word.quoted, control.quoted, "{source}");
+        assert_eq!(word.raw.as_deref(), Some(source));
+    }
+}

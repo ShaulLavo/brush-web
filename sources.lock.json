@@ -226,9 +226,41 @@
         "classification": "Original arithmetic field delimiter correction; no additional upstream implementation copied.",
         "change": "Ignore parentheses, braces, colons and question marks inside quoted or escaped portions while finding a substring offset or length boundary. Retain raw quote spelling for lazy operand evaluation. Add direct AST and Bash differential regression controls.",
         "reason": "An unused quoted operand containing an unmatched parenthesis raised the substring field depth and swallowed the enclosing brace, so arithmetic received a spurious closing brace even when the operand was skipped."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/ast.rs",
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/lexical.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/parameter_scan.rs",
+          "shell/parser/src/parser/print_cmd.rs",
+          "shell/parser/src/parser/tokens.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original structural quote-protection and word-phase adapters in the owned Bashkit-derived parser; no additional upstream implementation copied. Base remains everruns/bashkit crates/bashkit/src/parser at 491c3281f668b76d64b15210b8f5d7bf97244be0.",
+        "change": "Replace quoted-glob backslash insertion with existing lexical quote boundaries decoded to literal data and part_quoted flags. Remove obsolete assignment glob-unescaping, preserving real source backslashes, and retain empty quoted prefixes beside brace groups. Retain raw spelling on every word, including the first token and words following function definitions, so brace expansion can run before parameter-name and operand-boundary parsing. Add an admitted, fuel/depth-bounded single-word lexical reparse API with an inert removable prefix; preserve quoted empty results and reject extra tokens or deferred syntax failures without parsing command grammar. Replace the deliberate top-level source-discard assertion with source-retention coverage; update two marker-helper expectations to stop requiring invented backslashes. All other existing assertions retained. Preserve lexical ANSI-C quote boundaries and recognize dollar-opened syntax across removed line continuations; keep quoted literal dollars protected. Keep ANSI-C control escape decoding separate from quote-boundary consumption; add original API controls for escaped apostrophes and continued dollar openers. All prior assertions retained. Expose single-quote parameter-scan context so continuation removal does not change single-quoted data.",
+        "reason": "Brace alternatives must distinguish quoted commas/braces from active punctuation without encoding protection in string data. Brace expansion also precedes variable-name recognition and balanced source ${...} skipping, which the later expansion AST cannot reconstruct. Raw source plus bounded word-only reparsing preserves that phase ordering without changing parameter operand semantics or adding pathname/tilde execution support. Early brace processing also needs the same lexical quote/continuation boundaries as ordinary source words; literal quote protection and source boundaries must survive decoding. Outer-double-quoted ANSI-C operand extraction remains a separate approved follow-up."
+      },
+      {
+        "paths": [
+          "shell/parser/src/limits.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/substring.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original typed-resource adapters and regression tests in the owned Bashkit-derived parser; no additional upstream implementation copied. Parser base remains everruns/bashkit crates/bashkit/src/parser at 491c3281f668b76d64b15210b8f5d7bf97244be0.",
+        "change": "Represent parser fuel, AST/lexical parameter depth, parameter-boundary/command fuel and depth, and conditional-depth failures as typed ResourceLimit errors at their original rejection sites. Preserve public lexer error-token text with sticky typed state and retain existing diagnostic message bodies. Expanded-word reparsing bounds prefix allocation and shares its work allowance across child parsers; sticky resource failures cannot be hidden by earlier deferred syntax errors. Remove parser and engine string-prefix resource classification. Add API controls distinguishing resource failures from generated syntax errors, aggregate child work and deeply nested inactive defaults.",
+        "reason": "Brace-generated words must report resource exhaustion as explicit status 2 while retaining Bash status 1 for generated expansion syntax failures. A lower reparse nesting cap rejected already-accepted inactive operands; ordinary source parsing and generated reparsing now share the initial parser ceiling. Typed origins make this distinction structural rather than dependent on diagnostic wording."
       }
     ],
-    "removedUpstreamTests": []
+    "removedUpstreamTests": [
+      {
+        "name": "parser::print_cmd::tests::top_level_words_do_not_keep_source_text",
+        "reason": "Deliberately replaced by top_level_words_keep_source_text_for_early_brace_expansion: brace expansion precedes quote removal and parameter parsing for all source words, not only function-body words. The replacement asserts the retained original spelling."
+      }
+    ]
   },
   "shellScoreboard": {
     "oracleFile": "docs/evidence/own-shell-oracle.json",
@@ -766,5 +798,27 @@
       "invalid UTF-8 scalar output",
       "locale collation and arbitrary non-UTF-8 encodings"
     ]
+  },
+  "shellBraces": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "classification": "Original asynchronous raw-source brace phase and regressions; upstream used as semantic reference only, no additional upstream implementation copied.",
+    "referenceSources": [
+      "crates/bashkit/src/interpreter/brace_expansion.rs",
+      "crates/bashkit/tests/spec_cases/bash/brace-expansion.test.sh"
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/expand/braces.rs",
+      "shell/engine/src/expand.rs"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words/braces.rs",
+      "scripts/fuzz-shell-braces.mjs",
+      "scripts/test-fuzz-shell-braces.mjs",
+      "scripts/fixtures/shell-braces-seed-1.json",
+      "scripts/fixtures/shell-braces-seed-42.json"
+    ],
+    "strategy": "Run brace lists and signed, padded numeric/ASCII-letter ranges before parameter-name parsing and field splitting. Unlike the upstream AST placeholder/cloning implementation, borrow raw source spans, preserve quoted/escaped syntax structurally, reparse admitted generated words, and use iterative cooperative expansion. Invalid enclosing groups stay literal while children expand. Every growing vector/string and parser temporary is storage-admitted; raw output is charged only when emitted and shared across variants. Limits fail explicitly, never return literal or partial results. Original GNU Bash 5.3.15 differential generators and engine resource/deep-nesting tests verify behavior. Removed lexical line continuations join range fragments and dollar-opened opaque constructs without normalizing protected quote bodies. Use the existing original command-boundary scanner for opaque $() bodies so inactive comments, heredocs and case patterns cannot expose brace punctuation. Preserve the initial parser nesting ceiling when reparsing generated words; iterative opaque scanning adds no smaller lexical cap."
   }
 }

@@ -306,8 +306,9 @@ pub struct Word {
     /// fall back to `quoted` for every part.
     #[serde(default)]
     pub part_quoted: Vec<bool>,
-    /// Source text as written. Only recorded inside function definitions,
-    /// where `type`/`declare -f` print words the way bash does (as written).
+    /// Source text before quote removal and expansion parsing. Brace
+    /// expansion consumes this earlier phase, then reparses one expanded word.
+    /// Function printing also uses it to retain the original spelling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<String>,
 }

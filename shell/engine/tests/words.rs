@@ -4007,6 +4007,8 @@ fn cancellation_during_redirect_target_keeps_effects_and_restores_frames() {
 
 #[path = "words/arithmetic.rs"]
 mod arithmetic;
+#[path = "words/braces.rs"]
+mod braces;
 #[path = "words/indirect.rs"]
 mod indirect;
 

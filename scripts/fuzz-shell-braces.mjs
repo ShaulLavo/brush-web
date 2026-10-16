@@ -164,7 +164,7 @@ function tree(random, depth) {
   return bound(result) <= fieldLimit ? result : atom("{a,b}", "bounded-list", 2);
 }
 
-const setup = "n=0; v='{p,q}'; empty=''; unset u";
+const setup = "n=0; v='{p,q}'; va=A; vb=B; v1=one; v2=two; empty=''; unset u";
 const observe = (word) => `printf '<%s>\\n' 'fields' ${word}`;
 const after = "printf 'state=<%s>\\n' status=$? n=$n v=\"$v\"";
 function render(node, mode, context) {
@@ -190,6 +190,22 @@ function makeCase(id, node, mode = "unquoted", context = "word", extraTags = [])
 export function fixedCases() {
   const words = [
     ["{a,b}", "comma-list"],
+    ["$((1 << 2\n)){a,b}", "arithmetic-shift-boundary"],
+    ["$((case == in)){a,b}", "arithmetic-keyword-boundary"],
+    ["${va:-$((1 << 2\n))}{a,b}", "inactive-arithmetic-boundary"],
+    ["$(((1+2) << 1)){a,b}", "arithmetic-parenthesis-boundary"],
+    ["${va:-$(# ) }\necho {a,b}\n)}", "inactive-command-comment"],
+    [`${"${va:-"}${"${u:-".repeat(20)}x${"}".repeat(21)}`, "inactive-deep-parameter"],
+    [`{a,b}${"${va:-"}${"${u:-".repeat(20)}x${"}".repeat(21)}`, "generated-deep-parameter"],
+    ["{1..\\\n3}", "source-continuation"],
+    ["{1.\\\n.3}", "source-continuation"],
+    ["$\\\n{u:-{a,b}}", "continued-opaque-parameter"],
+    ["$\\\n'\\''{a,b}", "continued-ansi-boundary"],
+    [String.raw`$'\''{a,b}`, "ansi-quote-boundary"],
+    [String.raw`$'\'{a,b}'{1,2}`, "ansi-quote-boundary"],
+    [String.raw`{a,b}$'\''`, "ansi-quote-boundary"],
+    [String.raw`$'\c\'{a,b}`, "ansi-control-boundary"],
+    [`{${"x".repeat(4100)},tail}`, "long-source-storage"],
     ["p{a,b}s", "affixes"],
     ["{b,a,b}", "order-duplicates"],
     ["{,a}", "empty-first"],
@@ -203,6 +219,9 @@ export function fixedCases() {
     ["{a,b}{1,2}", "adjacent"],
     ["{a,{b,c}}{1,2}", "cartesian-order"],
     ["{{a,b}}", "lookahead"],
+    ["{{1..2}..3}", "invalid-enclosing-range"],
+    ["{{a,b}..c}", "invalid-enclosing-range"],
+    ["{a..{b,c}}", "invalid-enclosing-range"],
     ["{x}{a,b}", "lookahead"],
     ["{{a,b}", "unmatched-open"],
     ["{a,b}}", "unmatched-close"],
@@ -244,6 +263,10 @@ export function fixedCases() {
     ["{${v},x}", "opaque-parameter"],
     ["${v}{a,b}", "opaque-parameter"],
     ["$v", "generated-braces"],
+    ["$v{a,b}", "variable-name-boundary"],
+    ["$v{1..2}", "variable-name-boundary"],
+    ["${v}{1..2}", "explicit-variable-boundary"],
+    ["$v{a,b}_suffix", "variable-name-boundary"],
     ["{1..${v}}", "opaque-range-end"],
     ["{${empty},a}", "zero-field"],
     ["$((n++))", "arithmetic-control"],

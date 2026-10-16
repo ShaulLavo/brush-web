@@ -325,7 +325,7 @@ Arithmetic seeds 7, 314 and 981 each match 3,674 Bash 5.3.15 cases. Seeds 7 and
 27 parser compatibility cases match. Regenerated word fixtures for seeds 1
 and 42 remain byte-identical, with 3,014 cases each.
 
-## Brace expansion: fuzzer-first, implementation pending
+## Brace expansion: lists and ranges
 
 `npm run fuzz:shell-braces -- --shell /path/to/native/shell-engine` compares
 3,000 generated cases plus fixed controls with installed GNU Bash 5.3.15.
@@ -340,8 +340,9 @@ A leading fixed `printf '<%s>\\n'` argument distinguishes zero fields from one
 empty field. Arithmetic counters test expansion order and evaluation once per
 generated word; assignment and parameter-operand controls must not brace-expand.
 Arithmetic failures in an older baseline are **MISMATCH**, never exemptions.
-There is no tilde or command substitution. Generated letter ranges stay in one
-ASCII case: crossing `Z..a` beside `$v` can enter Bash's backtick parsing. An
+There is no tilde or selected command substitution; fixed controls cover
+inactive command-substitution comments and deeply nested skipped defaults.
+Generated letter ranges stay in one ASCII case: crossing `Z..a` beside `$v` can enter Bash's backtick parsing. An
 isolated cross-case fixed control remains. Cartesian products are capped at 128
 possible fields; engine resource-limit tests remain separate, not literal-output
 fallbacks. Structural shrinking preserves context, quoting and failure status.
@@ -349,9 +350,29 @@ fallbacks. Structural shrinking preserves context, quoting and failure status.
 The fuzzer never builds. It self-queues through this host's light queue and cleans
 its private run directory (parent: `FUZZ_BRACES_SCRATCH`, default
 `/work/tmp/brush-web-climb-braces`). `--output PATH` keeps exact byte diagnostics.
-`--record PATH` refuses dirty candidate runs and Bash self-controls. Record seeds
-1/42 and add frozen CI replay **only after the implemented shell has zero
-mismatches**. No brace fixtures are recorded yet. Future `--replay PATH` runs need
-no Bash and validate the fuzzer hash, full ordered cases, coverage, seed, exact
-Bash version family, timeout, status and canonical base64 observations before
-executing the candidate. Existing scoreboard observations remain unchanged.
+`--record PATH` refuses dirty candidate runs and Bash self-controls. Seeds 1/42
+are frozen only after a zero-mismatch native comparison.
+`npm run fuzz:shell-braces:ci -- --shell PATH` replays both fixtures without Bash,
+validating the generator hash, full ordered cases, coverage, seed, Bash version
+family, timeout, status and canonical base64 observations before execution.
+
+The implementation runs on original source before parameter-name parsing, so
+`$v{a,b}` references `va` and `vb`, while `${v}{a,b}` retains its explicit name
+boundary. Quote/escape spans and parameter/arithmetic text stay opaque. Lexical
+line continuations join range fragments and dollar-opened constructs before
+brace recognition, while ANSI-C quotes retain their escape boundaries. Invalid
+enclosing groups do not become new ranges after their children expand. Lists
+and numeric/ASCII-letter ranges preserve order, duplicate/empty alternatives,
+padding and endpoint-directed steps. Scalar assignments and parameter operands
+do not perform brace expansion. Declaration RHSs and redirect targets retain
+the engine's existing scalar behavior; Bash's redirect brace/ambiguity rules
+are an approved follow-up, not claimed here. Pathname and tilde execution stay
+separate.
+
+Borrowed source spans and iterative expansion avoid recursive AST cloning.
+Generated spellings are storage/work admitted before word-only parsing; their
+length does not spend the emitted raw-output budget. All variants share field,
+byte, raw-output and work limits. Resource exhaustion fails before dispatch,
+never as a literal fallback or a partially expanded command. Native and WASI
+regressions cover deep nesting, cancellation, source words above 4 KiB, and
+independent storage and output budgets.

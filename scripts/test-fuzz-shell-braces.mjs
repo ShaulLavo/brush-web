@@ -103,6 +103,20 @@ test("all fields observers have a leading fixed argument, including empty altern
     "opaque-parameter",
     "generated-braces",
     "lookahead",
+    "invalid-enclosing-range",
+    "variable-name-boundary",
+    "explicit-variable-boundary",
+    "long-source-storage",
+    "source-continuation",
+    "continued-opaque-parameter",
+    "ansi-quote-boundary",
+    "inactive-command-comment",
+    "inactive-deep-parameter",
+    "generated-deep-parameter",
+    "arithmetic-shift-boundary",
+    "arithmetic-keyword-boundary",
+    "inactive-arithmetic-boundary",
+    "arithmetic-parenthesis-boundary",
   ])
     assert.ok(tags.has(tag), tag);
 });
