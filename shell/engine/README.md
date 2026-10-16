@@ -17,7 +17,10 @@ It is not a new browser shell or a replacement external-command host.
   streaming builtins check interruption and yield on a bounded work quantum.
 - Session-owned background jobs survive a foreground invocation. `interrupt`
   targets only the foreground; `shutdown().await` cancels and joins all jobs.
-  Process-group guards transfer kill-and-reap ownership to the host if dropped.
+  Isolated environments have their own child-job scope: they cannot wait on or
+  kill parent jobs, and cancel/join their children before leaving. Root-shell
+  backgrounds remain session-owned. Process-group guards transfer kill-and-reap
+  ownership to the host if dropped.
 - Ordinary functions share caller state. Pipeline stages (with more than one
   stage), subshells and background jobs copy shell state. Positional arguments,
   local declarations and local export attributes have cancellation-safe guards.
@@ -29,7 +32,10 @@ It is not a new browser shell or a replacement external-command host.
   Arbitrary descriptor numbers reach `ProcessHost::spawn`, not only 0, 1 and 2.
 - `ProcessHost` accepts argv, exported environment, cwd, descriptor bindings and
   job/parent identity. Spawn/kill return without waiting; waits register exit
-  notifications. Kill includes descendants, and termination must confirm exits.
+  notifications. The host allocates group identities, so sessions sharing a host
+  cannot collide. Group waits confirm cleanup without collecting exit history;
+  individual waits return exit status. Kill includes descendants, and termination
+  must confirm exits, including interruption during the final cleanup wait.
   Broken pipe is an I/O error: an unhandled writer returns 141; a guest that
   handles EPIPE retains its chosen exit code.
 

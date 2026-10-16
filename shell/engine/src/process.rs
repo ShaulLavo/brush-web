@@ -49,14 +49,19 @@ impl std::error::Error for ProcessError {}
 /// their actual exits and released process-owned descriptors. EPIPE is an I/O error,
 /// NOT a reason for the host to overwrite a guest's chosen exit status with 141.
 pub trait ProcessHost {
+    /// Allocate a group ID synchronously, without running command work. IDs are
+    /// unique for the lifetime of this host, including through shared handles and
+    /// after groups are reaped. Independent clients sharing a host must use this
+    /// allocator. Explicit numeric IDs remain supported, but their caller owns
+    /// avoiding aliases with other clients, including allocated IDs.
+    fn allocate_group(&self) -> GroupId;
     fn spawn(&self, request: SpawnRequest) -> Result<ProcessId, ProcessError>;
     fn wait(&self, pid: ProcessId) -> LocalBoxFuture<'static, Result<i32, ProcessError>>;
     fn kill(&self, pid: ProcessId, signal: i32) -> Result<(), ProcessError>;
     fn kill_group(&self, group: GroupId, signal: i32) -> Result<(), ProcessError>;
-    fn wait_group(
-        &self,
-        group: GroupId,
-    ) -> LocalBoxFuture<'static, Result<Vec<(ProcessId, i32)>, ProcessError>>;
+    /// Wait for and reap every process in the group, including descendants
+    /// spawned while waiting. Use `wait` for an individual process's exit code.
+    fn wait_group(&self, group: GroupId) -> LocalBoxFuture<'static, Result<(), ProcessError>>;
     /// Transfer cleanup ownership to the host when a caller drops its future.
     /// The host must arrange kill AND confirmed reaping without that future.
     fn abandon_group(&self, group: GroupId, signal: i32);
@@ -77,6 +82,7 @@ struct HostState {
     // Only unreaped groups have entries; true means reject new descendants.
     groups: RefCell<BTreeMap<GroupId, bool>>,
     next: Cell<ProcessId>,
+    next_group: Cell<GroupId>,
 }
 #[derive(Clone)]
 pub struct InProcessHost(Rc<HostState>);
@@ -88,6 +94,7 @@ impl InProcessHost {
             children: RefCell::new(BTreeMap::new()),
             groups: RefCell::new(BTreeMap::new()),
             next: Cell::new(1),
+            next_group: Cell::new(1),
         }))
     }
     /// Registry callbacks construct futures; command work belongs inside the future.
@@ -143,6 +150,13 @@ impl InProcessHost {
     }
 }
 impl ProcessHost for InProcessHost {
+    fn allocate_group(&self) -> GroupId {
+        let group = self.0.next_group.get();
+        self.0
+            .next_group
+            .set(group.checked_add(1).expect("process group id exhausted"));
+        group
+    }
     fn spawn(&self, request: SpawnRequest) -> Result<ProcessId, ProcessError> {
         if self.retained_count() >= 4096 {
             return Err(ProcessError::ProcessLimit);
@@ -251,10 +265,7 @@ impl ProcessHost for InProcessHost {
         }
         Ok(())
     }
-    fn wait_group(
-        &self,
-        group: GroupId,
-    ) -> LocalBoxFuture<'static, Result<Vec<(ProcessId, i32)>, ProcessError>> {
+    fn wait_group(&self, group: GroupId) -> LocalBoxFuture<'static, Result<(), ProcessError>> {
         // Capture eagerly so another waiter may reap records without stealing
         // these joins. Subsequent waves include descendants spawned while waiting.
         let first: Vec<_> = self
@@ -268,12 +279,10 @@ impl ProcessHost for InProcessHost {
         let host = self.clone();
         Box::pin(async move {
             let mut batch = first;
-            let mut result = Vec::new();
             loop {
                 for (pid, exit) in batch {
-                    let status = exit.await;
+                    exit.await;
                     host.reap(pid);
-                    result.push((pid, status));
                 }
                 batch = host
                     .0
@@ -287,7 +296,7 @@ impl ProcessHost for InProcessHost {
                     break;
                 }
             }
-            Ok(result)
+            Ok(())
         })
     }
     fn abandon_group(&self, group: GroupId, signal: i32) {
@@ -315,11 +324,16 @@ impl ProcessGroup {
             terminated: false,
         }
     }
-    pub async fn terminate(&mut self, signal: i32) -> Result<Vec<(ProcessId, i32)>, ProcessError> {
-        self.host.kill_group(self.id, signal)?;
-        let statuses = self.host.wait_group(self.id).await?;
+    /// Confirm natural completion and release cleanup ownership without a signal.
+    /// If this future is dropped before completion, Drop still abandons the group.
+    pub async fn finish(&mut self) -> Result<(), ProcessError> {
+        self.host.wait_group(self.id).await?;
         self.terminated = true;
-        Ok(statuses)
+        Ok(())
+    }
+    pub async fn terminate(&mut self, signal: i32) -> Result<(), ProcessError> {
+        self.host.kill_group(self.id, signal)?;
+        self.finish().await
     }
 }
 impl Drop for ProcessGroup {
@@ -344,6 +358,103 @@ mod tests {
             group,
             parent: None,
         }
+    }
+    #[test]
+    fn group_allocator_is_shared_and_never_reuses_reaped_ids() {
+        let ex = Executor::new();
+        let host = InProcessHost::new(ex.clone());
+        let other = host.clone();
+        host.register("exit", |_, _| Box::pin(async { 0 }));
+        let first = host.allocate_group();
+        let second = other.allocate_group();
+        assert_ne!(first, second);
+        host.spawn(request("exit", first)).unwrap();
+        other.spawn(request("exit", second)).unwrap();
+        ex.drive(10);
+        assert_eq!(host.wait_group(first).now_or_never(), Some(Ok(())));
+        assert_eq!(other.wait_group(second).now_or_never(), Some(Ok(())));
+        assert!(host.0.groups.borrow().is_empty());
+        let third = other.allocate_group();
+        let fourth = host.allocate_group();
+        let mut ids = vec![first, second, third, fourth];
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), 4);
+        assert_eq!(host.retained_count(), 0);
+    }
+    #[test]
+    fn explicit_numeric_groups_do_not_require_allocation() {
+        let ex = Executor::new();
+        let host = InProcessHost::new(ex.clone());
+        host.register("exit", |_, _| Box::pin(async { 17 }));
+        // Explicit IDs are a caller-managed namespace, not allocator reservations.
+        for group in [0, 123, GroupId::MAX] {
+            let pid = host.spawn(request("exit", group)).unwrap();
+            ex.drive(10);
+            assert_eq!(host.wait(pid).now_or_never(), Some(Ok(17)));
+        }
+        assert_eq!(host.retained_count(), 0);
+    }
+    #[test]
+    fn finish_confirms_natural_exit_without_cancelling() {
+        let ex = Executor::new();
+        let host = InProcessHost::new(ex.clone());
+        host.register("exit", |_, _| Box::pin(async { 17 }));
+        let group = host.allocate_group();
+        let pid = host.spawn(request("exit", group)).unwrap();
+        let wait = host.wait(pid);
+        let mut guard = ProcessGroup::new(Rc::new(host.clone()), group);
+        assert_eq!(guard.finish().now_or_never(), None);
+        assert!(!guard.terminated);
+        ex.drive(10);
+        assert_eq!(guard.finish().now_or_never(), Some(Ok(())));
+        assert_eq!(wait.now_or_never(), Some(Ok(17)));
+        assert!(guard.terminated);
+        drop(guard);
+        assert_eq!(host.retained_count(), 0);
+    }
+    #[test]
+    fn dropped_pending_finish_preserves_abandon_cleanup() {
+        let ex = Executor::new();
+        let host = InProcessHost::new(ex.clone());
+        host.register("wait", |_, _| Box::pin(futures::future::pending()));
+        let group = host.allocate_group();
+        let pid = host.spawn(request("wait", group)).unwrap();
+        let wait = host.wait(pid);
+        let mut guard = ProcessGroup::new(Rc::new(host.clone()), group);
+        assert_eq!(guard.finish().now_or_never(), None);
+        drop(guard);
+        ex.drive(20);
+        assert_eq!(wait.now_or_never(), Some(Ok(143)));
+        assert_eq!(host.retained_count(), 0);
+    }
+    #[test]
+    fn group_wait_reaps_successive_descendant_waves() {
+        let ex = Executor::new();
+        let host = InProcessHost::new(ex.clone());
+        let weak_host = Rc::downgrade(&host.0);
+        let remaining = Rc::new(Cell::new(8192));
+        let count = remaining.clone();
+        host.register("chain", move |request, _| {
+            let host = InProcessHost(weak_host.upgrade().unwrap());
+            let count = count.clone();
+            Box::pin(async move {
+                if count.get() > 0 {
+                    count.set(count.get() - 1);
+                    host.spawn(request).unwrap();
+                }
+                0
+            })
+        });
+        let group = host.allocate_group();
+        host.spawn(request("chain", group)).unwrap();
+        let wait = host.wait_group(group);
+        let joined = ex.spawn(wait);
+        ex.drive(100_000);
+        assert_eq!(joined.now_or_never(), Some(Ok(())));
+        assert_eq!(remaining.get(), 0);
+        assert_eq!(host.retained_count(), 0);
+        assert!(host.0.groups.borrow().is_empty());
     }
     #[test]
     fn exits_notify_joiners_and_reap_fds() {
@@ -412,12 +523,17 @@ mod tests {
         req.parent = Some(child);
         let grandchild = host.spawn(req).unwrap();
         let background = host.spawn(request("wait", 2)).unwrap();
+        let root_wait = host.wait(root);
+        let child_wait = host.wait(child);
+        let grandchild_wait = host.wait(grandchild);
         ex.drive(10);
         host.kill(root, 2).unwrap();
         ex.drive(10);
         assert_eq!(host.active_count(), 1);
-        let statuses = host.wait_group(1).now_or_never().unwrap().unwrap();
-        assert_eq!(statuses, vec![(root, 130), (child, 130), (grandchild, 130)]);
+        assert_eq!(host.wait_group(1).now_or_never(), Some(Ok(())));
+        assert_eq!(root_wait.now_or_never(), Some(Ok(130)));
+        assert_eq!(child_wait.now_or_never(), Some(Ok(130)));
+        assert_eq!(grandchild_wait.now_or_never(), Some(Ok(130)));
         assert_eq!(host.retained_count(), 1);
         host.kill_group(2, 15).unwrap();
         assert!(matches!(
@@ -470,16 +586,17 @@ mod tests {
         let mut req = request("wait", 1);
         req.parent = Some(middle);
         let leaf = host.spawn(req).unwrap();
+        let root_wait = host.wait(root);
+        let leaf_wait = host.wait(leaf);
         ex.drive(10);
         gate.notify();
         ex.drive(10);
         assert_eq!(host.wait(middle).now_or_never(), Some(Ok(0)));
         host.kill(root, 2).unwrap();
         ex.drive(10);
-        assert_eq!(
-            host.wait_group(1).now_or_never(),
-            Some(Ok(vec![(root, 130), (leaf, 130)]))
-        );
+        assert_eq!(host.wait_group(1).now_or_never(), Some(Ok(())));
+        assert_eq!(root_wait.now_or_never(), Some(Ok(130)));
+        assert_eq!(leaf_wait.now_or_never(), Some(Ok(130)));
         assert_eq!(host.retained_count(), 0);
     }
     #[test]

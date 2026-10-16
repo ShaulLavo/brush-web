@@ -22,7 +22,9 @@ use std::{
 #[derive(Clone, Debug)]
 pub struct Limits {
     pub source_bytes: usize,
+    /// Command name + arguments + assignment names, '=' and values, in bytes.
     pub expansion_bytes: usize,
+    /// All words, including command name and assignments (no empty AST placeholder).
     pub arguments: usize,
     pub pipeline_stages: usize,
     pub jobs: usize,
@@ -63,6 +65,7 @@ impl Outcome {
 }
 type Descriptors = Rc<RefCell<FdTable>>;
 struct Job {
+    owner: u64,
     cancel: Cancel,
     join: JoinHandle<i32>,
 }
@@ -82,6 +85,7 @@ pub(crate) struct Context {
     core: Rc<Core>,
     pub cancel: Cancel,
     pub group: GroupId,
+    scope: u64,
 }
 impl Context {
     pub(crate) fn fs(&self) -> &dyn FileSystem {
@@ -90,13 +94,44 @@ impl Context {
     pub(crate) fn limits(&self) -> &Limits {
         &self.core.limits
     }
+    fn isolated(&self) -> Self {
+        Self {
+            scope: self.core.allocate_id(),
+            ..self.clone()
+        }
+    }
+    async fn cleanup_jobs(&self) {
+        let jobs: Vec<_> = self
+            .core
+            .jobs
+            .borrow()
+            .iter()
+            .filter(|(_, job)| job.owner == self.scope)
+            .map(|(&id, job)| {
+                job.cancel.cancel();
+                (id, job.join.clone())
+            })
+            .collect();
+        for (id, join) in jobs {
+            join.await;
+            self.core.jobs.borrow_mut().remove(&id);
+        }
+    }
+    async fn finish_group(&self, processes: &mut ProcessGroup, code: i32) -> i32 {
+        let finished = self.cancel.run(processes.finish()).await;
+        match finished {
+            Ok(Ok(_)) => code,
+            Ok(Err(_)) => 1,
+            Err(_) => processes.terminate(2).await.map(|_| 130).unwrap_or(1),
+        }
+    }
     pub(crate) async fn wait_job(&self, id: Option<u64>) -> Result<i32, i32> {
         let jobs: Vec<_> = self
             .core
             .jobs
             .borrow()
             .iter()
-            .filter(|(key, _)| id.is_none_or(|id| id == **key))
+            .filter(|(key, job)| job.owner == self.scope && id.is_none_or(|id| id == **key))
             .map(|(id, job)| (*id, job.join.clone()))
             .collect();
         if id.is_some() && jobs.is_empty() {
@@ -110,7 +145,12 @@ impl Context {
         Ok(code)
     }
     pub(crate) fn kill_job(&self, id: u64) -> Result<(), i32> {
-        self.core.jobs.borrow().get(&id).ok_or(1)?.cancel.cancel();
+        let jobs = self.core.jobs.borrow();
+        let job = jobs
+            .get(&id)
+            .filter(|job| job.owner == self.scope)
+            .ok_or(1)?;
+        job.cancel.cancel();
         Ok(())
     }
 }
@@ -172,13 +212,14 @@ impl Session {
             ..Default::default()
         };
         let script = shell_parser::parse(source, &parser_limits).map_err(|e| e.to_string())?;
-        let group = self.core.allocate_id();
+        let group = self.core.host.allocate_group();
         let cancel = Cancel::new();
         let foreground_cancel = cancel.clone();
         let context = Context {
             core: self.core.clone(),
             cancel,
             group,
+            scope: 0,
         };
         let state = self.state.clone();
         let join = self.core.executor.spawn(async move {
@@ -191,21 +232,12 @@ impl Session {
                 context.clone(),
             )
             .await;
-            let code = if context.cancel.is_cancelled() {
-                processes.terminate(2).await.map(|_| 130).unwrap_or(1)
-            } else {
-                context
-                    .core
-                    .host
-                    .wait_group(group)
-                    .await
-                    .map(|_| result.code)
-                    .unwrap_or(1)
-            };
+            let code = context.finish_group(&mut processes, result.code).await;
             state.borrow_mut().status = code;
             code
         });
         *self.core.foreground.borrow_mut() = Some(Job {
+            owner: 0,
             cancel: foreground_cancel,
             join: join.clone(),
         });
@@ -326,12 +358,24 @@ fn execute(
                     } else {
                         state.borrow().clone().shared()
                     };
-                    tasks.push(context.core.executor.spawn(execute(
-                        command,
-                        child,
-                        Rc::new(RefCell::new(stage_fds)),
-                        context.clone(),
-                    )));
+                    let stage_context = if count == 1 {
+                        context.clone()
+                    } else {
+                        context.isolated()
+                    };
+                    let stage_fds = if count == 1 {
+                        fds.clone()
+                    } else {
+                        Rc::new(RefCell::new(stage_fds))
+                    };
+                    tasks.push(context.core.executor.spawn(async move {
+                        let result =
+                            execute(command, child, stage_fds, stage_context.clone()).await;
+                        if count > 1 {
+                            stage_context.cleanup_jobs().await;
+                        }
+                        result
+                    }));
                 }
                 drop(fds);
                 drop(previous);
@@ -364,15 +408,18 @@ fn execute(
                         }
                         CompoundCommand::Subshell(commands) => {
                             let child = state.borrow().clone().shared();
+                            let child_context = context.isolated();
+                            let child_fds = Rc::new(RefCell::new(fds.borrow().clone()));
                             let result = context
                                 .core
                                 .executor
-                                .spawn(sequence(
-                                    commands,
-                                    child,
-                                    Rc::new(RefCell::new(fds.borrow().clone())),
-                                    context.clone(),
-                                ))
+                                .spawn(async move {
+                                    let result =
+                                        sequence(commands, child, child_fds, child_context.clone())
+                                            .await;
+                                    child_context.cleanup_jobs().await;
+                                    result
+                                })
                                 .await;
                             Outcome::status(result.code)
                         }
@@ -488,6 +535,7 @@ fn background(
         core: context.core.clone(),
         cancel: cancel.clone(),
         group,
+        scope: context.core.allocate_id(),
     };
     let child = state.borrow().clone().shared();
     let fds = Rc::new(RefCell::new(fds.borrow().clone()));
@@ -496,23 +544,21 @@ fn background(
     let join = context.core.executor.spawn(async move {
         let mut processes = ProcessGroup::new(child_context.core.host.clone(), group);
         let result = execute(command, child, fds, child_context.clone()).await;
-        if child_context.cancel.is_cancelled() {
-            processes.terminate(2).await.map(|_| 130).unwrap_or(1)
-        } else {
-            child_context
-                .core
-                .host
-                .wait_group(group)
-                .await
-                .map(|_| result.code)
-                .unwrap_or(1)
-        }
+        child_context.cleanup_jobs().await;
+        child_context
+            .finish_group(&mut processes, result.code)
+            .await
     });
-    context
-        .core
-        .jobs
-        .borrow_mut()
-        .insert(job, Job { cancel, join });
+    context.core.jobs.borrow_mut().insert(
+        job,
+        Job {
+            owner: context.scope,
+            cancel,
+            join,
+        },
+    );
+    state.borrow_mut().status = 0;
+    state.borrow_mut().pipestatus = vec![0];
     Outcome::status(0)
 }
 async fn simple_command(
@@ -521,10 +567,29 @@ async fn simple_command(
     fds: Descriptors,
     context: Context,
 ) -> Result<Outcome, i32> {
-    if simple.args.len() > context.limits().arguments {
+    let name_words = usize::from(
+        !simple
+            .name
+            .parts
+            .iter()
+            .all(|part| matches!(part, WordPart::Literal(text) if text.is_empty())),
+    );
+    if simple
+        .args
+        .len()
+        .saturating_add(simple.assignments.len())
+        .saturating_add(name_words)
+        > context.limits().arguments
+    {
         return Err(2);
     }
     let mut assigned = Vec::new();
+    let mut bytes = 0usize;
+    let assignment_state = if simple.assignments.is_empty() {
+        state.clone()
+    } else {
+        state.borrow().clone().shared()
+    };
     for assignment in simple.assignments {
         if assignment.index.is_some() || assignment.append {
             return Err(2);
@@ -534,11 +599,22 @@ async fn simple_command(
         };
         let value = expand::word(
             &word,
-            &state,
+            &assignment_state,
             &context.cancel,
             context.limits().expansion_bytes,
         )
         .await?;
+        bytes = bytes
+            .saturating_add(assignment.name.len())
+            .saturating_add(1)
+            .saturating_add(value.len());
+        if bytes > context.limits().expansion_bytes {
+            return Err(2);
+        }
+        assignment_state
+            .borrow_mut()
+            .variables
+            .insert(assignment.name.clone(), value.clone());
         assigned.push((assignment.name, value));
     }
     let original_fds = fds.clone();
@@ -551,7 +627,11 @@ async fn simple_command(
     )
     .await?;
     let mut args = Vec::new();
-    let mut bytes = name.len();
+    drop(assignment_state);
+    bytes = bytes.saturating_add(name.len());
+    if bytes > context.limits().expansion_bytes {
+        return Err(2);
+    }
     for word in simple.args {
         let value = expand::word(
             &word,
@@ -560,7 +640,7 @@ async fn simple_command(
             context.limits().expansion_bytes,
         )
         .await?;
-        bytes += value.len();
+        bytes = bytes.saturating_add(value.len());
         if bytes > context.limits().expansion_bytes {
             return Err(2);
         }
@@ -619,6 +699,10 @@ async fn simple_command(
             parent: None,
         })
         .map_err(|_| 127)?;
+    // The child owns its inherited descriptors. Shell-side stage copies must
+    // not keep a closed child reader/writer alive while waiting for its exit.
+    drop(fds);
+    drop(original_fds);
     match context.cancel.run(context.core.host.wait(pid)).await {
         Ok(result) => Ok(Outcome::status(result.map_err(|_| 1)?)),
         Err(_) => {

@@ -19,7 +19,7 @@ pub struct State {
     pub pipestatus: Vec<i32>,
     pub pipefail: bool,
     pub(crate) positional: Vec<String>,
-    pub(crate) locals: Vec<BTreeMap<String, Option<String>>>,
+    pub(crate) locals: Vec<BTreeMap<String, (Option<String>, bool)>>,
 }
 impl Default for State {
     fn default() -> Self {
@@ -63,7 +63,10 @@ impl State {
             .collect()
     }
     pub(crate) fn local(&mut self, name: String, value: String) -> Result<(), i32> {
-        let previous = self.variables.get(&name).cloned();
+        let previous = (
+            self.variables.get(&name).cloned(),
+            self.exported.contains(&name),
+        );
         self.locals
             .last_mut()
             .ok_or(1)?
@@ -79,7 +82,6 @@ impl State {
 pub(crate) struct FunctionFrame {
     state: SharedState,
     positional: Vec<String>,
-    exported: BTreeSet<String>,
 }
 impl FunctionFrame {
     pub(crate) fn enter(state: SharedState, args: Vec<String>, limit: usize) -> Result<Self, i32> {
@@ -88,14 +90,9 @@ impl FunctionFrame {
             return Err(2);
         }
         let positional = std::mem::replace(&mut s.positional, args);
-        let exported = s.exported.clone();
         s.locals.push(BTreeMap::new());
         drop(s);
-        Ok(Self {
-            state,
-            positional,
-            exported,
-        })
+        Ok(Self { state, positional })
     }
 }
 impl Drop for FunctionFrame {
@@ -103,10 +100,10 @@ impl Drop for FunctionFrame {
         let mut s = self.state.borrow_mut();
         s.positional = std::mem::take(&mut self.positional);
         if let Some(locals) = s.locals.pop() {
-            for (name, value) in locals {
+            for (name, (value, exported)) in locals {
                 // Only local declarations restore their export attribute;
                 // ordinary export changes in functions belong to the caller.
-                if self.exported.contains(&name) {
+                if exported {
                     s.exported.insert(name.clone());
                 } else {
                     s.exported.remove(&name);
