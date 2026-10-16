@@ -14,6 +14,8 @@ pub enum Error {
         line: usize,
         column: usize,
     },
+    #[error("syntax error while looking for matching `)' at line {line}")]
+    ShellWord { line: usize },
     #[error("resource limit exceeded: {0}")]
     ResourceLimit(#[from] LimitExceeded),
 }

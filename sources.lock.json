@@ -202,6 +202,21 @@
         "classification": "Original explicit shell-body validation option and regression tests; no additional upstream implementation copied.",
         "change": "Limit the arithmetic separator check to Parser::with_strict_command_separators. Captured shell-body validation opts in, and nested command parsers inherit the policy. Preserve the original public parse default and keep every strict separator assertion through the explicit entrypoint. Propagate process-substitution syntax failures only during strict validation. Add default-policy and nested command/process-substitution controls.",
         "reason": "The engine parses a whole script before executing alias or shopt changes. Applying the new shell-body separator check globally rejected previously accepted scripts whose command boundaries can change through aliases. Localizing validation avoids introducing incomplete runtime alias support."
+      },
+      {
+        "paths": [
+          "shell/parser/src/error.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/lexical.rs",
+          "shell/parser/src/parser/parameter_scan.rs",
+          "shell/parser/src/parser/subst_scan.rs",
+          "shell/parser/src/parser/substring.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original shell grammar and scanner API corrections; GNU Bash source used only to research observable phase ordering, with no implementation copied.",
+        "change": "Consume one parenthesis from a doubled closing token in array assignments, reject unseparated opening parentheses in nested lists, and honor explicit extglob options before the first token for every pattern operator. Share the existing incremental parameter and command scanners for bounded lexical substring checks before lazy selection; retain a typed ShellWord failure separately from ordinary syntax errors. Make parser fuel internally mutable so infallible word readers and their bounded child parsers consume the same fuel, request budget and cancellation checks. Expose the command scanner for admitted, cooperative expansion checks. Use the existing recovering parser to retain complete earlier lines on word syntax failures. Keep word-error recovery outside recursive grammar frames so existing hard-cap stack assertions remain intact. All upstream assertions retained.",
+        "reason": "Substring text has an outer word-reading pass and a later brace-extraction pass. Arithmetic substitutions are opaque to the former; invalid shell grammar must retain Bash fatal status 127 or 1 at the correct stage, including skipped defaults and unused functions, without test-case or prefix heuristics."
       }
     ],
     "removedUpstreamTests": []

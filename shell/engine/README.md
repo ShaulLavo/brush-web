@@ -161,7 +161,11 @@ Negative offsets count from one past the last positional argument; negative
 lengths are errors. Source elements are copied and charged one at a time.
 The source value is snapshotted before arithmetic side effects. Unset sources skip
 both expressions, and out-of-range offsets skip the length expression. Slices
-retain outer quote protection and final IFS splitting. Arithmetic parsing,
+retain outer quote protection and final IFS splitting. Shell-word boundary errors
+are fatal status 127; errors found while extracting brace operands are fatal status 1,
+including nested slices in unused default values. Earlier complete lines still run.
+Process-substitution lookalikes are checked as shell grammar without executing them.
+Arithmetic parsing,
 recursive evaluation, snapshots and character scans share the command's bounded
 storage/work accounting and cancellation checkpoints. Arrays, subscript arithmetic,
 namerefs and command substitution remain outside this scalar arithmetic subset.

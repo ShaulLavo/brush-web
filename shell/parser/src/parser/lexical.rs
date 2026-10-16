@@ -82,6 +82,7 @@ impl EscapeMap {
 #[derive(Clone)]
 pub(crate) struct WordChars<'a> {
     chars: std::iter::Peekable<std::str::CharIndices<'a>>,
+    source: &'a str,
     escapes: &'a [LiteralEscape],
     escape: usize,
     literal: bool,
@@ -91,6 +92,7 @@ impl<'a> WordChars<'a> {
     pub fn new(text: &'a str, escapes: &'a [LiteralEscape]) -> Self {
         Self {
             chars: text.char_indices().peekable(),
+            source: text,
             escapes,
             escape: 0,
             literal: false,
@@ -107,6 +109,11 @@ impl<'a> WordChars<'a> {
             return None;
         }
         Some(ch)
+    }
+
+    pub fn remaining(&mut self) -> &'a str {
+        let offset = self.chars.peek().map_or(self.source.len(), |(offset, _)| *offset);
+        &self.source[offset..]
     }
 
     pub fn literal(&self) -> bool {

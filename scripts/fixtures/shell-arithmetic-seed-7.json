@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceHash": "1a1110d673e309a09124a8d9de3568ef60497b3a01c5fae8bfda320e4607b124",
+  "sourceHash": "99956f04c603326dcdabac89723bfda33f04f0b73739b6894b69e38f21e72da5",
   "seed": 7,
   "count": 3000,
   "timeoutMs": 2000,
@@ -46147,6 +46147,3590 @@
         "signal": null,
         "timedOut": false,
         "stdoutBase64": "PGZvbGxvd2luZz4KPHN0YXR1cz0wPgo8eD03Pgo8eT0zPgo8ej0wPgo8Zm9sbG93aW5nPgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-0",
+        "context": "boundary-assignment",
+        "script": "alpha='${x}'; _rhs=3; saved=${alpha:0:((4) << ( +(4)))}; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PCR7eH0+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-1",
+        "context": "boundary-arithmetic-expansion",
+        "script": "counter42='a\tb\nc'; _rhs=5; printf '<%s>\\n' \"$(( ${counter42:((1)  <  (  !(1))):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-2",
+        "context": "boundary-inactive",
+        "script": "result='don'\\''t'; n17=3; false && printf '<%s>\\n' ${result:((5) << ( (5)+(3))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-3",
+        "context": "boundary-unused-default",
+        "script": "unset result; n17=4; present=ok; printf '<%s>\\n' \"${present:-${result:0:((4) << ( (4)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-4",
+        "context": "boundary-function",
+        "script": "counter42='a\tb\nc'; n17=4; f() { printf '<%s>\\n' \"${counter42:((5)  >  (  (5)>>(4))):1}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PAk+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-5",
+        "context": "boundary-unused-default",
+        "script": "counter42=''; beta=4; present=ok; printf '<%s>\\n' \"${present:-${counter42:0:((1)<((counter42)?(1):(4)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgPycgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAoY291bnRlcjQyKT8oMSk6KDQpKSl9fSInCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-6",
+        "context": "boundary-assignment",
+        "script": "alpha='a\tb\nc'; n17=2; saved=${alpha:((5)  >>  (  (5)+(2))):1}; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGE+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-7",
+        "context": "boundary-default",
+        "script": "_item='abcdef'; beta=4; unset absent; printf '<%s>\\n' \"${absent:-${_item:((5) < ((5))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGE+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-8",
+        "context": "boundary-function",
+        "script": "alpha='a\tb\nc'; beta=3; f() { printf '<%s>\\n' \"${alpha:0:((4)>(((4))))}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-9",
+        "context": "boundary-arithmetic-expansion",
+        "script": "_item=''; n17=1; printf '<%s>\\n' \"$(( ${_item:((2)\t>\t(!(2))):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-10",
+        "context": "boundary-earlier-line",
+        "script": "result='a\tb\nc'; beta=4; printf '<%s>\\n' before\n printf '<%s>\\n' \"${result:((2)\t>\t((result=(beta)))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPGE+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-11",
+        "context": "boundary-earlier-line",
+        "script": "unset _item; _rhs=2; printf '<%s>\\n' before\n printf '<%s>\\n' ${_item:((4)<((_item)?(4):(2))):1}; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4K",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgNDogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgPycgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDQ6IGAoX2l0ZW0pPyg0KTooMikpKToxfScK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-12",
+        "context": "boundary-word",
+        "script": "_item='a b:c'; beta=1; printf '<%s>\\n' \"${_item:0:((1)  >>  (  (_item+=(beta))))}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogYSBiOmM6IGFyaXRobWV0aWMgc3ludGF4IGVycm9yIGluIGV4cHJlc3Npb24gKGVycm9yIHRva2VuIGlzICJiOmMiKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-13",
+        "context": "boundary-unused-default",
+        "script": "alpha='héllo'; beta=4; present=ok; printf '<%s>\\n' \"${present:-${alpha:((4) > ((alpha&=(4)))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-14",
+        "context": "boundary-arithmetic-expansion",
+        "script": "_item=''; _rhs=5; printf '<%s>\\n' \"$(( ${_item:((1) > (1)):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-15",
+        "context": "boundary-default",
+        "script": "alpha='don'\\''t'; beta=4; unset absent; printf '<%s>\\n' \"${absent:-${alpha:0:((1) > ( (alpha=(beta))))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-16",
+        "context": "boundary-earlier-line",
+        "script": "alpha='a\tb\nc'; n17=3; printf '<%s>\\n' before\n printf '<%s>\\n' ${alpha:0:((3)\t<<\t(\t(3)>>(3)))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPGE+CjxiPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-17",
+        "context": "boundary-word",
+        "script": "alpha='abcdef'; beta=2; printf '<%s>\\n' ${alpha:((5)\t<\t((5)+(2))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGI+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-18",
+        "context": "boundary-arithmetic",
+        "script": "result='a b:c'; _rhs=5; (( ${result:0:((3)\t>\t(\t(3)**(5)))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-19",
+        "context": "boundary-default",
+        "script": "_item='日本語'; n17=4; unset absent; printf '<%s>\\n' \"${absent:-${_item:((1)\t>>\t(\t((1)))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "POaXpT4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-20",
+        "context": "boundary-arithmetic-expansion",
+        "script": "alpha='${x}'; _rhs=5; printf '<%s>\\n' \"$(( ${alpha:0:((4)  <  ((4)**(5)))} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAkIDogYXJpdGhtZXRpYyBzeW50YXggZXJyb3I6IG9wZXJhbmQgZXhwZWN0ZWQgKGVycm9yIHRva2VuIGlzICIkICIpCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-21",
+        "context": "boundary-unused-function",
+        "script": "alpha='a\tb\nc'; beta=3; f() { printf '<%s>\\n' \"${alpha:0:((4)>((alpha=(beta))))}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-22",
+        "context": "boundary-unused-function",
+        "script": "unset alpha; beta=2; f() { printf '<%s>\\n' ${alpha:0:((4)  <  (  ((4))))}; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-23",
+        "context": "boundary-unused-default",
+        "script": "result='don'\\''t'; n17=5; present=ok; printf '<%s>\\n' \"${present:-${result:0:((3)  >  ((3)+(5)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-24",
+        "context": "boundary-unused-default",
+        "script": "counter42='${x}'; _rhs=4; present=ok; printf '<%s>\\n' \"${present:-${counter42:((1) > ((1)>>(4))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-25",
+        "context": "boundary-arithmetic-expansion",
+        "script": "counter42=''; n17=1; printf '<%s>\\n' \"$(( ${counter42:0:((4)  <  (  (counter42&=(4))))} ))\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-26",
+        "context": "boundary-arithmetic",
+        "script": "unset alpha; _rhs=1; (( ${alpha:((4) > ((alpha^=(4)))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-27",
+        "context": "boundary-default",
+        "script": "result='日本語'; _rhs=5; unset absent; printf '<%s>\\n' \"${absent:-${result:0:((5)  >>  ('5'))}}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6ICgoNSkgID4+ICAoJzUnKSk6IGFyaXRobWV0aWMgc3ludGF4IGVycm9yOiBvcGVyYW5kIGV4cGVjdGVkIChlcnJvciB0b2tlbiBpcyAiJzUnKSkiKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-28",
+        "context": "boundary-arithmetic",
+        "script": "unset _item; n17=2; (( ${_item:((2)<<((_item+=(n17)))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-29",
+        "context": "boundary-default",
+        "script": "_item=''; n17=2; unset absent; printf '<%s>\\n' \"${absent:-${_item:0:((4)>((_item^=(4))))}}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgNCcgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAoX2l0ZW1ePSg0KSkpKX19IicK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-30",
+        "context": "boundary-word",
+        "script": "alpha='héllo'; beta=2; printf '<%s>\\n' \"${alpha:0:((1) < (-(1)))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-31",
+        "context": "boundary-assignment",
+        "script": "result='héllo'; _rhs=1; saved=${result:0:((3)>((3)&&(1)))}; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGg+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-32",
+        "context": "boundary-inactive",
+        "script": "_item='abcdef'; _rhs=3; false && printf '<%s>\\n' ${_item:((4)>(-(4))):1}; echo after"
+      },
+      "bash": {
+        "status": 127,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogLWM6IGxpbmUgMjogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgNCcgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IC1jOiBsaW5lIDI6IGBfaXRlbT0nYWJjZGVmJzsgX3Jocz0zOyBmYWxzZSAmJiBwcmludGYgJzwlcz5cbicgJHtfaXRlbTooKDQpPigtKDQpKSk6MX07IGVjaG8gYWZ0ZXInCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-33",
+        "context": "boundary-assignment",
+        "script": "alpha=''; beta=2; saved=${alpha:0:((5) >> ( !(5)))}; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-34",
+        "context": "boundary-arithmetic",
+        "script": "counter42='a b:c'; beta=5; (( ${counter42:((4)\t>\t(!(4))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-35",
+        "context": "boundary-function",
+        "script": "counter42=''; beta=4; f() { printf '<%s>\\n' ${counter42:0:((5)<(5))}; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-36",
+        "context": "boundary-earlier-line",
+        "script": "unset counter42; n17=4; printf '<%s>\\n' before\n printf '<%s>\\n' \"${counter42:0:((3)<<((counter42&=(3))))}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4K",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgNDogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgMycgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDQ6IGAoY291bnRlcjQyJj0oMykpKSl9IicK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-37",
+        "context": "boundary-default",
+        "script": "alpha=''; n17=3; unset absent; printf '<%s>\\n' \"${absent:-${alpha:0:((3)  <<  ((alpha&=(3))))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-38",
+        "context": "boundary-earlier-line",
+        "script": "_item='don'\\''t'; _rhs=2; printf '<%s>\\n' before\n printf '<%s>\\n' \"${_item:((2)  <<  (  (  _item+=(_rhs)  ))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4K",
+        "stderrBase64": "YmFzaDogbGluZSAzOiBfaXRlbTogZG9uJ3Q6IGFyaXRobWV0aWMgc3ludGF4IGVycm9yOiBpbnZhbGlkIGFyaXRobWV0aWMgb3BlcmF0b3IgKGVycm9yIHRva2VuIGlzICIndCIpCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-39",
+        "context": "boundary-assignment",
+        "script": "counter42='don'\\''t'; _rhs=3; saved=${counter42:((5)>((5)**(3))):1}; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgKionIHdoaWxlIGxvb2tpbmcgZm9yIG1hdGNoaW5nIGApJwpiYXNoOiBjb21tYW5kIHN1YnN0aXR1dGlvbjogbGluZSAzOiBgKDUpKiooMykpKToxfScK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-40",
+        "context": "boundary-assignment",
+        "script": "alpha=''; beta=3; saved=${alpha:0:((1)>(!(1)))}; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-41",
+        "context": "boundary-arithmetic",
+        "script": "counter42='don'\\''t'; n17=3; (( ${counter42:0:((3)\t<<\t((counter42=(n17))))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAoKDogZG9uJ3QgOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogaW52YWxpZCBhcml0aG1ldGljIG9wZXJhdG9yIChlcnJvciB0b2tlbiBpcyAiJ3QgIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-42",
+        "context": "boundary-unused-function",
+        "script": "counter42='${x}'; beta=4; f() { printf '<%s>\\n' ${counter42:((4)<((4)&&(4))):1}; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-43",
+        "context": "boundary-inactive",
+        "script": "counter42='abcdef'; n17=5; false && printf '<%s>\\n' \"${counter42:((2)<('2')):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-44",
+        "context": "boundary-word",
+        "script": "alpha='日本語'; n17=3; printf '<%s>\\n' \"${alpha:0:((3) > ( (alpha+=(n17))))}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBhbHBoYTog5pel5pys6KqeOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogb3BlcmFuZCBleHBlY3RlZCAoZXJyb3IgdG9rZW4gaXMgIuaXpeacrOiqniIpCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-45",
+        "context": "boundary-arithmetic",
+        "script": "alpha='a\tb\nc'; _rhs=2; (( ${alpha:((5) < ((5)>>(2))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-46",
+        "context": "boundary-word",
+        "script": "_item='abcdef'; n17=3; printf '<%s>\\n' \"${_item:((1)  >  (  (_item|=(1)))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGE+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-47",
+        "context": "boundary-arithmetic-expansion",
+        "script": "_item='don'\\''t'; n17=5; printf '<%s>\\n' \"$(( ${_item:((1)  >>  ((1)+(5))):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-48",
+        "context": "boundary-inactive",
+        "script": "_item='don'\\''t'; _rhs=4; false && printf '<%s>\\n' \"${_item:0:((4)>(4))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-49",
+        "context": "boundary-assignment",
+        "script": "_item='日本語'; beta=2; saved=\"${_item:((1)  >>  (  +(1))):1}\"; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "POaXpT4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-50",
+        "context": "boundary-function",
+        "script": "alpha=''; n17=3; f() { printf '<%s>\\n' ${alpha:0:((1)  >>  (  (1)&&(3)))}; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-51",
+        "context": "boundary-earlier-line",
+        "script": "alpha='abcdef'; n17=1; printf '<%s>\\n' before\n printf '<%s>\\n' ${alpha:0:((1)  <<  (  (  alpha+=(n17)  )))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPGFiPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-52",
+        "context": "boundary-default",
+        "script": "counter42='a\tb\nc'; beta=3; unset absent; printf '<%s>\\n' \"${absent:-${counter42:0:((3)  <  (  (3)+(3)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGE+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-53",
+        "context": "boundary-inactive",
+        "script": "result='don'\\''t'; beta=2; false && printf '<%s>\\n' ${result:0:((1) > ( (1)))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-54",
+        "context": "boundary-assignment",
+        "script": "unset result; beta=2; saved=\"${result:((4)  >>  ((4)**(2))):1}\"; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-55",
+        "context": "boundary-word",
+        "script": "alpha='héllo'; beta=5; printf '<%s>\\n' \"${alpha:0:((1) > ( (alpha)?(1):(5)))}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBhbHBoYTogaMOpbGxvOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogaW52YWxpZCBhcml0aG1ldGljIG9wZXJhdG9yIChlcnJvciB0b2tlbiBpcyAiw6lsbG8iKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-56",
+        "context": "boundary-function",
+        "script": "unset _item; beta=4; f() { printf '<%s>\\n' \"${_item:((1)  >>  (!(1))):1}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-57",
+        "context": "boundary-unused-default",
+        "script": "counter42='日本語'; _rhs=5; present=ok; printf '<%s>\\n' \"${present:-${counter42:((1)  <<  (  \"1\")):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-58",
+        "context": "boundary-arithmetic",
+        "script": "counter42='héllo'; n17=1; (( ${counter42:0:((3)\t>>\t(\"3\"))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-59",
+        "context": "boundary-word",
+        "script": "_item='don'\\''t'; _rhs=3; printf '<%s>\\n' \"${_item:0:((4)>>(\"4\"))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-60",
+        "context": "boundary-unused-function",
+        "script": "_item='a b:c'; _rhs=2; f() { printf '<%s>\\n' \"${_item:0:((1)>((1)))}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-61",
+        "context": "boundary-arithmetic",
+        "script": "result='héllo'; _rhs=1; (( ${result:0:((2)  >>  (  (2)**(1)))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-62",
+        "context": "boundary-arithmetic",
+        "script": "alpha='abcdef'; n17=4; (( ${alpha:((2) << ( +(2))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-63",
+        "context": "boundary-word",
+        "script": "alpha='héllo'; _rhs=4; printf '<%s>\\n' ${alpha:0:((2)\t<<\t((2)+(4)))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGjDqWxsbz4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-64",
+        "context": "boundary-arithmetic",
+        "script": "_item='${x}'; _rhs=5; (( ${_item:0:((4)<((_item&=(4))))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgNCcgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAoX2l0ZW0mPSg0KSkpKX0gJwo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-65",
+        "context": "boundary-unused-function",
+        "script": "result='don'\\''t'; _rhs=4; f() { printf '<%s>\\n' \"${result:0:((5)  <  (  (  result+=(_rhs)  )))}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-66",
+        "context": "boundary-word",
+        "script": "alpha='a b:c'; _rhs=4; printf '<%s>\\n' ${alpha:((5)<((alpha)?(5):(4))):1}; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgPycgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAoYWxwaGEpPyg1KTooNCkpKToxfScK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-67",
+        "context": "boundary-inactive",
+        "script": "unset counter42; n17=4; false && printf '<%s>\\n' \"${counter42:0:((4)<<(~(4)))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-68",
+        "context": "boundary-default",
+        "script": "unset _item; beta=5; unset absent; printf '<%s>\\n' \"${absent:-${_item:0:((5)  >  (  (5)&&(5)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-69",
+        "context": "boundary-earlier-line",
+        "script": "unset alpha; _rhs=4; printf '<%s>\\n' before\n printf '<%s>\\n' ${alpha:0:((2)>((alpha+=(_rhs))))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-70",
+        "context": "boundary-word",
+        "script": "counter42='日本語'; n17=2; printf '<%s>\\n' ${counter42:((5)<((counter42=(n17)))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "POaXpT4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-71",
+        "context": "boundary-arithmetic-expansion",
+        "script": "_item='abcdef'; beta=1; printf '<%s>\\n' \"$(( ${_item:0:((2)\t<\t((2)))} ))\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-72",
+        "context": "boundary-earlier-line",
+        "script": "counter42='abcdef'; _rhs=3; printf '<%s>\\n' before\n printf '<%s>\\n' ${counter42:((3) > ( ( counter42+=(_rhs) ))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPGE+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-73",
+        "context": "boundary-word",
+        "script": "unset _item; n17=1; printf '<%s>\\n' \"${_item:0:((5)>>((_item^=(5))))}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgNScgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAoX2l0ZW1ePSg1KSkpKX0iJwo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-74",
+        "context": "boundary-earlier-line",
+        "script": "result='a b:c'; beta=3; printf '<%s>\\n' before\n printf '<%s>\\n' ${result:0:((1)\t<\t((\tresult+=(beta)\t)))}; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4K",
+        "stderrBase64": "YmFzaDogbGluZSAzOiByZXN1bHQ6IGEgYjpjOiBhcml0aG1ldGljIHN5bnRheCBlcnJvciBpbiBleHByZXNzaW9uIChlcnJvciB0b2tlbiBpcyAiYjpjIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-75",
+        "context": "boundary-function",
+        "script": "_item='don'\\''t'; n17=5; f() { printf '<%s>\\n' ${_item:((4) > (~(4))):1}; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG8+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-76",
+        "context": "boundary-unused-default",
+        "script": "unset alpha; beta=2; present=ok; printf '<%s>\\n' \"${present:-${alpha:((2)\t>>\t(\t+(2))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-77",
+        "context": "boundary-default",
+        "script": "alpha='abcdef'; n17=2; unset absent; printf '<%s>\\n' \"${absent:-${alpha:0:((2)  >>  ((alpha^=(2))))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-78",
+        "context": "boundary-earlier-line",
+        "script": "result=''; n17=4; printf '<%s>\\n' before\n printf '<%s>\\n' ${result:0:((3)\t<<\t(\t((3))))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-79",
+        "context": "boundary-earlier-line",
+        "script": "_item='${x}'; _rhs=4; printf '<%s>\\n' before\n printf '<%s>\\n' \"${_item:((2)  <<  (  2)):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-80",
+        "context": "boundary-word",
+        "script": "counter42='don'\\''t'; n17=3; printf '<%s>\\n' ${counter42:((3) << ( (3))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-81",
+        "context": "boundary-arithmetic",
+        "script": "unset result; _rhs=1; (( ${result:((2)>>(!(2))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-82",
+        "context": "boundary-arithmetic-expansion",
+        "script": "result='日本語'; n17=1; printf '<%s>\\n' \"$(( ${result:0:((5)\t>>\t((5)>>(1)))} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiDml6UgOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogb3BlcmFuZCBleHBlY3RlZCAoZXJyb3IgdG9rZW4gaXMgIuaXpSAiKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-83",
+        "context": "boundary-assignment",
+        "script": "result='héllo'; n17=3; saved=${result:0:((1)  >  (  ~(1)))}; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGg+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-84",
+        "context": "boundary-unused-function",
+        "script": "_item='a\tb\nc'; beta=3; f() { printf '<%s>\\n' \"${_item:((2)  <<  (  (_item=(beta)))):1}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-85",
+        "context": "boundary-unused-default",
+        "script": "_item='héllo'; beta=1; present=ok; printf '<%s>\\n' \"${present:-${_item:((2)  <  ((_item^=(2)))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-86",
+        "context": "boundary-arithmetic-expansion",
+        "script": "alpha='don'\\''t'; beta=1; printf '<%s>\\n' \"$(( ${alpha:0:((4) < ( ~(4)))} ))\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-87",
+        "context": "boundary-arithmetic-expansion",
+        "script": "_item='日本語'; beta=5; printf '<%s>\\n' \"$(( ${_item:((3) < (((3)))):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiDml6UgOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogb3BlcmFuZCBleHBlY3RlZCAoZXJyb3IgdG9rZW4gaXMgIuaXpSAiKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-88",
+        "context": "boundary-word",
+        "script": "counter42='a\tb\nc'; beta=1; printf '<%s>\\n' ${counter42:((3)\t<<\t(\t+(3))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-89",
+        "context": "boundary-inactive",
+        "script": "result='a\tb\nc'; _rhs=1; false && printf '<%s>\\n' \"${result:0:((3) > ( 3))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-90",
+        "context": "boundary-earlier-line",
+        "script": "_item='${x}'; beta=5; printf '<%s>\\n' before\n printf '<%s>\\n' \"${_item:((5)>>((_item)?(5):(5))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4K",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgNDogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgPycgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDQ6IGAoX2l0ZW0pPyg1KTooNSkpKToxfSInCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-91",
+        "context": "boundary-function",
+        "script": "unset _item; _rhs=2; f() { printf '<%s>\\n' ${_item:0:((5)\t>\t(\t(\t_item+=(_rhs)\t)))}; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-92",
+        "context": "boundary-earlier-line",
+        "script": "alpha='don'\\''t'; n17=5; printf '<%s>\\n' before\n printf '<%s>\\n' ${alpha:((5)<((alpha+=(n17)))):1}; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4K",
+        "stderrBase64": "YmFzaDogbGluZSAzOiBhbHBoYTogZG9uJ3Q6IGFyaXRobWV0aWMgc3ludGF4IGVycm9yOiBpbnZhbGlkIGFyaXRobWV0aWMgb3BlcmF0b3IgKGVycm9yIHRva2VuIGlzICIndCIpCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-93",
+        "context": "boundary-arithmetic-expansion",
+        "script": "counter42='a b:c'; _rhs=3; printf '<%s>\\n' \"$(( ${counter42:0:((3)\t<\t((counter42^=(3))))} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IGEgYjpjOiBhcml0aG1ldGljIHN5bnRheCBlcnJvciBpbiBleHByZXNzaW9uIChlcnJvciB0b2tlbiBpcyAiYjpjIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-94",
+        "context": "boundary-arithmetic",
+        "script": "_item='日本語'; _rhs=3; (( ${_item:((3)  <  ((_item+=(_rhs)))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTog5pel5pys6KqeOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogb3BlcmFuZCBleHBlY3RlZCAoZXJyb3IgdG9rZW4gaXMgIuaXpeacrOiqniIpCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-95",
+        "context": "boundary-assignment",
+        "script": "unset alpha; beta=3; saved=\"${alpha:((3)  <<  (  \"3\")):1}\"; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-96",
+        "context": "boundary-inactive",
+        "script": "unset counter42; _rhs=1; false && printf '<%s>\\n' ${counter42:0:((1)<<('1'))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-97",
+        "context": "boundary-inactive",
+        "script": "result='don'\\''t'; beta=2; false && printf '<%s>\\n' ${result:((5) << ( 5)):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-98",
+        "context": "boundary-arithmetic",
+        "script": "alpha='don'\\''t'; n17=1; (( ${alpha:0:((2)<<((2)))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAoKDogZG9uJ3QgOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogaW52YWxpZCBhcml0aG1ldGljIG9wZXJhdG9yIChlcnJvciB0b2tlbiBpcyAiJ3QgIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-99",
+        "context": "boundary-unused-default",
+        "script": "_item='don'\\''t'; _rhs=3; present=ok; printf '<%s>\\n' \"${present:-${_item:((1)  <<  (  +(1))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-100",
+        "context": "boundary-inactive",
+        "script": "result='${x}'; n17=4; false && printf '<%s>\\n' \"${result:((2)\t<\t(\t(2)**(4))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-101",
+        "context": "boundary-unused-function",
+        "script": "alpha='a\tb\nc'; _rhs=5; f() { printf '<%s>\\n' ${alpha:0:((3)<<((alpha&=(3))))}; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-102",
+        "context": "boundary-arithmetic",
+        "script": "unset result; beta=4; (( ${result:((2)  <<  (  (result|=(2)))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-103",
+        "context": "boundary-function",
+        "script": "alpha='abcdef'; beta=1; f() { printf '<%s>\\n' \"${alpha:((1)  <<  ((1)>>(1))):1}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGI+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-104",
+        "context": "boundary-function",
+        "script": "result='don'\\''t'; n17=4; f() { printf '<%s>\\n' ${result:((5)>>(((5)))):1}; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGQ+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-105",
+        "context": "boundary-function",
+        "script": "unset _item; beta=3; f() { printf '<%s>\\n' \"${_item:((5)>((5)**(3))):1}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgKionIHdoaWxlIGxvb2tpbmcgZm9yIG1hdGNoaW5nIGApJwpiYXNoOiBjb21tYW5kIHN1YnN0aXR1dGlvbjogbGluZSAzOiBgKDUpKiooMykpKToxfSInCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-106",
+        "context": "boundary-default",
+        "script": "result='héllo'; _rhs=5; unset absent; printf '<%s>\\n' \"${absent:-${result:((1)  <<  (-(1))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-107",
+        "context": "boundary-assignment",
+        "script": "counter42='a\tb\nc'; _rhs=2; saved=${counter42:0:((5)  >>  (  ((5))))}; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-108",
+        "context": "boundary-word",
+        "script": "alpha='日本語'; beta=3; printf '<%s>\\n' ${alpha:0:((3) > ( (alpha+=(beta))))}; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBhbHBoYTog5pel5pys6KqeOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogb3BlcmFuZCBleHBlY3RlZCAoZXJyb3IgdG9rZW4gaXMgIuaXpeacrOiqniIpCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-109",
+        "context": "boundary-assignment",
+        "script": "_item='a\tb\nc'; _rhs=5; saved=\"${_item:((1) < (+(1))):1}\"; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGE+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-110",
+        "context": "boundary-inactive",
+        "script": "result=''; beta=3; false && printf '<%s>\\n' \"${result:0:((1)\t<\t(\t~(1)))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-111",
+        "context": "boundary-function",
+        "script": "unset _item; n17=1; f() { printf '<%s>\\n' ${_item:0:((2)\t>>\t((\t_item+=(n17)\t)))}; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-112",
+        "context": "boundary-unused-function",
+        "script": "alpha='don'\\''t'; beta=3; f() { printf '<%s>\\n' ${alpha:0:((5)>>((alpha^=(5))))}; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-113",
+        "context": "boundary-arithmetic",
+        "script": "result='a b:c'; _rhs=1; (( ${result:((5)>>((result+=(_rhs)))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IGEgYjpjOiBhcml0aG1ldGljIHN5bnRheCBlcnJvciBpbiBleHByZXNzaW9uIChlcnJvciB0b2tlbiBpcyAiYjpjIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-114",
+        "context": "boundary-earlier-line",
+        "script": "_item='a b:c'; beta=5; printf '<%s>\\n' before\n printf '<%s>\\n' \"${_item:0:((2) >> ( ((2))))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-115",
+        "context": "boundary-arithmetic-expansion",
+        "script": "_item='don'\\''t'; _rhs=4; printf '<%s>\\n' \"$(( ${_item:((1)>((_item&=(1)))):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgMScgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAoX2l0ZW0mPSgxKSkpKToxfSAnCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-116",
+        "context": "boundary-assignment",
+        "script": "counter42='a b:c'; _rhs=1; saved=${counter42:0:((4)  <<  (+(4)))}; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGEgYjpjPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-117",
+        "context": "boundary-unused-function",
+        "script": "_item='a\tb\nc'; _rhs=5; f() { printf '<%s>\\n' ${_item:0:((1)  <<  (  !(1)))}; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-118",
+        "context": "boundary-earlier-line",
+        "script": "alpha='héllo'; _rhs=1; printf '<%s>\\n' before\n printf '<%s>\\n' ${alpha:0:((2)  <  ((2)>>(1)))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-119",
+        "context": "boundary-arithmetic",
+        "script": "result='don'\\''t'; _rhs=2; (( ${result:((4)\t>\t((4)>>(2))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-120",
+        "context": "boundary-arithmetic",
+        "script": "_item='don'\\''t'; beta=3; (( ${_item:0:((1)>((_item)?(1):(3)))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgPycgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAoX2l0ZW0pPygxKTooMykpKX0gJwo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-121",
+        "context": "boundary-default",
+        "script": "result='don'\\''t'; n17=1; unset absent; printf '<%s>\\n' \"${absent:-${result:((5)  <  (  5)):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGQ+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-122",
+        "context": "boundary-earlier-line",
+        "script": "alpha='a b:c'; beta=1; printf '<%s>\\n' before\n printf '<%s>\\n' \"${alpha:((1)\t>>\t(\t(1))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPGE+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-123",
+        "context": "boundary-unused-default",
+        "script": "alpha='héllo'; n17=3; present=ok; printf '<%s>\\n' \"${present:-${alpha:((1) > ( 1)):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-124",
+        "context": "boundary-unused-default",
+        "script": "alpha='日本語'; n17=5; present=ok; printf '<%s>\\n' \"${present:-${alpha:((2)>(-(2))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 127,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogLWM6IGxpbmUgMjogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgMicgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IC1jOiBsaW5lIDI6IGBhbHBoYT0n5pel5pys6KqeJzsgbjE3PTU7IHByZXNlbnQ9b2s7IHByaW50ZiAnPCVzPlxuJyAiJHtwcmVzZW50Oi0ke2FscGhhOigoMik+KC0oMikpKToxfX0iOyBlY2hvIGFmdGVyJwo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-125",
+        "context": "boundary-arithmetic",
+        "script": "unset _item; beta=3; (( ${_item:0:((4)\t>>\t(!(4)))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-126",
+        "context": "boundary-word",
+        "script": "unset counter42; n17=5; printf '<%s>\\n' \"${counter42:((2) >> ( '2')):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-127",
+        "context": "boundary-arithmetic",
+        "script": "_item=''; n17=2; (( ${_item:0:((1)\t<<\t(\t(_item=(n17))))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-128",
+        "context": "boundary-arithmetic-expansion",
+        "script": "counter42='a b:c'; _rhs=3; printf '<%s>\\n' \"$(( ${counter42:0:((1)\t>>\t(+(1)))} ))\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-129",
+        "context": "boundary-inactive",
+        "script": "_item='héllo'; n17=5; false && printf '<%s>\\n' \"${_item:((3)  <  ((  _item+=(n17)  ))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-130",
+        "context": "boundary-unused-function",
+        "script": "result='a\tb\nc'; beta=1; f() { printf '<%s>\\n' \"${result:((1)  >>  (  (result)?(1):(1))):1}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-131",
+        "context": "boundary-earlier-line",
+        "script": "_item='a\tb\nc'; n17=4; printf '<%s>\\n' before\n printf '<%s>\\n' \"${_item:0:((3)>(((3))))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-132",
+        "context": "boundary-arithmetic",
+        "script": "alpha='abcdef'; n17=2; (( ${alpha:0:((5)\t>>\t(\t(5)))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-133",
+        "context": "boundary-unused-default",
+        "script": "_item='${x}'; _rhs=5; present=ok; printf '<%s>\\n' \"${present:-${_item:0:((5)  <  ((5)&&(5)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-134",
+        "context": "boundary-unused-default",
+        "script": "alpha='héllo'; _rhs=2; present=ok; printf '<%s>\\n' \"${present:-${alpha:((4)>('4')):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-135",
+        "context": "boundary-unused-function",
+        "script": "counter42='don'\\''t'; n17=5; f() { printf '<%s>\\n' ${counter42:((1)  <<  ((1))):1}; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-136",
+        "context": "boundary-earlier-line",
+        "script": "counter42='日本語'; beta=4; printf '<%s>\\n' before\n printf '<%s>\\n' ${counter42:((5)<(!(5))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPOaXpT4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-137",
+        "context": "boundary-unused-default",
+        "script": "result='日本語'; beta=2; present=ok; printf '<%s>\\n' \"${present:-${result:0:((3) << ((3)>>(2)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-138",
+        "context": "boundary-unused-function",
+        "script": "unset alpha; n17=4; f() { printf '<%s>\\n' \"${alpha:0:((1) < ( ( alpha+=(n17) )))}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-139",
+        "context": "boundary-arithmetic",
+        "script": "unset counter42; n17=5; (( ${counter42:0:((4) << ((4)**(5)))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-140",
+        "context": "boundary-unused-function",
+        "script": "unset alpha; beta=5; f() { printf '<%s>\\n' ${alpha:0:((2)  <<  (  2))}; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-141",
+        "context": "boundary-default",
+        "script": "_item='a\tb\nc'; _rhs=1; unset absent; printf '<%s>\\n' \"${absent:-${_item:((2) << (2)):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-142",
+        "context": "boundary-inactive",
+        "script": "alpha='héllo'; _rhs=1; false && printf '<%s>\\n' ${alpha:0:((2) < ( (alpha+=(_rhs))))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-143",
+        "context": "boundary-assignment",
+        "script": "counter42='${x}'; beta=1; saved=${counter42:0:((5)\t<\t(\t5))}; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-144",
+        "context": "boundary-arithmetic-expansion",
+        "script": "counter42='a\tb\nc'; beta=5; printf '<%s>\\n' \"$(( ${counter42:0:((2) < ( !(2)))} ))\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-145",
+        "context": "boundary-arithmetic",
+        "script": "unset alpha; beta=5; (( ${alpha:0:((2) >> ( (2)**(5)))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-146",
+        "context": "boundary-word",
+        "script": "alpha='a\tb\nc'; n17=1; printf '<%s>\\n' ${alpha:0:((2)\t<<\t(\t(\talpha+=(n17)\t)))}; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAzOiBhbHBoYTogYQliCmM6IGFyaXRobWV0aWMgc3ludGF4IGVycm9yIGluIGV4cHJlc3Npb24gKGVycm9yIHRva2VuIGlzICJiCmMiKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-147",
+        "context": "boundary-arithmetic",
+        "script": "alpha='a\tb\nc'; beta=2; (( ${alpha:((1)  >>  (  '1')):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAzOiBhbHBoYTogKCgxKSAgPj4gICggICcxJykpOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogb3BlcmFuZCBleHBlY3RlZCAoZXJyb3IgdG9rZW4gaXMgIicxJykpIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-148",
+        "context": "boundary-arithmetic-expansion",
+        "script": "_item='${x}'; n17=5; printf '<%s>\\n' \"$(( ${_item:0:((4) < ( (4)**(5)))} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAkIDogYXJpdGhtZXRpYyBzeW50YXggZXJyb3I6IG9wZXJhbmQgZXhwZWN0ZWQgKGVycm9yIHRva2VuIGlzICIkICIpCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-149",
+        "context": "boundary-arithmetic-expansion",
+        "script": "result=''; beta=5; printf '<%s>\\n' \"$(( ${result:0:((1) > ((1)))} ))\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-150",
+        "context": "boundary-inactive",
+        "script": "unset result; beta=5; false && printf '<%s>\\n' \"${result:((3)  <  (\"3\")):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-151",
+        "context": "boundary-arithmetic-expansion",
+        "script": "_item='don'\\''t'; _rhs=4; printf '<%s>\\n' \"$(( ${_item:0:((3)\t>>\t((_item)?(3):(4)))} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogZG9uJ3Q6IGFyaXRobWV0aWMgc3ludGF4IGVycm9yOiBpbnZhbGlkIGFyaXRobWV0aWMgb3BlcmF0b3IgKGVycm9yIHRva2VuIGlzICIndCIpCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-152",
+        "context": "boundary-inactive",
+        "script": "result='abcdef'; _rhs=4; false && printf '<%s>\\n' ${result:((2)\t>\t(\t(2))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-153",
+        "context": "boundary-assignment",
+        "script": "result='don'\\''t'; n17=5; saved=\"${result:((2)\t<<\t(\t'2')):1}\"; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6ICgoMikJPDwJKAknMicpKTogYXJpdGhtZXRpYyBzeW50YXggZXJyb3I6IG9wZXJhbmQgZXhwZWN0ZWQgKGVycm9yIHRva2VuIGlzICInMicpKSIpCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-154",
+        "context": "boundary-arithmetic",
+        "script": "unset result; _rhs=1; (( ${result:((2)>(\"2\")):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-155",
+        "context": "boundary-word",
+        "script": "counter42='don'\\''t'; n17=2; printf '<%s>\\n' ${counter42:0:((5)>((5)**(2)))}; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgKionIHdoaWxlIGxvb2tpbmcgZm9yIG1hdGNoaW5nIGApJwpiYXNoOiBjb21tYW5kIHN1YnN0aXR1dGlvbjogbGluZSAzOiBgKDUpKiooMikpKX0nCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-156",
+        "context": "boundary-word",
+        "script": "_item='a\tb\nc'; n17=5; printf '<%s>\\n' ${_item:0:((4) > ((4)))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-157",
+        "context": "boundary-unused-function",
+        "script": "counter42='${x}'; n17=2; f() { printf '<%s>\\n' \"${counter42:((5)>(5)):1}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-158",
+        "context": "boundary-function",
+        "script": "result='日本語'; _rhs=2; f() { printf '<%s>\\n' ${result:((5)<<((result|=(5)))):1}; }; f; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgNScgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAocmVzdWx0fD0oNSkpKSk6MX0nCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-159",
+        "context": "boundary-function",
+        "script": "counter42='héllo'; n17=3; f() { printf '<%s>\\n' \"${counter42:0:((2)<((counter42+=(n17))))}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IGjDqWxsbzogYXJpdGhtZXRpYyBzeW50YXggZXJyb3I6IGludmFsaWQgYXJpdGhtZXRpYyBvcGVyYXRvciAoZXJyb3IgdG9rZW4gaXMgIsOpbGxvIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-160",
+        "context": "boundary-inactive",
+        "script": "counter42='héllo'; n17=4; false && printf '<%s>\\n' ${counter42:0:((2)>((2)))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-161",
+        "context": "boundary-arithmetic-expansion",
+        "script": "unset result; _rhs=1; printf '<%s>\\n' \"$(( ${result:((4)  <  (  4)):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-162",
+        "context": "boundary-inactive",
+        "script": "result='a\tb\nc'; n17=5; false && printf '<%s>\\n' ${result:((5) > ( (result^=(5)))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-163",
+        "context": "boundary-word",
+        "script": "counter42='abcdef'; _rhs=1; printf '<%s>\\n' \"${counter42:0:((3)  <  (+(3)))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-164",
+        "context": "boundary-unused-function",
+        "script": "result='héllo'; _rhs=3; f() { printf '<%s>\\n' ${result:0:((3)\t>\t((result&=(3))))}; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-165",
+        "context": "boundary-function",
+        "script": "unset counter42; n17=2; f() { printf '<%s>\\n' ${counter42:0:((2)>>((counter42&=(2))))}; }; f; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgMicgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAoY291bnRlcjQyJj0oMikpKSl9Jwo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-166",
+        "context": "boundary-earlier-line",
+        "script": "result='日本語'; beta=4; printf '<%s>\\n' before\n printf '<%s>\\n' \"${result:0:((4)<(\"4\"))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-167",
+        "context": "boundary-unused-default",
+        "script": "_item=''; beta=1; present=ok; printf '<%s>\\n' \"${present:-${_item:((3)\t>>\t((3)>>(1))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-168",
+        "context": "boundary-word",
+        "script": "alpha='a b:c'; n17=2; printf '<%s>\\n' ${alpha:((5) > ( (5)+(2))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGE+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-169",
+        "context": "boundary-function",
+        "script": "alpha='a b:c'; _rhs=2; f() { printf '<%s>\\n' \"${alpha:((1)<<((alpha|=(1)))):1}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgMScgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAoYWxwaGF8PSgxKSkpKToxfSInCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-170",
+        "context": "boundary-unused-function",
+        "script": "result='日本語'; beta=1; f() { printf '<%s>\\n' \"${result:0:((4)>((result+=(beta))))}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-171",
+        "context": "boundary-arithmetic-expansion",
+        "script": "result='${x}'; n17=4; printf '<%s>\\n' \"$(( ${result:((2)>(~(2))):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgMicgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGB+KDIpKSk6MX0gJwo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-172",
+        "context": "boundary-function",
+        "script": "alpha='${x}'; beta=2; f() { printf '<%s>\\n' ${alpha:0:((5)\t<<\t(\t!(5)))}; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PCR7eH0+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-173",
+        "context": "boundary-unused-function",
+        "script": "alpha='abcdef'; beta=3; f() { printf '<%s>\\n' ${alpha:((3) >> ( (alpha&=(3)))):1}; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-174",
+        "context": "boundary-function",
+        "script": "alpha='a b:c'; beta=5; f() { printf '<%s>\\n' ${alpha:((2) >> ( ((2)))):1}; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGE+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-175",
+        "context": "boundary-arithmetic-expansion",
+        "script": "result='${x}'; _rhs=2; printf '<%s>\\n' \"$(( ${result:((1)>>('1')):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6ICgoMSk+PignMScpKTogYXJpdGhtZXRpYyBzeW50YXggZXJyb3I6IG9wZXJhbmQgZXhwZWN0ZWQgKGVycm9yIHRva2VuIGlzICInMScpKSIpCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-176",
+        "context": "boundary-unused-function",
+        "script": "unset alpha; _rhs=5; f() { printf '<%s>\\n' \"${alpha:0:((5)\t<\t((\talpha+=(_rhs)\t)))}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-177",
+        "context": "boundary-word",
+        "script": "counter42='abcdef'; n17=5; printf '<%s>\\n' ${counter42:0:((3)<<((3)&&(5)))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGFiY2RlZj4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-178",
+        "context": "boundary-default",
+        "script": "unset result; beta=4; unset absent; printf '<%s>\\n' \"${absent:-${result:0:((4) > ((result^=(4))))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-179",
+        "context": "boundary-word",
+        "script": "alpha='don'\\''t'; _rhs=1; printf '<%s>\\n' \"${alpha:0:((3)>(\"3\"))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-180",
+        "context": "boundary-inactive",
+        "script": "_item='日本語'; n17=2; false && printf '<%s>\\n' \"${_item:((1) < ((_item+=(n17)))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-181",
+        "context": "boundary-word",
+        "script": "_item='${x}'; beta=1; printf '<%s>\\n' \"${_item:((2)<((2))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PCQ+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-182",
+        "context": "boundary-arithmetic-expansion",
+        "script": "counter42='${x}'; n17=3; printf '<%s>\\n' \"$(( ${counter42:((3) >> ( (3)+(3))):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAkIDogYXJpdGhtZXRpYyBzeW50YXggZXJyb3I6IG9wZXJhbmQgZXhwZWN0ZWQgKGVycm9yIHRva2VuIGlzICIkICIpCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-183",
+        "context": "boundary-word",
+        "script": "result='don'\\''t'; beta=5; printf '<%s>\\n' \"${result:0:((1)\t>>\t('1'))}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6ICgoMSkJPj4JKCcxJykpOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogb3BlcmFuZCBleHBlY3RlZCAoZXJyb3IgdG9rZW4gaXMgIicxJykpIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-184",
+        "context": "boundary-arithmetic-expansion",
+        "script": "counter42='don'\\''t'; n17=3; printf '<%s>\\n' \"$(( ${counter42:((2)>((counter42|=(2)))):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgMicgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAoY291bnRlcjQyfD0oMikpKSk6MX0gJwo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-185",
+        "context": "boundary-assignment",
+        "script": "counter42='a\tb\nc'; _rhs=2; saved=\"${counter42:((5)  <<  (((5)))):1}\"; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-186",
+        "context": "boundary-unused-function",
+        "script": "_item='héllo'; beta=1; f() { printf '<%s>\\n' \"${_item:0:((3) << (((3))))}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-187",
+        "context": "boundary-inactive",
+        "script": "unset alpha; n17=4; false && printf '<%s>\\n' \"${alpha:((2)\t>\t((alpha=(n17)))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-188",
+        "context": "boundary-inactive",
+        "script": "unset _item; _rhs=1; false && printf '<%s>\\n' \"${_item:0:((1) << ((1)&&(1)))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-189",
+        "context": "boundary-unused-function",
+        "script": "alpha='a\tb\nc'; n17=2; f() { printf '<%s>\\n' ${alpha:((5)\t>\t(\t(alpha&=(5)))):1}; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-190",
+        "context": "boundary-earlier-line",
+        "script": "_item=''; _rhs=5; printf '<%s>\\n' before\n printf '<%s>\\n' ${_item:0:((3)\t<<\t(\t(_item^=(3))))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-191",
+        "context": "boundary-inactive",
+        "script": "result='abcdef'; _rhs=5; false && printf '<%s>\\n' \"${result:0:((1)<<((1)>>(5)))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-192",
+        "context": "boundary-function",
+        "script": "result='日本語'; n17=5; f() { printf '<%s>\\n' \"${result:((2)  >  ((2))):1}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "POaXpT4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-193",
+        "context": "boundary-earlier-line",
+        "script": "result=''; _rhs=1; printf '<%s>\\n' before\n printf '<%s>\\n' \"${result:0:((5) < (+(5)))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-194",
+        "context": "boundary-arithmetic",
+        "script": "counter42='日本語'; n17=5; (( ${counter42:((2)\t>\t((2)>>(5))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAoKDog5pysIDogYXJpdGhtZXRpYyBzeW50YXggZXJyb3I6IG9wZXJhbmQgZXhwZWN0ZWQgKGVycm9yIHRva2VuIGlzICLmnKwgIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-195",
+        "context": "boundary-inactive",
+        "script": "unset result; n17=3; false && printf '<%s>\\n' \"${result:0:((4)>>((result^=(4))))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-196",
+        "context": "boundary-default",
+        "script": "unset alpha; beta=2; unset absent; printf '<%s>\\n' \"${absent:-${alpha:0:((5)  <<  ((alpha&=(5))))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-197",
+        "context": "boundary-unused-function",
+        "script": "unset _item; n17=1; f() { printf '<%s>\\n' ${_item:((3)  <<  (  (  _item+=(n17)  ))):1}; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-198",
+        "context": "boundary-arithmetic",
+        "script": "unset alpha; beta=3; (( ${alpha:0:((1) < ( (alpha+=(beta))))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-199",
+        "context": "boundary-default",
+        "script": "alpha=''; n17=3; unset absent; printf '<%s>\\n' \"${absent:-${alpha:((5)\t>\t(\t(\talpha+=(n17)\t))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-200",
+        "context": "boundary-arithmetic-expansion",
+        "script": "alpha='日本語'; _rhs=1; printf '<%s>\\n' \"$(( ${alpha:((1)>('1')):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBhbHBoYTogKCgxKT4oJzEnKSk6IGFyaXRobWV0aWMgc3ludGF4IGVycm9yOiBvcGVyYW5kIGV4cGVjdGVkIChlcnJvciB0b2tlbiBpcyAiJzEnKSkiKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-201",
+        "context": "boundary-unused-default",
+        "script": "alpha='日本語'; n17=5; present=ok; printf '<%s>\\n' \"${present:-${alpha:((1)\t>>\t(\t(alpha+=(n17)))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-202",
+        "context": "boundary-unused-function",
+        "script": "unset result; _rhs=2; f() { printf '<%s>\\n' \"${result:0:((4)\t>\t(\t(result)?(4):(2)))}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-203",
+        "context": "boundary-function",
+        "script": "counter42='日本語'; _rhs=1; f() { printf '<%s>\\n' \"${counter42:0:((3)  <  (~(3)))}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-204",
+        "context": "boundary-default",
+        "script": "_item='a b:c'; _rhs=2; unset absent; printf '<%s>\\n' \"${absent:-${_item:0:((2) < ((_item^=(2))))}}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBfaXRlbTogYSBiOmM6IGFyaXRobWV0aWMgc3ludGF4IGVycm9yIGluIGV4cHJlc3Npb24gKGVycm9yIHRva2VuIGlzICJiOmMiKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-205",
+        "context": "boundary-function",
+        "script": "result=''; _rhs=4; f() { printf '<%s>\\n' \"${result:((4)\t>>\t((4)+(4))):1}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-206",
+        "context": "boundary-unused-default",
+        "script": "result='a b:c'; n17=4; present=ok; printf '<%s>\\n' \"${present:-${result:0:((1)<((1)**(4)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgKionIHdoaWxlIGxvb2tpbmcgZm9yIG1hdGNoaW5nIGApJwpiYXNoOiBjb21tYW5kIHN1YnN0aXR1dGlvbjogbGluZSAzOiBgKDEpKiooNCkpKX19IicK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-207",
+        "context": "boundary-function",
+        "script": "counter42='日本語'; _rhs=3; f() { printf '<%s>\\n' ${counter42:((2)  <  ((counter42+=(_rhs)))):1}; }; f; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IOaXpeacrOiqnjogYXJpdGhtZXRpYyBzeW50YXggZXJyb3I6IG9wZXJhbmQgZXhwZWN0ZWQgKGVycm9yIHRva2VuIGlzICLml6XmnKzoqp4iKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-208",
+        "context": "boundary-earlier-line",
+        "script": "result='a b:c'; beta=4; printf '<%s>\\n' before\n printf '<%s>\\n' \"${result:0:((3)  <  (  (result&=(3))))}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4K",
+        "stderrBase64": "YmFzaDogbGluZSAzOiByZXN1bHQ6IGEgYjpjOiBhcml0aG1ldGljIHN5bnRheCBlcnJvciBpbiBleHByZXNzaW9uIChlcnJvciB0b2tlbiBpcyAiYjpjIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-209",
+        "context": "boundary-inactive",
+        "script": "result='${x}'; n17=4; false && printf '<%s>\\n' ${result:0:((4) > ( (result=(n17))))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-210",
+        "context": "boundary-default",
+        "script": "result='a b:c'; _rhs=3; unset absent; printf '<%s>\\n' \"${absent:-${result:0:((3)<<((result=(_rhs))))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGEgYjpjPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-211",
+        "context": "boundary-word",
+        "script": "counter42='héllo'; beta=4; printf '<%s>\\n' \"${counter42:0:((2)>>((counter42^=(2))))}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgMicgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAoY291bnRlcjQyXj0oMikpKSl9IicK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-212",
+        "context": "boundary-arithmetic-expansion",
+        "script": "_item='don'\\''t'; beta=1; printf '<%s>\\n' \"$(( ${_item:0:((1)>>(1))} ))\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-213",
+        "context": "boundary-inactive",
+        "script": "alpha='${x}'; beta=1; false && printf '<%s>\\n' \"${alpha:0:((5)  >>  (  (alpha)?(5):(1)))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-214",
+        "context": "boundary-default",
+        "script": "alpha='don'\\''t'; beta=5; unset absent; printf '<%s>\\n' \"${absent:-${alpha:0:((4)>>(-(4)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgNCcgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAtKDQpKSl9fSInCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-215",
+        "context": "boundary-word",
+        "script": "unset _item; beta=5; printf '<%s>\\n' ${_item:((4) > (~(4))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-216",
+        "context": "boundary-unused-default",
+        "script": "alpha='abcdef'; _rhs=2; present=ok; printf '<%s>\\n' \"${present:-${alpha:0:((5)  >  ((5)+(2)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-217",
+        "context": "boundary-arithmetic-expansion",
+        "script": "result='a\tb\nc'; n17=2; printf '<%s>\\n' \"$(( ${result:((1) < ( (result&=(1)))):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAzOiByZXN1bHQ6IGEJYgpjOiBhcml0aG1ldGljIHN5bnRheCBlcnJvciBpbiBleHByZXNzaW9uIChlcnJvciB0b2tlbiBpcyAiYgpjIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-218",
+        "context": "boundary-unused-default",
+        "script": "counter42='a b:c'; beta=3; present=ok; printf '<%s>\\n' \"${present:-${counter42:((3)\t>>\t(\"3\")):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-219",
+        "context": "boundary-word",
+        "script": "result='don'\\''t'; n17=3; printf '<%s>\\n' \"${result:((3)  <  ((result&=(3)))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiByZXN1bHQ6IGRvbid0OiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogaW52YWxpZCBhcml0aG1ldGljIG9wZXJhdG9yIChlcnJvciB0b2tlbiBpcyAiJ3QiKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-220",
+        "context": "boundary-arithmetic",
+        "script": "alpha='a b:c'; beta=5; (( ${alpha:((3) > ( (3)+(5))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-221",
+        "context": "boundary-function",
+        "script": "unset counter42; _rhs=5; f() { printf '<%s>\\n' ${counter42:((5)  <<  (  (counter42^=(5)))):1}; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-222",
+        "context": "boundary-assignment",
+        "script": "alpha='${x}'; n17=4; saved=${alpha:((2)\t<\t(\t(2)>>(4))):1}; printf '<%s>\\n' \"$saved\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PCQ+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-223",
+        "context": "boundary-earlier-line",
+        "script": "result='${x}'; n17=5; printf '<%s>\\n' before\n printf '<%s>\\n' \"${result:((3) << ( (3))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-224",
+        "context": "boundary-default",
+        "script": "result='${x}'; _rhs=2; unset absent; printf '<%s>\\n' \"${absent:-${result:0:((2)>((result)?(2):(2)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgPycgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAocmVzdWx0KT8oMik6KDIpKSl9fSInCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-225",
+        "context": "boundary-earlier-line",
+        "script": "counter42='a b:c'; beta=1; printf '<%s>\\n' before\n printf '<%s>\\n' ${counter42:((3)\t>\t((3))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPGE+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-226",
+        "context": "boundary-function",
+        "script": "counter42='héllo'; n17=3; f() { printf '<%s>\\n' \"${counter42:0:((2)\t<\t((counter42+=(n17))))}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBjb3VudGVyNDI6IGjDqWxsbzogYXJpdGhtZXRpYyBzeW50YXggZXJyb3I6IGludmFsaWQgYXJpdGhtZXRpYyBvcGVyYXRvciAoZXJyb3IgdG9rZW4gaXMgIsOpbGxvIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-227",
+        "context": "boundary-word",
+        "script": "unset alpha; _rhs=5; printf '<%s>\\n' ${alpha:((1) < (( alpha+=(_rhs) ))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-228",
+        "context": "boundary-inactive",
+        "script": "result='${x}'; beta=5; false && printf '<%s>\\n' ${result:((1)  >  (  ((1)))):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-229",
+        "context": "boundary-arithmetic",
+        "script": "alpha='héllo'; _rhs=1; (( ${alpha:0:((3)  <<  ((alpha+=(_rhs))))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBhbHBoYTogaMOpbGxvOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogaW52YWxpZCBhcml0aG1ldGljIG9wZXJhdG9yIChlcnJvciB0b2tlbiBpcyAiw6lsbG8iKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-230",
+        "context": "boundary-unused-function",
+        "script": "unset counter42; _rhs=2; f() { printf '<%s>\\n' \"${counter42:((3)  >  ((counter42|=(3)))):1}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-231",
+        "context": "boundary-inactive",
+        "script": "_item='a b:c'; beta=5; false && printf '<%s>\\n' \"${_item:((2)<<((_item|=(2)))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-232",
+        "context": "boundary-inactive",
+        "script": "_item='abcdef'; beta=1; false && printf '<%s>\\n' ${_item:0:((4)\t<<\t(\t!(4)))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-233",
+        "context": "boundary-default",
+        "script": "alpha='a b:c'; _rhs=1; unset absent; printf '<%s>\\n' \"${absent:-${alpha:((5)<(-(5))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 127,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogLWM6IGxpbmUgMjogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgNScgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IC1jOiBsaW5lIDI6IGBhbHBoYT0nYSBiOmMnOyBfcmhzPTE7IHVuc2V0IGFic2VudDsgcHJpbnRmICc8JXM+XG4nICIke2Fic2VudDotJHthbHBoYTooKDUpPCgtKDUpKSk6MX19IjsgZWNobyBhZnRlcicK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-234",
+        "context": "boundary-word",
+        "script": "_item='${x}'; beta=2; printf '<%s>\\n' \"${_item:((5) > ( (5)+(2))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PCQ+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-235",
+        "context": "boundary-function",
+        "script": "_item='héllo'; beta=4; f() { printf '<%s>\\n' ${_item:((1)\t<\t(\t!(1))):1}; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGg+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-236",
+        "context": "boundary-arithmetic",
+        "script": "alpha='héllo'; n17=3; (( ${alpha:((5)  <  ((alpha&=(5)))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBhbHBoYTogaMOpbGxvOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogaW52YWxpZCBhcml0aG1ldGljIG9wZXJhdG9yIChlcnJvciB0b2tlbiBpcyAiw6lsbG8iKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-237",
+        "context": "boundary-unused-function",
+        "script": "counter42='don'\\''t'; n17=2; f() { printf '<%s>\\n' ${counter42:((4)>>((counter42&=(4)))):1}; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-238",
+        "context": "boundary-arithmetic-expansion",
+        "script": "counter42='日本語'; n17=3; printf '<%s>\\n' \"$(( ${counter42:((3)\t<\t(\t-(3))):1} ))\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiDml6UgOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogb3BlcmFuZCBleHBlY3RlZCAoZXJyb3IgdG9rZW4gaXMgIuaXpSAiKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-239",
+        "context": "boundary-arithmetic",
+        "script": "alpha='日本語'; beta=1; (( ${alpha:0:((1) >> ( (1)>>(1)))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAoKDog5pelIDogYXJpdGhtZXRpYyBzeW50YXggZXJyb3I6IG9wZXJhbmQgZXhwZWN0ZWQgKGVycm9yIHRva2VuIGlzICLml6UgIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-240",
+        "context": "boundary-word",
+        "script": "alpha='${x}'; n17=5; printf '<%s>\\n' \"${alpha:0:((2) > ( \"2\"))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-241",
+        "context": "boundary-word",
+        "script": "_item='héllo'; n17=4; printf '<%s>\\n' \"${_item:0:((2)>>((2)&&(4)))}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGg+CmFmdGVyCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-242",
+        "context": "boundary-function",
+        "script": "unset _item; n17=5; f() { printf '<%s>\\n' \"${_item:((4)<<((4)>>(5))):1}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgKCcgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGAoNCk+Pig1KSkpOjF9IicK"
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-243",
+        "context": "boundary-inactive",
+        "script": "counter42='don'\\''t'; n17=1; false && printf '<%s>\\n' ${counter42:((4)>>('4')):1}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-244",
+        "context": "boundary-default",
+        "script": "counter42='${x}'; n17=2; unset absent; printf '<%s>\\n' \"${absent:-${counter42:0:((2)  <  (  +(2)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-245",
+        "context": "boundary-function",
+        "script": "alpha='héllo'; beta=4; f() { printf '<%s>\\n' \"${alpha:0:((5)\t>\t(\t\"5\"))}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-246",
+        "context": "boundary-earlier-line",
+        "script": "alpha='日本語'; beta=4; printf '<%s>\\n' before\n printf '<%s>\\n' ${alpha:0:((2)<(((2))))}; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-247",
+        "context": "boundary-arithmetic",
+        "script": "unset result; _rhs=4; (( ${result:((3)\t>>\t(\t(result)?(3):(4))):1} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-248",
+        "context": "boundary-arithmetic",
+        "script": "_item='don'\\''t'; beta=3; (( ${_item:0:((3)\t>\t(\t(3)+(3)))} )); printf '<%s>\\n' status=$?; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-249",
+        "context": "boundary-unused-function",
+        "script": "alpha='héllo'; n17=2; f() { printf '<%s>\\n' \"${alpha:((5) > ((5))):1}\"; }; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-250",
+        "context": "boundary-unused-default",
+        "script": "alpha='日本語'; beta=3; present=ok; printf '<%s>\\n' \"${present:-${alpha:0:((2) >> ((alpha+=(beta))))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PG9rPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-251",
+        "context": "boundary-function",
+        "script": "unset alpha; n17=5; f() { printf '<%s>\\n' \"${alpha:((5)\t>\t(\t-(5))):1}\"; }; f; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-252",
+        "context": "boundary-unused-default",
+        "script": "result=''; n17=3; present=ok; printf '<%s>\\n' \"${present:-${result:((1)>((1)**(3))):1}}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgKionIHdoaWxlIGxvb2tpbmcgZm9yIG1hdGNoaW5nIGApJwpiYXNoOiBjb21tYW5kIHN1YnN0aXR1dGlvbjogbGluZSAzOiBgKDEpKiooMykpKToxfX0iJwo="
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-253",
+        "context": "boundary-default",
+        "script": "unset _item; n17=1; unset absent; printf '<%s>\\n' \"${absent:-${_item:0:((2)\t>\t((2)>>(1)))}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-254",
+        "context": "boundary-word",
+        "script": "unset result; _rhs=2; printf '<%s>\\n' \"${result:((2)\t>\t(\t~(2))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KYWZ0ZXIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "grammar-255",
+        "context": "boundary-earlier-line",
+        "script": "_item='abcdef'; _rhs=2; printf '<%s>\\n' before\n printf '<%s>\\n' \"${_item:((3) < ( (3)&&(2))):1}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJlZm9yZT4KPGE+CmFmdGVyCg==",
         "stderrBase64": ""
       }
     }

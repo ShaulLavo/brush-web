@@ -31,6 +31,10 @@ pub(crate) enum Error {
         line: Option<usize>,
         expansion: bool,
     },
+    ShellBoundary {
+        stage: ShellBoundaryStage,
+        line: Option<usize>,
+    },
     BadSubstitution {
         message: &'static str,
         line: Option<usize>,
@@ -45,6 +49,11 @@ pub(crate) enum Error {
         message: String,
         line: Option<usize>,
     },
+}
+#[derive(Clone, Copy)]
+pub(crate) enum ShellBoundaryStage {
+    Word,
+    Expansion,
 }
 impl Error {
     pub(crate) fn in_expansion(self) -> Self {
@@ -78,6 +87,7 @@ impl Error {
                 expansion,
                 line,
             },
+            Self::ShellBoundary { stage, .. } => Self::ShellBoundary { stage, line },
             Self::BadSubstitution { message, .. } => Self::BadSubstitution { message, line },
             Self::Parameter { name, message, .. } => Self::Parameter {
                 name,
@@ -870,145 +880,92 @@ impl Expansion<'_> {
         }
         .boxed_local()
     }
-    /// Bash's shell-word reader balances <(...) and >(...) in slice fields
-    /// using command grammar before arithmetic sees them (even quoted/skipped).
-    /// Validate only these boundaries; never execute a substitution here.
+    /// Brace extraction parses process-substitution lookalikes before lazy
+    /// selection. Nested command/arithmetic substitutions stay opaque here.
     async fn slice_boundaries(&mut self, source: &str) -> Result<(), Error> {
-        // Bash's substring lexer has a few operator/command-substitution
-        // overlaps whose result depends on the complete arithmetic token.
-        // Keep those boundaries in the same fatal/nonfatal class as Bash
-        // before the generic shell-body scan below.
-        if source.contains(">>(!(7))") {
+        // Ordinary operands already have a cooperative scanner. Avoid a
+        // second charged pass when no shell boundary can be present.
+        if !source.contains(['<', '>']) {
             return Ok(());
         }
-        if source.contains("<<(-(64#@))")
-            || source.contains(">>(+(077))")
-            || source.contains("<<(~(077))")
-            || source.contains(">>(+((63)**(4)))")
-            || source.contains(">>(-((18446744073709551615)?")
-        {
-            return crate::arithmetic::fault(
-                "syntax error while looking for matching `)'",
-                self.work,
-            )
-            .map_err(Error::in_expansion);
-        }
-        let bytes = source.as_bytes();
-        let mut index = 0;
-        while index + 1 < bytes.len() {
+        let mut chars = source.char_indices().peekable();
+        let mut quote = None;
+        let mut escaped = false;
+        while let Some((index, c)) = chars.next() {
             self.work.checkpoint(self.cancel).await?;
-            if bytes[index] == b'>'
-                && bytes[index + 1] == b'>'
-                && bytes.get(index + 2) == Some(&b'(')
-            {
-                let begin = index + 3;
-                let mut cursor = begin;
-                let mut depth = 1usize;
-                while cursor < bytes.len() && depth != 0 {
-                    self.work.checkpoint(self.cancel).await?;
-                    match bytes[cursor] {
-                        b'(' => depth += 1,
-                        b')' => depth -= 1,
-                        _ => {}
-                    }
-                    cursor += 1;
-                }
-                let body = &source[begin..cursor.saturating_sub(1)];
-                if body == "(y+=(x))" || body.contains("missing)**(0)") {
-                    index += 2;
-                    continue;
-                }
+            if escaped {
+                escaped = false;
+                continue;
             }
-            if bytes[index] == b'<'
-                && bytes[index + 1] == b'<'
-                && bytes.get(index + 2) == Some(&b'(')
-            {
-                let begin = index + 3;
-                let mut cursor = begin;
-                let mut depth = 1usize;
-                while cursor < bytes.len() && depth != 0 {
-                    self.work.checkpoint(self.cancel).await?;
-                    match bytes[cursor] {
-                        b'(' => depth += 1,
-                        b')' => depth -= 1,
-                        _ => {}
-                    }
-                    cursor += 1;
-                }
-                let body = &source[begin..cursor.saturating_sub(1)];
-                if body.contains(">>(") {
-                    return crate::arithmetic::fault(
-                        "syntax error while looking for matching `)'",
-                        self.work,
-                    )
-                    .map_err(Error::in_expansion);
-                }
+            if quote == Some(c) {
+                quote = None;
+                continue;
             }
-            if !matches!(bytes[index], b'<' | b'>') || bytes[index + 1] != b'(' {
-                index += 1;
+            if c == '\\' && quote != Some('\'') {
+                escaped = true;
+                continue;
+            }
+            if quote.is_some() {
+                continue;
+            }
+            if matches!(c, '\'' | '"' | '`') {
+                quote = Some(c);
+                continue;
+            }
+            if !matches!(c, '<' | '>' | '$') || chars.peek().is_none_or(|&(_, c)| c != '(') {
                 continue;
             }
             let begin = index + 2;
-            index = begin;
-            let mut depth = 1usize;
-            while index < bytes.len() && depth != 0 {
+            let end = self.slice_body_end(source, begin).await?;
+            if c != '$' {
+                self.validate_slice_body(&source[begin..end]).await?;
+            }
+            while chars.peek().is_some_and(|&(index, _)| index <= end) {
                 self.work.checkpoint(self.cancel).await?;
-                match bytes[index] {
-                    b'(' => {
-                        depth += 1;
-                        if depth > operand::MAX_DEPTH {
-                            return Err(2.into());
-                        }
-                    }
-                    b')' => depth -= 1,
-                    _ => {}
-                }
-                index += 1;
-            }
-            if depth != 0 {
-                return crate::arithmetic::fault(
-                    "syntax error while looking for matching `)'",
-                    self.work,
-                )
-                .map_err(Error::in_expansion);
-            }
-            let body = &source[begin..index - 1];
-            if body.len() > 4096 {
-                return Err(2.into());
-            }
-            self.work.admit_parse(body.len(), self.cancel).await?;
-            self.work
-                .admit_storage(body.len().saturating_mul(512).saturating_add(2048))?;
-            if body.starts_with("+(") || body.starts_with("-(") || body.starts_with("~(") {
-                self.work.admit_storage(96)?;
-                return Err(Error::Parameter {
-                    name: "arithmetic expression".to_owned(),
-                    message: "syntax error while looking for matching `)'".to_owned(),
-                    line: None,
-                });
-            }
-            if body.starts_with("(+(")
-                || body.starts_with("(-(")
-                || body.starts_with("(~(")
-                || body.contains("|=(")
-                || body.contains("^=(")
-                || body.contains("&=(")
-            {
-                return crate::arithmetic::fault(
-                    "syntax error while looking for matching `)'",
-                    self.work,
-                )
-                .map_err(Error::in_expansion);
-            }
-            if !slice_shell_grammar(body) {
-                return crate::arithmetic::fault(
-                    "syntax error while looking for matching `)'",
-                    self.work,
-                )
-                .map_err(Error::in_expansion);
+                chars.next();
             }
         }
         Ok(())
+    }
+
+    async fn slice_body_end(&mut self, source: &str, begin: usize) -> Result<usize, Error> {
+        // Reserve initial scanner buffers, then their conservative cumulative
+        // growth allowance before each character. Text after its closing `)`
+        // must not consume scanner storage.
+        self.work.admit_storage(2048)?;
+        let mut scanner = shell_parser::parser::CommandBoundaryScanner::new();
+        for (index, c) in source[begin..].char_indices() {
+            self.work.checkpoint(self.cancel).await?;
+            if index > 4096 {
+                return Err(2.into());
+            }
+            self.work.admit_storage(512)?;
+            if scanner.feed(c) == shell_parser::parser::CommandBoundaryStep::Close {
+                return Ok(begin + index);
+            }
+        }
+        self.work.admit_storage(256)?;
+        Err(Error::ShellBoundary {
+            stage: ShellBoundaryStage::Expansion,
+            line: None,
+        })
+    }
+
+    async fn validate_slice_body(&mut self, body: &str) -> Result<(), Error> {
+        self.work.admit_parse(body.len(), self.cancel).await?;
+        self.work
+            .admit_storage(body.len().saturating_mul(512).saturating_add(2048))?;
+        match slice_shell_grammar(body) {
+            Ok(_) => Ok(()),
+            Err(error) if shell_parser_budget_error(&error) => Err(2.into()),
+            Err(_) => {
+                self.work.admit_storage(256)?;
+                Err(Error::ShellBoundary {
+                    stage: ShellBoundaryStage::Expansion,
+                    line: None,
+                })
+            }
+        }
     }
     async fn substring(
         &mut self,
@@ -1171,6 +1128,7 @@ impl Expansion<'_> {
         depth: usize,
         error_pointer: Option<&str>,
     ) -> Result<(), Error> {
+        self.slice_boundaries(operand).await?;
         if error_pointer.is_none() && !operand::scalar_name(name) || depth >= operand::MAX_DEPTH {
             return Err(2.into());
         }
@@ -1722,11 +1680,27 @@ fn bounded(value: Cow<'_, str>, max: usize) -> Result<String, Error> {
 // Keep the large synchronous parser frame out of every recursive expansion
 // future. Its input, depth, work and allocation bounds are admitted by caller.
 #[inline(never)]
-fn slice_shell_grammar(source: &str) -> bool {
-    shell_parser::parser::Parser::with_limits(source, operand::MAX_DEPTH, 4096 * 16)
-        .with_strict_command_separators()
-        .parse()
-        .is_ok()
+fn slice_shell_grammar(source: &str) -> Result<(), shell_parser::error::Error> {
+    shell_parser::parser::Parser::with_limits_and_options(
+        source,
+        operand::MAX_DEPTH,
+        4096 * 16,
+        shell_parser::parser::ParseOptions::default(),
+    )
+    .with_strict_command_separators()
+    .parse()
+    .map(|_| ())
+}
+
+fn shell_parser_budget_error(error: &shell_parser::error::Error) -> bool {
+    match error {
+        shell_parser::error::Error::ResourceLimit(_) => true,
+        shell_parser::error::Error::ShellWord { .. } => false,
+        shell_parser::error::Error::Parse { message, .. } => {
+            message.starts_with("AST nesting too deep")
+                || message.starts_with("parser fuel exhausted")
+        }
+    }
 }
 
 fn scalar_value(

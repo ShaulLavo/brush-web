@@ -291,7 +291,7 @@ function fixedCases() {
     cases.push({ id: `boundary-${index}`, context: "boundary", script });
   for (const [index, command] of [
     'printf "%s\\n" "$((1/0))"',
-    'result=$((1/0))',
+    "result=$((1/0))",
     'printf "%s\\n" "$((echo unexpected [))"',
     'v=abc; printf "%s\\n" "${v:1/0}"',
     '{ printf "%s\\n" "$((1/0))"; echo inner; }',
@@ -326,6 +326,84 @@ function positionalSliceCases(cases, offset, length) {
   }
 }
 
+// A separate stream exercises shell grammar boundaries without depending on
+// the arithmetic expression generator's variable names or parenthesis shape.
+function boundaryCases(seed, count = 256) {
+  const random = randomFor(seed ^ 0xa7614b2d);
+  const cases = [];
+  for (let index = 0; index < count; index++) {
+    const name = random.pick(["alpha", "_item", "counter42", "result"]);
+    const other = random.pick(["beta", "_rhs", "n17"]);
+    const n = String(1 + (random.next() % 5));
+    const m = String(1 + (random.next() % 5));
+    const space = random.pick(["", " ", "  ", "\t"]);
+    const grammar = random.pick([
+      n,
+      `(${n})`,
+      `((${n}))`,
+      `+(${n})`,
+      `-(${n})`,
+      `~(${n})`,
+      `!(${n})`,
+      `(${name}+=(${other}))`,
+      `(${name}=(${other}))`,
+      `(${name}|=(${n}))`,
+      `(${name}^=(${n}))`,
+      `(${name}&=(${n}))`,
+      `(${n})+(${m})`,
+      `(${n})**(${m})`,
+      `(${n})>>(${m})`,
+      `(${n})&&(${m})`,
+      `(${name})?(${n}):(${m})`,
+      `"${n}"`,
+      `'${n}'`,
+      `(${space}${name}+=(${other})${space})`,
+    ]);
+    const body = random.next() % 2 ? grammar : space + grammar;
+    const op = random.pick(["<", ">", "<<", ">>"]);
+    const expr = `(${n})${space}${op}${space}(${body})`;
+    const field = random.next() % 2 === 0;
+    const slice = field ? `\${${name}:(${expr}):1}` : `\${${name}:0:(${expr})}`;
+    const value = random.pick(values);
+    const setup = `${random.next() % 5 ? `${name}=${quote(value)}` : `unset ${name}`}; ${other}=${m}`;
+    const operand = random.next() % 2 ? `"${slice}"` : slice;
+    const context = random.pick([
+      "word",
+      "assignment",
+      "arithmetic",
+      "arithmetic-expansion",
+      "default",
+      "unused-default",
+      "inactive",
+      "function",
+      "unused-function",
+      "earlier-line",
+    ]);
+    let script;
+    if (context === "earlier-line")
+      script = `${setup}; printf '<%s>\\n' before\n printf '<%s>\\n' ${operand}; echo after`;
+    if (context === "assignment")
+      script = `${setup}; saved=${operand}; printf '<%s>\\n' "$saved"; echo after`;
+    if (context === "arithmetic-expansion")
+      script = `${setup}; printf '<%s>\\n' "$(( ${slice} ))"; echo after`;
+    if (context === "unused-default")
+      script = `${setup}; present=ok; printf '<%s>\\n' "\${present:-${slice}}"; echo after`;
+    if (context === "inactive")
+      script = `${setup}; false && printf '<%s>\\n' ${operand}; echo after`;
+    if (context === "unused-function")
+      script = `${setup}; f() { printf '<%s>\\n' ${operand}; }; echo after`;
+    if (context === "arithmetic")
+      script = `${setup}; (( ${slice} )); printf '<%s>\\n' status=$?; echo after`;
+    if (context === "default")
+      script = `${setup}; unset absent; printf '<%s>\\n' "\${absent:-${slice}}"; echo after`;
+    if (context === "function")
+      script = `${setup}; f() { printf '<%s>\\n' ${operand}; }; f; echo after`;
+    if (context === "word") script = `${setup}; printf '<%s>\\n' ${operand}; echo after`;
+    cases.push({ id: `grammar-${index}`, context: `boundary-${context}`, script });
+  }
+  return cases;
+}
+
 function generate(seed, count) {
   const random = randomFor(seed);
   const cases = fixedCases();
@@ -346,7 +424,7 @@ function generate(seed, count) {
       ),
     });
   }
-  return cases;
+  return cases.concat(boundaryCases(seed));
 }
 
 function run(bin, args, timeout) {

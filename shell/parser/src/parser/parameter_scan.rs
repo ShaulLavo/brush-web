@@ -7,11 +7,12 @@
 pub(crate) struct ParameterHeader {
     name_started: bool,
     operand: bool,
+    substring: bool,
     pub(crate) single_quotes: bool,
     pub(crate) subscript: usize,
 }
 impl ParameterHeader {
-    pub(crate) fn character(&mut self, ch: char) {
+    pub(crate) fn character(&mut self, ch: char, next: Option<char>) {
         if self.subscript > 0 {
             match ch {
                 '[' => self.subscript += 1,
@@ -30,6 +31,7 @@ impl ParameterHeader {
             '@' | '*' | '?' | '-' | '$' if !self.name_started => self.name_started = true,
             _ => {
                 self.operand = true;
+                self.substring = ch == ':' && next.is_none_or(|c| !matches!(c, '-' | '+' | '=' | '?'));
                 self.single_quotes |= matches!(ch, '/' | '#' | '%' | '^' | ',');
             }
         }
@@ -93,6 +95,11 @@ impl<const N: usize> ParameterScan<N> {
         scanner
     }
 
+    pub(crate) fn substring_unquoted(&self) -> bool {
+        let frame = &self.frames[self.depth - 1];
+        frame.quote.is_none() && frame.header.substring
+    }
+
     pub(crate) fn unquoted(&self) -> bool {
         self.frames[self.depth - 1].quote.is_none()
     }
@@ -123,7 +130,7 @@ impl<const N: usize> ParameterScan<N> {
             return Step::Copy;
         }
         if frame.quote.is_none() {
-            frame.header.character(ch);
+            frame.header.character(ch, next);
             if matches!(ch, '\'' | '"') {
                 frame.quote = Some(ch);
                 return Step::Copy;

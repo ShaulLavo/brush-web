@@ -278,7 +278,27 @@ impl Session {
             max_input_bytes: self.core.limits.source_bytes,
             ..Default::default()
         };
-        let script = shell_parser::parse(source, &parser_limits).map_err(|e| e.to_string())?;
+        let budget = shell_parser::limits::ExecutionBudget::new(
+            &parser_limits,
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let (script, error) = Parser::with_limits_and_timeout(
+            source,
+            parser_limits.max_ast_depth,
+            parser_limits.max_parser_operations,
+            Some(parser_limits.parser_timeout),
+        )
+        .with_execution_budget(budget.clone())
+        .parse_recovering();
+        budget.check().map_err(|error| error.to_string())?;
+        let word_error = match error {
+            None => None,
+            Some(shell_parser::Error::ShellWord { line }) => Some(expand::Error::ShellBoundary {
+                stage: expand::ShellBoundaryStage::Word,
+                line: Some(line),
+            }),
+            Some(error) => return Err(error.to_string()),
+        };
         let group = self.core.host.allocate_group();
         let cancel = Cancel::new();
         let foreground_cancel = cancel.clone();
@@ -295,13 +315,20 @@ impl Session {
         let join = self.core.executor.spawn(async move {
             let _foreground = ForegroundGuard(context.core.clone());
             let mut processes = ProcessGroup::new(context.core.host.clone(), group);
-            let result = script_sequence(
+            let mut result = script_sequence(
                 script.commands,
                 state.clone(),
                 context.core.descriptors.clone(),
                 context.clone(),
             )
             .await;
+            if matches!(result.flow, Flow::Normal | Flow::DiscardReadUnit)
+                && let Some(error) = word_error
+            {
+                let mut work = expansion_work(context.limits());
+                let error = work.admit_storage(256).err().unwrap_or(error);
+                result = expansion_failure(error.into(), &context.core.descriptors, &context).await;
+            }
             let code = context.finish_group(&mut processes, result.code).await;
             state.borrow_mut().status = code;
             code
@@ -630,6 +657,15 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
         expand::Error::Readonly { name, line, .. } => {
             (name, "readonly variable".to_owned(), line, 1)
         }
+        expand::Error::ShellBoundary { stage, line } => (
+            "arithmetic expression".to_owned(),
+            "syntax error while looking for matching `)'".to_owned(),
+            line,
+            match stage {
+                expand::ShellBoundaryStage::Word => 127,
+                expand::ShellBoundaryStage::Expansion => 1,
+            },
+        ),
         expand::Error::Arithmetic { message, line, .. } => (
             "arithmetic expression".to_owned(),
             message.to_owned(),

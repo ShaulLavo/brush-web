@@ -621,3 +621,105 @@ fn strict_separator_policy_reaches_nested_shell_bodies() {
         );
     }
 }
+
+#[test]
+fn array_assignments_consume_one_closing_parenthesis_in_subshells() {
+    for source in [
+        "(alpha+=(beta))",
+        "(alpha=(beta))",
+        "((alpha+=(beta)))",
+        "(alpha+=(beta gamma)); echo done",
+    ] {
+        let parsed = Parser::with_limits_and_options(source, 32, 65536, Default::default()).parse();
+        assert!(parsed.is_ok(), "{source}: {parsed:?}");
+    }
+}
+
+#[test]
+fn nested_lists_require_separators_after_commands_and_redirects() {
+    for source in [
+        "(alpha|=((beta)&(3)))",
+        "((alpha)>=(3))",
+        "((alpha)+(beta))",
+        "((alpha)**(3))",
+        "((alpha)>>(beta))",
+    ] {
+        assert!(
+            Parser::with_limits_and_options(source, 32, 65536, Default::default())
+                .with_strict_command_separators()
+                .parse()
+                .is_err(),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn explicit_shell_options_apply_to_the_first_pattern_group() {
+    for source in [
+        "+(2)",
+        "echo @(alpha|beta)",
+        "echo ?(alpha)",
+        "echo *(alpha)",
+    ] {
+        assert!(
+            Parser::with_limits_and_options(source, 32, 65536, Default::default())
+                .parse()
+                .is_err(),
+            "{source}"
+        );
+        assert!(
+            Parser::new(source).parse().is_ok(),
+            "default upstream pattern mode: {source}"
+        );
+    }
+    assert!(
+        Parser::with_limits_and_options("!(2)", 32, 65536, Default::default())
+            .parse()
+            .is_ok()
+    );
+}
+
+#[test]
+fn substring_word_syntax_is_checked_before_lazy_selection() {
+    for source in [
+        "echo \"${present:-${v:1>(+(2))}}\"",
+        "false && echo \"${v:1<(-(2))}\"",
+        "f() { echo \"${v:1>(~(2))}\"; }",
+    ] {
+        assert!(
+            matches!(
+                Parser::new(source).parse(),
+                Err(shell_parser::Error::ShellWord { .. })
+            ),
+            "{source}"
+        );
+    }
+    for source in [
+        "echo '${v:1>(+(2))}'",
+        "echo \"$(( ${v:1>(+(2))} ))\"",
+        "echo \"${present:-$((1>(+(2))))}\"",
+        "echo \"${v:1>>(+(2))}\"",
+    ] {
+        assert!(Parser::new(source).parse().is_ok(), "{source}");
+    }
+}
+
+#[test]
+fn substring_word_validation_shares_fuel_and_request_budget() {
+    use shell_parser::limits::{ExecutionBudget, ExecutionLimits, LimitExceeded};
+    use std::sync::{Arc, atomic::AtomicBool};
+    let source = "echo \"${v:1>(alpha beta gamma)}\"";
+    assert!(Parser::with_limits(source, 32, 8).parse().is_err());
+    let limits = ExecutionLimits {
+        max_work_units: 8,
+        ..Default::default()
+    };
+    let budget = ExecutionBudget::new(&limits, Arc::new(AtomicBool::new(false)));
+    assert!(matches!(
+        Parser::new(source).with_execution_budget(budget).parse(),
+        Err(shell_parser::Error::ResourceLimit(
+            LimitExceeded::WorkUnits { .. }
+        ))
+    ));
+}
