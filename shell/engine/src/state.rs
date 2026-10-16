@@ -26,7 +26,7 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
-            variables: BTreeMap::new(),
+            variables: BTreeMap::from([("IFS".into(), " \t\n".into())]),
             exported: BTreeSet::new(),
             cwd: "/home/guest".into(),
             functions: BTreeMap::new(),
@@ -207,4 +207,48 @@ pub(crate) fn absolute(cwd: &str, path: &str) -> String {
         }
     }
     format!("/{}", components.join("/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initial_ifs_is_set_to_bash_default_without_export() {
+        // GNU Bash 5.3.15: env -i /usr/bin/bash --noprofile --norc -c
+        // 'printf "%s" "$IFS" | /usr/bin/od -An -tx1; declare -p IFS;
+        //  printf "<%s>\n" "${IFS+x}"; /usr/bin/printenv IFS'
+        // prints 20 09 0a, declare -- IFS=$' \t\n', <x>; printenv exits 1.
+        let state = State::default();
+        assert_eq!(
+            state.variables.get("IFS").map(String::as_str),
+            Some(" \t\n")
+        );
+        assert_eq!(state.parameter("IFS"), " \t\n");
+        assert_eq!(state.scalar_parameter("IFS"), Some(" \t\n"));
+        assert!(!state.exported.contains("IFS"));
+        assert!(!state.environment().contains_key("IFS"));
+    }
+
+    #[test]
+    fn subsequent_ifs_empty_change_and_removal_do_not_reinitialize_it() {
+        let mut state = State::default();
+
+        state.variables.insert("IFS".into(), String::new());
+        assert_eq!(state.parameter("IFS"), "");
+        assert_eq!(state.scalar_parameter("IFS"), Some(""));
+        assert!(!state.environment().contains_key("IFS"));
+
+        state.variables.insert("IFS".into(), ":".into());
+        assert_eq!(state.parameter("IFS"), ":");
+        assert_eq!(state.scalar_parameter("IFS"), Some(":"));
+        assert!(!state.environment().contains_key("IFS"));
+
+        state.variables.remove("IFS");
+        assert!(!state.variables.contains_key("IFS"));
+        assert_eq!(state.parameter("IFS"), "");
+        assert_eq!(state.scalar_parameter("IFS"), None);
+        assert_eq!(state.clone().scalar_parameter("IFS"), None);
+        assert!(!state.environment().contains_key("IFS"));
+    }
 }

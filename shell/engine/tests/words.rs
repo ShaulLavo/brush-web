@@ -430,7 +430,6 @@ fn aggregate_expansion_bytes_include_all_fields_and_scalar_operands() {
 #[test]
 fn long_splitting_yields_and_cancellation_restores_frames() {
     let rig = Rig::new(Limits::default());
-    rig.variable("IFS", ":");
     rig.variable("v", &" ".repeat(300_000));
     let job = rig
         .shell
@@ -468,7 +467,10 @@ fn long_splitting_yields_and_cancellation_restores_frames() {
         rig.run(r#"args "$#" "$IFS"; f() { args "$@"; }; f restored"#),
         0
     );
-    assert_eq!(*rig.calls.borrow(), &[vec!["0", ":"], vec!["restored"]]);
+    // GNU Bash 5.3.15: env -i /usr/bin/bash --noprofile --norc -c
+    // 'f() { local IFS=" "; return; }; f; printf "%s" "$IFS" | /usr/bin/od -An -tx1'
+    // prints 20 09 0a. Cancellation must restore that same initial local frame.
+    assert_eq!(*rig.calls.borrow(), &[vec!["0", " \t\n"], vec!["restored"]]);
 }
 
 #[test]
