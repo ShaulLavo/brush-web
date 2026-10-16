@@ -529,7 +529,7 @@ fn background(
     if context.core.jobs.borrow().len() >= context.limits().jobs {
         return Outcome::status(2);
     }
-    let group = context.core.allocate_id();
+    let group = context.core.host.allocate_group();
     let cancel = Cancel::new();
     let child_context = Context {
         core: context.core.clone(),
