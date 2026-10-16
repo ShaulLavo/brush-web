@@ -316,9 +316,9 @@ next top-level newline. Completed assignments survive errors and cancellation.
 | Brush suite | 340 | 384 | 44 | 0 |
 | Bashkit suite | 595 | 754 | 159 | 0 |
 
-The fixed oracle, case sets and environment are unchanged. The combined local
-WASI scoreboard supplies these counts; CI verifies them before the committed
-baseline is refreshed from its artifact. All 504 native and 287 WASI tests pass.
+The fixed oracle, case sets and environment are unchanged. The [PR CI run](https://github.com/ShaulLavo/brush-web/actions/runs/38975907453)
+at `8caa622` supplies the committed baseline artifact. Its complete pass membership
+matches the combined local WASI run. All 504 native and 287 WASI tests pass.
 The release is 237,825 bytes with brotli-11, below the 1,000,000-byte ceiling.
 Arithmetic seeds 7, 314 and 981 each match 3,674 Bash 5.3.15 cases. Seeds 7 and
 314 are recorded for CI. Readonly seeds 17 and 314 each match 267 cases, and
