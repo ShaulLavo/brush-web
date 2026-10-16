@@ -2,6 +2,7 @@
 //! parse_marked_operand. Unlike upstream, protection never enters string data.
 use super::{Error, Work};
 use crate::executor::Cancel;
+use shell_parser::parser::parameter_scan::{ParameterScan, Step};
 use shell_parser::parser::{ParameterOp, Parser, WordPart};
 
 pub(super) const MAX_DEPTH: usize = 32;
@@ -122,6 +123,10 @@ impl<'a> Scanner<'a> {
         if ch == '$' {
             return self.expansion(start, work, cancel).await.map(Some);
         }
+        if ch == '`' {
+            self.skip_backticks(start, work, cancel).await?;
+            return Err(2.into());
+        }
         self.check_literal(ch)?;
         // Bash protects source spaces in a pattern, but not source tabs/newlines.
         // Expansion-provided spaces retain the expansion's existing IFS rules.
@@ -141,11 +146,10 @@ impl<'a> Scanner<'a> {
         Ok(self.text(if value == "\n" { "" } else { value }, value != "\n"))
     }
     fn check_literal(&self, ch: char) -> Result<(), Error> {
-        if ch == '`'
-            || !self.protected()
-                && !self.outer_quoted
-                && matches!(ch, '<' | '>')
-                && self.peek() == Some('(')
+        if !self.protected()
+            && !self.outer_quoted
+            && matches!(ch, '<' | '>')
+            && self.peek() == Some('(')
         {
             return Err(2.into());
         }
@@ -169,7 +173,11 @@ impl<'a> Scanner<'a> {
             Some(c) if c.is_ascii_digit() || matches!(c, '?' | '#') => {
                 self.take();
             }
-            Some('(' | '\'' | '"' | '@' | '*' | '!' | '$' | '-') => return Err(2.into()),
+            Some('(') => {
+                self.skip_command(start, work, cancel).await?;
+                return Err(2.into());
+            }
+            Some('\'' | '"' | '@' | '*' | '!' | '$' | '-') => return Err(2.into()),
             _ => return Ok(self.text("$", self.protected())),
         }
         let token = &self.source[start..self.cursor];
@@ -178,11 +186,27 @@ impl<'a> Scanner<'a> {
         // Validation permits only a basic variable or a scalar operator header.
         // Their parser paths retain nested operands as raw text, never recursively
         // parsing scripts. The byte cap also bounds lexer and fallback allocation.
-        let word = Parser::parse_word_string_with_limits(token, MAX_DEPTH, MAX_TOKEN_BYTES * 16);
+        let part = if token.starts_with("${") {
+            Parser::parse_parameter_token_with_limits(
+                token,
+                MAX_DEPTH,
+                MAX_TOKEN_BYTES * 16,
+                self.outer_quoted || self.quote == Quote::Double,
+                self.quote != Quote::Double && (self.pattern || self.pattern_source),
+            )
+            .map_err(|_| Error::from(2))?
+        } else {
+            let word =
+                Parser::parse_word_string_with_limits(token, MAX_DEPTH, MAX_TOKEN_BYTES * 16);
+            let mut parts = word.parts.into_iter();
+            let part = parts.next().ok_or(2)?;
+            if parts.next().is_some() {
+                return Err(2.into());
+            }
+            part
+        };
         work.checkpoint(cancel).await?;
-        let mut parts = word.parts.into_iter();
-        let part = parts.next().ok_or(2)?;
-        if parts.next().is_some() || !supported(&part) {
+        if !supported(&part) {
             return Err(2.into());
         }
         Ok(Piece::Expansion {
@@ -203,25 +227,27 @@ impl<'a> Scanner<'a> {
     async fn braced(&mut self, work: &mut Work, cancel: &Cancel) -> Result<(), Error> {
         let start = self.cursor - 1;
         self.take();
-        let mut depth: usize = 1;
+        let mut scanner = ParameterScan::<MAX_DEPTH>::new(
+            self.outer_quoted || self.quote == Quote::Double,
+            self.quote != Quote::Double && (self.pattern || self.pattern_source),
+        );
         while let Some(value) = self.take() {
             work.checkpoint(cancel).await?;
             if self.cursor - start > MAX_TOKEN_BYTES {
                 return Err(2.into());
             }
-            if value == "$" && self.peek() == Some('(') {
-                self.skip_command(start, work, cancel).await?;
-                continue;
-            }
-            self.brace_step(value, &mut depth)?;
-            if depth > MAX_DEPTH {
-                return Err(2.into());
-            }
-            if depth == 0 {
-                return Ok(());
+            match scanner.feed(value.chars().next().ok_or(2)?, self.peek()) {
+                Step::Copy => {}
+                Step::Escape | Step::Open => {
+                    work.checkpoint(cancel).await?;
+                    self.take().ok_or(2)?;
+                }
+                Step::Command => self.skip_command(start, work, cancel).await?,
+                Step::Closed => return Ok(()),
+                Step::Limit | Step::Delimiter => return Err(2.into()),
             }
         }
-        Err(2.into())
+        bad_substitution("no closing `}'", work)
     }
     // A skipped nested scalar operand may contain unsupported substitution
     // text. Match its boundary without parsing or evaluating that script.
@@ -272,7 +298,7 @@ impl<'a> Scanner<'a> {
                 return Ok(());
             }
         }
-        Err(2.into())
+        bad_substitution("no closing `)'", work)
     }
     async fn skip_backticks(
         &mut self,
@@ -292,19 +318,20 @@ impl<'a> Scanner<'a> {
                 self.take().ok_or(2)?;
             }
         }
-        Err(2.into())
+        bad_substitution("no closing backtick", work)
     }
-    fn brace_step(&mut self, value: &str, depth: &mut usize) -> Result<(), Error> {
-        match value {
-            "\0" | "\\" => {
-                self.take().ok_or(2)?;
-            }
-            "{" => *depth += 1,
-            "}" => *depth -= 1,
-            _ => {}
-        }
-        Ok(())
-    }
+}
+
+// Only a selected operand reaches these EOF failures. Unsupported complete
+// substitutions and every byte/work/depth/cancellation limit retain their own
+// status; malformed lazy substitution syntax is Bash's fatal status 1.
+fn bad_substitution(message: &'static str, work: &mut Work) -> Result<(), Error> {
+    // The renderer owns name/message and their formatted diagnostic together.
+    work.admit_storage(("bad substitution".len() + message.len()) * 2 + 96)?;
+    Err(Error::BadSubstitution {
+        message,
+        line: None,
+    })
 }
 
 fn toggle_quote(current: &mut Quote, quote: Quote) {
@@ -340,8 +367,8 @@ fn validate_token(token: &str) -> Result<(), Error> {
     let name = &body[..name_end];
     let suffix = &body[name_end..];
     let operator = suffix.strip_prefix(':').unwrap_or(suffix);
-    let pattern = suffix.starts_with(['#', '%', '^', ',']);
-    if !scalar_name(name) || !(!indirect && pattern || operator.starts_with(['-', '+', '=', '?'])) {
+    let trim = suffix.starts_with(['#', '%', '/', '^', ',']);
+    if !scalar_name(name) || !(!indirect && trim || operator.starts_with(['-', '+', '=', '?'])) {
         return Err(2.into());
     }
     Ok(())
@@ -369,6 +396,8 @@ fn supported(part: &WordPart) -> bool {
                         | ParameterOp::UpperAll
                         | ParameterOp::LowerFirst
                         | ParameterOp::LowerAll
+                        | ParameterOp::ReplaceFirst { .. }
+                        | ParameterOp::ReplaceAll { .. }
                 )
         }
         _ => false,
@@ -384,4 +413,27 @@ pub(super) fn indirect_operator(operator: &ParameterOp) -> bool {
             | ParameterOp::AssignDefault
             | ParameterOp::Error
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_diagnostics_admit_both_owned_and_formatted_copies() {
+        let message = "no closing backtick";
+        let bytes = ("bad substitution".len() + message.len()) * 2 + 96;
+        let mut rejected = Work::new(1, bytes - 1, 1);
+        assert!(matches!(
+            bad_substitution(message, &mut rejected),
+            Err(Error::Status(2))
+        ));
+        assert_eq!(rejected.storage_remaining, bytes - 1);
+        let mut admitted = Work::new(1, bytes, 1);
+        assert!(matches!(
+            bad_substitution(message, &mut admitted),
+            Err(Error::BadSubstitution { .. })
+        ));
+        assert_eq!(admitted.storage_remaining, 0);
+    }
 }

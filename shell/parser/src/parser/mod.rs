@@ -26,6 +26,7 @@ mod ast;
 pub mod budget;
 mod lexer;
 mod lexical;
+pub mod parameter_scan;
 mod print_cmd;
 mod raw;
 mod span;
@@ -304,6 +305,34 @@ impl<'a> Parser<'a> {
     pub fn parse_word_string_with_limits(input: &str, max_depth: usize, max_fuel: usize) -> Word {
         let parser = Parser::with_limits(input, max_depth, max_fuel);
         parser.parse_word(input.to_string())
+    }
+
+    /// Parse one already-admitted `${...}` token, retaining its enclosing
+    /// operand context. Unlike a whole word this token has no quote markers.
+    pub fn parse_parameter_token_with_limits(
+        input: &str,
+        max_depth: usize,
+        max_fuel: usize,
+        outer_quoted: bool,
+        pattern: bool,
+    ) -> Result<WordPart> {
+        // The token has already been admitted and boundary-scanned by the
+        // caller. Do not lex it again in an invented top-level quote context.
+        let parser = Parser::with_limits("", max_depth, max_fuel);
+        let mut chars = WordChars::new(input, &[]);
+        if chars.next() != Some('$') || chars.peek() != Some(&'{') {
+            return Err(parser.error("expected scalar parameter token"));
+        }
+        let mut parts = Vec::new();
+        let mut quoted = Vec::new();
+        parser.parse_braced_parameter(&mut chars, &mut parts, &mut quoted, outer_quoted, pattern);
+        if let Some(error) = parser.deferred_error.take() {
+            return Err(error);
+        }
+        if chars.next().is_some() || parts.len() != 1 {
+            return Err(parser.error("expected one scalar parameter token"));
+        }
+        Ok(parts.pop().unwrap())
     }
 
     /// Parse `input` as an unquoted here-document body: expansions apply,
@@ -4159,6 +4188,7 @@ impl<'a> Parser<'a> {
         parts: &mut Vec<WordPart>,
         part_quoted: &mut Vec<bool>,
         in_quoted_segment: bool,
+        pattern_context: bool,
     ) {
         macro_rules! push_part {
             ($part:expr) => {{
@@ -4271,7 +4301,7 @@ impl<'a> Parser<'a> {
                 } else {
                     // `${!ref[@]:2}`, `${!a[0]#x}`: the elements'
                     // value names the variable the operator applies to.
-                    let suffix = self.read_brace_operand(chars);
+                    let suffix = self.read_brace_operand(chars, in_quoted_segment, pattern_context);
                     push_part!(WordPart::IndirectSuffix {
                         name: format!("{var_name}[{index}]"),
                         suffix,
@@ -4296,7 +4326,8 @@ impl<'a> Parser<'a> {
                 ) {
                     chars.next(); // consume ':'
                     let op_char = chars.next().unwrap();
-                    let operand = self.read_brace_operand(chars);
+                    let operand =
+                        self.read_brace_operand(chars, in_quoted_segment, pattern_context);
                     let operator = match op_char {
                         '-' => ParameterOp::UseDefault,
                         '=' => ParameterOp::AssignDefault,
@@ -4312,7 +4343,7 @@ impl<'a> Parser<'a> {
                     });
                 } else {
                     // `${!x:1:2}`: substring of the named variable.
-                    let suffix = self.read_brace_operand(chars);
+                    let suffix = self.read_brace_operand(chars, in_quoted_segment, pattern_context);
                     push_part!(WordPart::IndirectSuffix {
                         name: var_name,
                         suffix,
@@ -4324,7 +4355,7 @@ impl<'a> Parser<'a> {
             ) {
                 // ${!var-op} - indirect expansion with non-colon operator
                 let op_char = chars.next().unwrap();
-                let operand = self.read_brace_operand(chars);
+                let operand = self.read_brace_operand(chars, in_quoted_segment, pattern_context);
                 let operator = match op_char {
                     '-' => ParameterOp::UseDefault,
                     '=' => ParameterOp::AssignDefault,
@@ -4340,7 +4371,7 @@ impl<'a> Parser<'a> {
                 });
             } else {
                 // ${!prefix*} or ${!prefix@} - prefix matching
-                let suffix = self.read_brace_operand(chars);
+                let suffix = self.read_brace_operand(chars, in_quoted_segment, pattern_context);
                 // `${!ref@a}`: transform the variable `ref` names.
                 if push_indirect_transformation(
                     parts,
@@ -4440,7 +4471,8 @@ impl<'a> Parser<'a> {
                             chars.next(); // consume ':'
                             let arr_name = format!("{}[{}]", var_name, index);
                             let op_char = chars.next().unwrap();
-                            let operand = self.read_brace_operand(chars);
+                            let operand =
+                                self.read_brace_operand(chars, in_quoted_segment, pattern_context);
                             let operator = match op_char {
                                 '-' => ParameterOp::UseDefault,
                                 '=' => ParameterOp::AssignDefault,
@@ -4488,7 +4520,8 @@ impl<'a> Parser<'a> {
                         // Non-colon operators on array: ${arr[@]-default}
                         let arr_name = format!("{}[{}]", var_name, index);
                         let op_char = chars.next().unwrap();
-                        let operand = self.read_brace_operand(chars);
+                        let operand =
+                            self.read_brace_operand(chars, in_quoted_segment, pattern_context);
                         let operator = match op_char {
                             '-' => ParameterOp::UseDefault,
                             '=' => ParameterOp::AssignDefault,
@@ -4532,7 +4565,11 @@ impl<'a> Parser<'a> {
                         match chars.peek() {
                             Some(&'-') | Some(&'=') | Some(&'+') | Some(&'?') => {
                                 let op_char = chars.next().unwrap();
-                                let operand = self.read_brace_operand(chars);
+                                let operand = self.read_brace_operand(
+                                    chars,
+                                    in_quoted_segment,
+                                    pattern_context,
+                                );
                                 let operator = match op_char {
                                     '-' => ParameterOp::UseDefault,
                                     '=' => ParameterOp::AssignDefault,
@@ -4576,7 +4613,8 @@ impl<'a> Parser<'a> {
                     // Non-colon test operators: ${var-default}, ${var+alt}, ${var=assign}, ${var?err}
                     '-' | '=' | '+' | '?' => {
                         let op_char = chars.next().unwrap();
-                        let operand = self.read_brace_operand(chars);
+                        let operand =
+                            self.read_brace_operand(chars, in_quoted_segment, pattern_context);
                         let operator = match op_char {
                             '-' => ParameterOp::UseDefault,
                             '=' => ParameterOp::AssignDefault,
@@ -4595,7 +4633,7 @@ impl<'a> Parser<'a> {
                         chars.next();
                         if chars.peek() == Some(&'#') {
                             chars.next();
-                            let op = self.read_brace_operand(chars);
+                            let op = self.read_brace_operand(chars, in_quoted_segment, true);
                             push_part!(WordPart::ParameterExpansion {
                                 name: var_name,
                                 operator: ParameterOp::RemovePrefixLong,
@@ -4603,7 +4641,7 @@ impl<'a> Parser<'a> {
                                 colon_variant: false,
                             });
                         } else {
-                            let op = self.read_brace_operand(chars);
+                            let op = self.read_brace_operand(chars, in_quoted_segment, true);
                             push_part!(WordPart::ParameterExpansion {
                                 name: var_name,
                                 operator: ParameterOp::RemovePrefixShort,
@@ -4616,7 +4654,7 @@ impl<'a> Parser<'a> {
                         chars.next();
                         if chars.peek() == Some(&'%') {
                             chars.next();
-                            let op = self.read_brace_operand(chars);
+                            let op = self.read_brace_operand(chars, in_quoted_segment, true);
                             push_part!(WordPart::ParameterExpansion {
                                 name: var_name,
                                 operator: ParameterOp::RemoveSuffixLong,
@@ -4624,7 +4662,7 @@ impl<'a> Parser<'a> {
                                 colon_variant: false,
                             });
                         } else {
-                            let op = self.read_brace_operand(chars);
+                            let op = self.read_brace_operand(chars, in_quoted_segment, true);
                             push_part!(WordPart::ParameterExpansion {
                                 name: var_name,
                                 operator: ParameterOp::RemoveSuffixShort,
@@ -4641,86 +4679,17 @@ impl<'a> Parser<'a> {
                         } else {
                             false
                         };
-                        let mut pattern = String::new();
-                        // `${x///}`, `${x////c}`: the pattern
-                        // cannot be empty, so a `/` right after
-                        // `//` is the pattern itself.
-                        if replace_all && chars.peek() == Some(&'/') {
+                        let slash_pattern = replace_all && chars.peek() == Some(&'/');
+                        if slash_pattern {
                             chars.next();
-                            pattern.push('/');
                         }
-                        let mut in_dq = false;
-                        while let Some(&ch) = chars.peek() {
-                            if ch == '\x00' {
-                                pattern.push(chars.next().unwrap());
-                                if let Some(n) = chars.next() {
-                                    pattern.push(n);
-                                }
-                                continue;
-                            }
-                            if ch == '"' {
-                                in_dq = !in_dq;
-                            } else if !in_dq && (ch == '/' || ch == '}') {
-                                break;
-                            }
-                            if ch == '\\' {
-                                chars.next();
-                                if let Some(&next) = chars.peek()
-                                    && next == '/'
-                                {
-                                    pattern.push(chars.next().unwrap());
-                                    continue;
-                                }
-                                pattern.push('\\');
-                                if let Some(n) = chars.next() {
-                                    pattern.push(n);
-                                }
-                                continue;
-                            }
-                            pattern.push(chars.next().unwrap());
+                        let mut pattern = self.read_replace_operand(chars, true, in_quoted_segment);
+                        if slash_pattern {
+                            pattern.insert(0, '/');
                         }
                         let replacement = if chars.peek() == Some(&'/') {
                             chars.next();
-                            let mut repl = String::new();
-                            let mut in_dq = false;
-                            while let Some(&ch) = chars.peek() {
-                                if ch == '\x00' {
-                                    repl.push(chars.next().unwrap());
-                                    if let Some(n) = chars.next() {
-                                        repl.push(n);
-                                    }
-                                    continue;
-                                }
-                                if ch == '"' {
-                                    in_dq = !in_dq;
-                                } else if ch == '\'' && !in_dq {
-                                    // `"${y/b/'}'}"`: a single-quoted span
-                                    // hides `}`; the expansion quote-removes it.
-                                    repl.push(chars.next().unwrap());
-                                    for q in chars.by_ref() {
-                                        repl.push(q);
-                                        if q == '\'' {
-                                            break;
-                                        }
-                                    }
-                                    continue;
-                                } else if ch == '\\' {
-                                    repl.push(chars.next().unwrap());
-                                    if let Some(n) = chars.next() {
-                                        // `\/` is a literal slash, as in the
-                                        // pattern (bash removes the backslash).
-                                        if n == '/' {
-                                            repl.pop();
-                                        }
-                                        repl.push(n);
-                                    }
-                                    continue;
-                                } else if !in_dq && ch == '}' {
-                                    break;
-                                }
-                                repl.push(chars.next().unwrap());
-                            }
-                            repl
+                            self.read_replace_operand(chars, false, in_quoted_segment)
                         } else {
                             String::new()
                         };
@@ -4754,7 +4723,7 @@ impl<'a> Parser<'a> {
                             ParameterOp::UpperFirst
                         };
                         // `${v^^pat}`: only characters matching `pat`.
-                        let operand = self.read_brace_operand(chars);
+                        let operand = self.read_brace_operand(chars, in_quoted_segment, true);
                         push_part!(WordPart::ParameterExpansion {
                             name: var_name,
                             operator: op,
@@ -4772,7 +4741,7 @@ impl<'a> Parser<'a> {
                         } else {
                             ParameterOp::ToggleFirst
                         };
-                        let operand = self.read_brace_operand(chars);
+                        let operand = self.read_brace_operand(chars, in_quoted_segment, true);
                         push_part!(WordPart::ParameterExpansion {
                             name: var_name,
                             operator: op,
@@ -4789,7 +4758,7 @@ impl<'a> Parser<'a> {
                             ParameterOp::LowerFirst
                         };
                         // `${v^^pat}`: only characters matching `pat`.
-                        let operand = self.read_brace_operand(chars);
+                        let operand = self.read_brace_operand(chars, in_quoted_segment, true);
                         push_part!(WordPart::ParameterExpansion {
                             name: var_name,
                             operator: op,
@@ -5011,6 +4980,7 @@ impl<'a> Parser<'a> {
                         &mut parts,
                         &mut part_quoted,
                         in_quoted_segment,
+                        false,
                     );
                 } else if let Some(&c) = chars.peek() {
                     // Check for special single-character variables ($?, $#, $@, $*, $!, $$, $-, $0-$9)
@@ -5056,45 +5026,83 @@ impl<'a> Parser<'a> {
         )
     }
 
-    /// Read operand for brace expansion (everything until closing brace)
-    fn read_brace_operand(&self, chars: &mut WordChars<'_>) -> String {
-        let mut operand = String::new();
-        let mut depth = 1; // Track nested braces
-        while let Some(&c) = chars.peek() {
-            if matches!(c, '\x00' | '\\') {
-                // Keep lexer protection and raw operand escapes indivisible.
-                operand.push(chars.next().unwrap());
-                if let Some(n) = chars.next() {
-                    operand.push(n);
-                }
-            } else if c == '$' {
-                operand.push(chars.next().unwrap());
-                if chars.peek() == Some(&'(') {
-                    // `${x:-$(echo })}`: the substitution owns its braces.
-                    operand.push(chars.next().unwrap());
-                    let mut scanner = subst_scan::SubstScanner::new();
-                    for n in chars.by_ref() {
-                        operand.push(n);
-                        if scanner.feed(n) == subst_scan::Step::Close {
-                            break;
-                        }
+    /// Both direct replacement parsing and lazy scalar reparsing consume the
+    /// same quote/operator state machine as the lexer and engine token scanner.
+    fn read_replace_operand(
+        &self,
+        chars: &mut WordChars<'_>,
+        pattern: bool,
+        outer_quoted: bool,
+    ) -> String {
+        self.read_parameter_operand(chars, outer_quoted, true, pattern, false)
+    }
+
+    fn read_brace_operand(
+        &self,
+        chars: &mut WordChars<'_>,
+        outer_quoted: bool,
+        pattern: bool,
+    ) -> String {
+        self.read_parameter_operand(chars, outer_quoted, pattern, false, true)
+    }
+
+    fn read_parameter_operand(
+        &self,
+        chars: &mut WordChars<'_>,
+        outer_quoted: bool,
+        pattern: bool,
+        slash_delimiter: bool,
+        consume_close: bool,
+    ) -> String {
+        use parameter_scan::{ParameterScan, Step};
+        let mut scanner = ParameterScan::<HARD_MAX_AST_DEPTH>::operand(
+            outer_quoted,
+            pattern,
+            slash_delimiter,
+            self.max_depth,
+        );
+        let mut out = String::new();
+        while let Some(&ch) = chars.peek() {
+            let mut lookahead = chars.clone();
+            lookahead.next();
+            match scanner.feed(ch, lookahead.peek().copied()) {
+                Step::Delimiter => break,
+                Step::Closed => {
+                    if consume_close {
+                        chars.next();
                     }
-                }
-            } else if c == '{' {
-                depth += 1;
-                operand.push(chars.next().unwrap());
-            } else if c == '}' {
-                depth -= 1;
-                if depth == 0 {
-                    chars.next(); // consume closing }
                     break;
                 }
-                operand.push(chars.next().unwrap());
-            } else {
-                operand.push(chars.next().unwrap());
+                Step::Limit => {
+                    let first = self.deferred_error.take();
+                    self.deferred_error
+                        .set(first.or(Some(self.error("parameter expansion nesting too deep"))));
+                    break;
+                }
+                step => {
+                    out.extend(chars.next());
+                    match step {
+                        Step::Escape | Step::Open => out.extend(chars.next()),
+                        Step::Command => {
+                            out.extend(chars.next());
+                            copy_replace_substitution(chars, &mut out);
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
-        operand
+        out
+    }
+}
+
+fn copy_replace_substitution(chars: &mut WordChars<'_>, out: &mut String) {
+    let mut scanner = subst_scan::SubstScanner::new();
+    for ch in chars.by_ref() {
+        out.push(ch);
+        if scanner.feed(ch) == subst_scan::Step::Close {
+            break;
+        }
     }
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "shell-engine"
-version = "0.0.10"
+version = "0.0.12"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

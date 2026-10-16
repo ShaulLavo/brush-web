@@ -154,6 +154,36 @@
         "classification": "Original ParameterHeader helper and regression tests in the owned Bashkit-derived lexer/API adapter; no additional upstream implementation copied.",
         "change": "Track target-header and subscript context separately for each nested unquoted parameter. Reuse the existing ordinary single-quote handler for brackets in scalar operands rather than treating them as array subscripts. Retain raw single quotes in actual target subscripts, the original literal-escape metadata, quote/escape emission and all upstream assertions. Add controls for all trim operators, nested and malformed bracket patterns, target arrays/lengths, literal apostrophe spans and partial escape protection. Bump parser to 0.0.4.",
         "reason": "Quoted opening/closing braces in basic scalar bracket patterns must stay inside the operand. ParameterHeader frames use the existing nesting ceiling, and each frame transition runs in the already budgeted lexer character loop; no new sentinel or reparsing path is added."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original parser boundary correction and regression tests in the owned Bashkit-derived replacement operand scanner.",
+        "change": "Stop replacement operands at the outer closing brace while nesting only nested ${...} operands, and keep backslashes literal inside single-quoted spans. Add parser regressions for bare braces and escaped single-quote boundaries with following words. Preserve existing quote, escape, slash and upstream parser behavior.",
+        "reason": "Bash replacement operands do not treat bare braces as nested syntax, and backslashes have no escape role inside single quotes. Counting either incorrectly swallows the replacement boundary and can silently change argv or reject a command that Bash accepts."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original quoted-parameter lexer correction and regression tests in the owned Bashkit-derived lexer.",
+        "change": "Track each nested quoted parameter header with the existing bounded ParameterHeader stack. Bare braces stay literal rather than consuming nesting depth. Apostrophes in replacement and pattern operands protect dollars and backslashes, while ordinary default operands retain literal-apostrophe expansion behavior. Add quoted bare-brace and literal ${ / $( boundary regressions; preserve existing depth ceilings and upstream assertions. The replacement operand parser likewise skips substitution scanning and nesting changes inside single quotes; an exact operand-boundary regression rejects swallowing the outer brace.",
+        "reason": "The quoted lexer must agree with replacement operand parsing: only ${ starts a nested parameter, and single-quoted replacement text must not invoke substitution scanners or swallow the outer double quote. Operator-specific quote handling preserves ordinary default-operand behavior."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/parameter_scan.rs",
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original fixed-capacity incremental nested-parameter boundary adapter and regressions; no additional upstream implementation copied.",
+        "change": "Use one fixed-capacity quote/operator state machine for both lexer parameter readers, parser default/pattern/replacement operands, and engine lazy scalar-token boundaries. Only ${ opens a nested frame. Retain each frame's double-quote, apostrophe, pattern and enclosing context. Apostrophe spans are opaque to boundary scanning; selected ordinary outer-double-quoted defaults still expand their contents lazily, while real single quotes retain literal semantics. An explicit inner double quote resets inherited pattern context for nested defaults. Slash delimiters belong only to an unquoted root replacement pattern. Preserve raw quote spelling and retain ANSI-C decoding as a protected-literal representation transform, not a separate parameter boundary reader. Parse admitted lazy scalar tokens with their enclosing quote/pattern context instead of inventing a top-level word. Add nested replacement/default, replacement/replacement, raw double-quote/apostrophe, admitted-token context and fixed-depth controls.",
+        "reason": "Replacement support introduced nested scalar tokens whose literal braces and substitution lookalikes were incorrectly interpreted by the older generic operand boundary readers. Matching boundaries before lazy evaluation must follow the same per-parameter quote context as direct replacement parsing without recursion, candidate strings, reparsing, or a reset depth allowance."
       }
     ],
     "removedUpstreamTests": []
@@ -567,5 +597,78 @@
       ],
       "bounds": "Candidates identified by source inspection only, not measured gains. Other failures combine unsupported arrays, namerefs, loops, options or generic indirect suffixes. Coordinator owns fresh CI, compatibility measurements and every version/baseline/score change."
     }
+  },
+  "shellParameterReplace": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "licenseFile": "shell/parser/LICENSE",
+    "classification": "Adapted scalar replacement rules and tests; original bounded async engine adapters and matcher search.",
+    "sources": [
+      {
+        "path": "crates/bashkit/src/interpreter/expansion.rs",
+        "symbols": [
+          "apply_parameter_op ReplaceFirst/ReplaceAll",
+          "expand_replacement_operand",
+          "expand_replace_pattern",
+          "single_quotes_as_quoted",
+          "replace_pattern",
+          "find_pattern_matches",
+          "find_pattern_matches_glob"
+        ],
+        "lines": "3220-3240,3291-3592",
+        "destination": [
+          "shell/engine/src/expand.rs",
+          "shell/engine/src/expand/replacement.rs",
+          "shell/engine/src/expand/pattern.rs"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/parser/mod.rs",
+        "symbols": [
+          "parse_braced_parameter replacement arm"
+        ],
+        "destination": "shell/parser/src/parser/mod.rs",
+        "classification": "Local correction in the owned parser; retain nested operand boundaries and raw quote/escape protection."
+      },
+      {
+        "path": "crates/bashkit/tests/spec_cases/bash/bashbox-word-expander.test.sh",
+        "lines": "160-180",
+        "destination": "shell/engine/tests/words.rs"
+      },
+      {
+        "path": "crates/bashkit/tests/spec_cases/bash/param-operand-quotes.test.sh",
+        "lines": "61-98,120-127",
+        "destination": "shell/engine/tests/words.rs",
+        "classification": "Adapt scalar basic-pattern examples only; extglob/options omitted."
+      },
+      {
+        "path": "crates/bashkit/tests/spec_cases/bash/string-ops.test.sh",
+        "lines": "1-14",
+        "destination": "shell/engine/tests/words.rs"
+      }
+    ],
+    "oracleControls": [
+      "oils:var-op-patsub:7",
+      "oils:var-op-patsub:29",
+      "oils:var-op-patsub:34",
+      "oils:var-op-patsub:39",
+      "oils:var-op-patsub:49",
+      "oils:var-op-patsub:59",
+      "bashkit-suite:bashbox-word-expander:160",
+      "bashkit-suite:bashbox-word-expander:167",
+      "bashkit-suite:bashbox-word-expander:174"
+    ],
+    "localChanges": [
+      "Ordinary identifiers only; selected extglob, named classes, collation, substitutions, tilde and unsupported targets fail explicitly. Existing Unicode scalar matcher rules and locale bounds remain.",
+      "Set-empty targets evaluate both operands; unset targets skip them. Pattern evaluation precedes replacement evaluation, including no-match results. Resolve and admit the target snapshot before either operand.",
+      "Use GNU Bash 5.3 default patsub_replacement ampersands with typed inner quote/escape protection. Outer quotes protect only the returned scalar; replacement quotes do not protect final IFS splitting.",
+      "First-replacement anchors are recognized from expanded unprotected leading #/%; global replacement treats #/% literally. This deliberately replaces upstream source-only anchor recognition.",
+      "Reuse the iterative basic-glob matcher over borrowed UTF-8 boundaries for leftmost-longest search. Retain no candidate strings or match-range list. Global empty matches advance by a character and never revisit the end of a nonempty value.",
+      "Admit snapshots, retained pattern/replacement/state buffers and result growth before copying. Shared command work/raw/storage/field limits and cooperative cancellation replace upstream call caps, regex/fallback matching and original-value-on-exhaustion behavior.",
+      "Original fixture controls cover bounds, side effects, scalar contexts, final IFS ordering, lazy operands, no partial dispatch and cancellation recovery. No process/output-buffering/mapfile implementation is copied; known bugs #20 and #25 are excluded.",
+      "Original review repairs admit existing captured capacity exactly once when replacement enables storage accounting and inherit that mode in subsequent assignment captures; pattern snapshots are not charged twice. Dedicated PIPESTATUS array state fails closed before operand side effects. One fixed-capacity quote/operator state machine serves lexer, parser operands and lazy engine token boundaries; lazy scalar parsing retains its actual enclosing context. Original selected malformed-substitution EOF errors have admitted diagnostic storage, fatal status 1 and existing source/descriptor containment; complete unsupported syntax and resource/cancellation failures retain their separate statuses. Original deterministic paired-context differential tooling exercises operators nested 0-3 deep against local Bash, preserving argv boundaries independently of the known printf format-reuse gap."
+    ],
+    "verification": "Focused Bash 5.3.15 C.UTF-8 controls; runtime and corpus deltas must be established by the coordinator after integration. Fixed oracle, baselines, scores and versions unchanged."
   }
 }

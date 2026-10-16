@@ -405,3 +405,131 @@ fn compound_redirect_lines_follow_the_grammar_and_survive_function_storage() {
         );
     }
 }
+
+#[test]
+fn replacement_operands_retain_nested_slashes_and_quotes() {
+    for source in [
+        r#"args ${v/${p:-a/b}/${r:-x/y}}tail"#,
+        r#"args "${v/'a/b'/'x/y'}"tail"#,
+    ] {
+        let word = argument(source);
+        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0] else {
+            panic!("lost replacement: {word:?}");
+        };
+        let ParameterOp::ReplaceFirst {
+            pattern,
+            replacement,
+        } = operator
+        else {
+            panic!("lost replacement operator: {word:?}");
+        };
+        assert!(pattern.contains("a/b"), "{word:?}");
+        assert!(replacement.contains("x/y"), "{word:?}");
+        assert!(matches!(word.parts.last(), Some(WordPart::Literal(tail)) if tail == "tail"));
+    }
+}
+
+#[test]
+fn replacement_operands_keep_bare_braces_and_single_quote_backslashes_bounded() {
+    for source in [
+        r#"args ${v/b/{}} next"#,
+        r#"args "${v/b/'a\'}" next"#,
+        r#"args "${v/b/{}" next"#,
+        r#"args "${v/b/'${x'}" next"#,
+        r#"args "${v/b/'$(x'}" next"#,
+    ] {
+        let script = Parser::new(source).parse().unwrap();
+        let Command::Simple(command) = script.commands.into_iter().next().unwrap() else {
+            panic!("expected a simple command: {source}");
+        };
+        assert_eq!(command.args.len(), 2, "{source}");
+        assert!(matches!(
+            command.args[0].parts.first(),
+            Some(WordPart::ParameterExpansion { .. })
+        ));
+        assert!(matches!(
+            command.args[1].parts.as_slice(),
+            [WordPart::Literal(next)] if next == "next"
+        ));
+    }
+}
+
+#[test]
+fn quoted_replacement_substitution_lookalikes_stay_inside_single_quotes() {
+    for source in [r#"args "${v/b/'$(x'}" next"#, r#"args "${v/b/'${x'}" next"#] {
+        let word = argument(source);
+        let WordPart::ParameterExpansion { operator, .. } = &word.parts[0] else {
+            panic!("lost replacement: {word:?}");
+        };
+        let ParameterOp::ReplaceFirst { replacement, .. } = operator else {
+            panic!("lost replacement operator: {word:?}");
+        };
+        assert!(
+            replacement.ends_with('\''),
+            "swallowed closing brace: {word:?}"
+        );
+    }
+}
+
+#[test]
+fn nested_replacements_keep_enclosing_operand_and_word_boundaries() {
+    for source in [
+        r#"args "${u:-${v/b/{}}" next"#,
+        r#"args "${u:-${v/b/'$(x'}}" next"#,
+        r#"args "${v/b/${w/y/'$(x'}}" next"#,
+        r#"args "${v/b/${w/y/{}}" next"#,
+        r#"args "${v/b/${u:-'$(x'}}" next"#,
+    ] {
+        let script = Parser::new(source).parse().unwrap();
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("{source}");
+        };
+        assert_eq!(command.args.len(), 2, "{source}");
+        assert_eq!(
+            command.args[0].parts.len(),
+            1,
+            "{source}: {:?}",
+            command.args[0]
+        );
+        assert!(
+            matches!(
+                command.args[0].parts[0],
+                WordPart::ParameterExpansion { .. }
+            ),
+            "{source}"
+        );
+        assert!(
+            matches!(command.args[1].parts.as_slice(), [WordPart::Literal(next)] if next == "next")
+        );
+    }
+}
+
+#[test]
+fn admitted_scalar_tokens_retain_quote_and_pattern_context() {
+    for (source, outer_quoted, pattern, expected) in [
+        (r#"${u:-"don't"}"#, false, false, r#""don't""#),
+        (r#"${u:-"'"}"#, true, false, r#""'""#),
+        (r#"${u:-'$(x'}"#, true, true, r#"'$(x'"#),
+        (r#"${u:-'${x}'}"#, true, false, r#"'${x}'"#),
+        (r#"${u:-"a}b"}"#, true, false, r#""a}b""#),
+    ] {
+        let part =
+            Parser::parse_parameter_token_with_limits(source, 32, 65536, outer_quoted, pattern)
+                .unwrap();
+        let WordPart::ParameterExpansion { operand, .. } = part else {
+            panic!("lost admitted token: {source}");
+        };
+        assert_eq!(operand, expected, "{source}");
+    }
+}
+
+#[test]
+fn lazy_default_reparse_keeps_quoted_substitution_lookalikes_literal() {
+    for source in [r#"${u:-'$(x'}"#, r#"${u:-'${x'}"#] {
+        let word = Parser::parse_word_string(source);
+        let [WordPart::ParameterExpansion { operand, .. }] = word.parts.as_slice() else {
+            panic!("lost lazy operand: {word:?}");
+        };
+        assert!(operand.ends_with('\''), "swallowed outer brace: {word:?}");
+    }
+}

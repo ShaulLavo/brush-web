@@ -121,30 +121,22 @@ GNU Bash probes under `LC_ALL=C.UTF-8`. Byte-oriented non-UTF-8 matching and loc
 collation are deferred. Selected extglob, named classes and collating/equivalence
 symbols return status 2. The matcher allocates no candidate strings; snapshots,
 pattern/state storage and all matching steps share command bounds and cancellation.
-Scalar case modification supports ordinary identifiers with `^`, `^^`, `,` and
-`,,`. First forms inspect only the first character; all forms test each character
-against the whole basic pattern. Supported scalar pattern operands use the same
-lazy, bounded path as trims. Unset targets skip operands; set empty targets
-evaluate them. Omitted and unquoted expanded-empty patterns default to `?`;
-quoted empty patterns match nothing. Pattern quotes protect pattern characters,
-and outer quotes protect the result. Pattern side effects precede locale
-selection and final IFS splitting.
-
-Case mapping has an explicit bounded locale contract. Nonempty `LC_ALL`, then
-`LC_CTYPE`, then `LANG` selects the locale, defaulting to `C`. `C`/`POSIX` map ASCII
-and preserve non-ASCII value characters; non-ASCII patterns fail closed.
-`C.UTF-8`/`C.utf8` support ASCII and Latin-1 input mappings, including unchanged
-`ß`, `µ` to `Μ`, and `ÿ` to `Ÿ`. A selected character outside Latin-1 returns
-status 2; unmatched characters and first-form tails remain unchanged. Other
-locale names fail closed for set targets. The explicit table was checked for
-all 255 non-NUL Latin-1 characters in both directions against GNU Bash 5.3.15
-under `C.UTF-8` and `C`. Rust's full Unicode expansion is not used. Full Unicode,
-other locales, collation and byte-locale non-ASCII matching remain deferred.
-Case matching reuses the iterative matcher with one compiled pattern and state
-vector, shared work/storage/output bounds and cancellation checkpoints. Matcher
-vector capacities and mapped String capacity are admitted before allocation,
-including spare slots rather than only the characters written.
-
+Scalar replacement supports `${v/p/r}`, `${v//p/r}`, `${v/#p/r}` and
+`${v/%p/r}` for ordinary identifiers and the same basic UTF-8 patterns. Matches
+are leftmost-longest. A leading unprotected `#`/`%` in an expanded first pattern
+anchors it; global patterns treat those characters literally. Unset targets
+skip operands, while set-empty targets evaluate them. Patterns expand before
+replacements, even when nothing matches. Inner pattern quotes protect matching;
+inner replacement quotes and escapes control Bash 5.3's default
+`patsub_replacement` ampersands. Outer quotes protect only the result, whose
+unquoted text uses final IFS. Assignment, declaration and redirect contexts
+retain scalar behavior. Matching allocates no candidate strings or range list;
+search, snapshots, replacement retention and output share command bounds and
+cancellation checkpoints. Exhaustion fails with status 2 before dispatch;
+cancellation returns 130. Arrays, namerefs, option changes, byte locales and
+locale collation are outside this subset. Selected unsupported syntax fails
+closed. Empty patterns are inert except first-replacement empty anchors;
+global empty matches advance without revisiting the end of nonempty input.
 Other parameter operators, pathname globbing, substitution, arrays, traps, aliases,
 `lastpipe`, directory validation and full utility option coverage are not
 implemented. Unsupported AST forms return status 2. Utility names/format options

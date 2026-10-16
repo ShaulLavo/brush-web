@@ -1,7 +1,7 @@
 //! Quote-aware fields adapted from Bashkit expansion.rs at the revision pinned
 //! in sources.lock.json. Protection and empty fields are structural, never data
 //! sentinels. Scalar parameter operands are lazy and bounded.
-//! Scalar trims use basic patterns; pathname globbing and substitutions remain unsupported.
+//! Scalar trims and replacements use basic patterns; pathname globbing and substitutions remain unsupported.
 use crate::{
     executor::{Budget, Cancel},
     state::SharedState,
@@ -13,12 +13,17 @@ mod case;
 mod indirect;
 mod operand;
 mod pattern;
+mod replacement;
 use std::{borrow::Cow, collections::BTreeSet};
 
 /// Fatal parameter errors remain distinct from ordinary unsupported/limit errors.
 /// The interpreter supplies the shell environment's status and diagnostic line.
 pub(crate) enum Error {
     Status(i32),
+    BadSubstitution {
+        message: &'static str,
+        line: Option<usize>,
+    },
     Indirect {
         name: String,
         unset: bool,
@@ -33,6 +38,7 @@ pub(crate) enum Error {
 impl Error {
     pub(crate) fn at_line(self, line: Option<usize>) -> Self {
         match self {
+            Self::BadSubstitution { message, .. } => Self::BadSubstitution { message, line },
             Self::Parameter { name, message, .. } => Self::Parameter {
                 name,
                 message,
@@ -114,6 +120,20 @@ fn admit_string_growth(value: &mut String, bytes: usize, work: &mut Work) -> Res
     }
     let capacity = needed.max(value.capacity().saturating_mul(2)).max(8);
     work.admit_storage(capacity - value.capacity())?;
+    value
+        .try_reserve_exact(capacity - value.len())
+        .map_err(|_| Error::Status(2))
+}
+
+fn admit_vec_slot<T>(value: &mut Vec<T>, work: &mut Work) -> Result<(), Error> {
+    if value.len() < value.capacity() {
+        return Ok(());
+    }
+    let capacity = value.capacity().saturating_mul(2).max(1);
+    let bytes = (capacity - value.capacity())
+        .checked_mul(std::mem::size_of::<T>())
+        .ok_or(2)?;
+    work.admit_storage(bytes)?;
     value
         .try_reserve_exact(capacity - value.len())
         .map_err(|_| Error::Status(2))
@@ -287,6 +307,7 @@ impl Segments {
         work: &mut Work,
         cancel: &Cancel,
     ) -> Result<Fields, Error> {
+        fields.account_storage |= self.account_storage;
         // @ uses spaces when the final IFS is empty. Positional unquoted *
         // expanded with empty IFS selects space splitting for the whole word.
         if !self.needs_split {
@@ -322,6 +343,7 @@ struct Fields {
     max_fields: usize,
     count: usize,
     joined: bool,
+    account_storage: bool,
     join_work: usize,
 }
 impl Fields {
@@ -338,6 +360,7 @@ impl Fields {
             max_fields,
             count: 0,
             joined: false,
+            account_storage: false,
             join_work: 0,
         }
     }
@@ -349,6 +372,9 @@ impl Fields {
             self.start_field(work)?;
             self.join_work += 1;
         } else {
+            if self.account_storage {
+                admit_vec_slot(&mut self.out, work)?;
+            }
             self.out.push(std::mem::take(&mut self.current));
         }
         self.count += 1;
@@ -440,8 +466,10 @@ impl Fields {
         if ch.len_utf8() > self.max_bytes.saturating_sub(self.bytes) {
             return Err(2.into());
         }
-        if self.joined {
+        if self.joined || self.account_storage {
             admit_string_growth(&mut self.current, ch.len_utf8(), work)?;
+        }
+        if self.joined {
             self.join_work += 1;
         }
         self.bytes += ch.len_utf8();
@@ -472,12 +500,26 @@ impl Captured {
         self.value.push_str(value);
         Ok(())
     }
+    async fn append_admitted(
+        &mut self,
+        value: &str,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<(), Error> {
+        for ch in value.chars() {
+            work.checkpoint(cancel).await?;
+            admit_string_growth(&mut self.value, ch.len_utf8(), work)?;
+            self.append(ch.encode_utf8(&mut [0; 4]))?;
+        }
+        Ok(())
+    }
 }
 
 struct Expansion<'a> {
     segments: Segments,
     captured: Option<Captured>,
     pattern: Option<pattern::Pattern>,
+    replacement: Option<replacement::Replacement>,
     pattern_context: bool,
     // Diagnostics leave pattern syntax but retain enclosing snapshot charges.
     pattern_snapshots: bool,
@@ -517,7 +559,6 @@ impl Expansion<'_> {
         if !self.pattern_snapshots {
             return Ok(());
         }
-        self.work.admit_storage(value.len())?;
         for _ in value.bytes() {
             self.work.checkpoint(self.cancel).await?;
         }
@@ -585,8 +626,21 @@ impl Expansion<'_> {
             }
             return Ok(());
         }
+        if let Some(replacement) = &mut self.replacement {
+            self.work.checkpoint(self.cancel).await?;
+            for ch in value.chars() {
+                self.work.checkpoint(self.cancel).await?;
+                replacement.push(ch, protection, self.work)?;
+            }
+            return Ok(());
+        }
         if let Some(captured) = &mut self.captured {
             self.work.checkpoint(self.cancel).await?;
+            if self.pattern_snapshots || self.segments.account_storage {
+                return captured
+                    .append_admitted(value, self.work, self.cancel)
+                    .await;
+            }
             return captured.append(value);
         }
         if value.is_empty() {
@@ -658,7 +712,13 @@ impl Expansion<'_> {
                 self.admit_pattern_length(name, state)?;
                 return self.length(name, state, scalar || quoted, depth).await;
             }
-            let value = scalar_value(part, state, self.snapshot_max())?;
+            let max = self.snapshot_max();
+            let value = scalar_value(
+                part,
+                state,
+                max,
+                self.pattern_snapshots.then_some(&mut *self.work),
+            )?;
             self.admit_pattern_snapshot(&value).await?;
             self.segment(
                 &value,
@@ -723,6 +783,30 @@ impl Expansion<'_> {
         if error_pointer.is_none() && !operand::scalar_name(name) || depth >= operand::MAX_DEPTH {
             return Err(2.into());
         }
+        if let ParameterOp::ReplaceFirst {
+            pattern,
+            replacement,
+        }
+        | ParameterOp::ReplaceAll {
+            pattern,
+            replacement,
+        } = operator
+        {
+            if name == "PIPESTATUS" {
+                return Err(2.into());
+            }
+            return self
+                .replace(
+                    name,
+                    pattern,
+                    replacement,
+                    matches!(operator, ParameterOp::ReplaceAll { .. }),
+                    state,
+                    scalar || quoted,
+                    depth,
+                )
+                .await;
+        }
         if let Some((prefix, longest)) = trim_mode(operator) {
             return self
                 .trim(
@@ -774,14 +858,16 @@ impl Expansion<'_> {
                 .operand(operand, state, quoted, scalar, depth + 1, false)
                 .await;
         }
+        let max = self.snapshot_max();
         let value = if replacement {
             String::new()
         } else {
             let s = state.borrow();
-            bounded(
-                Cow::Borrowed(s.scalar_parameter(name).unwrap_or("")),
-                self.snapshot_max(),
-            )?
+            let value = s.scalar_parameter(name).unwrap_or("");
+            if self.pattern_snapshots {
+                self.work.admit_storage(value.len())?;
+            }
+            bounded(Cow::Borrowed(value), max)?
         };
         self.admit_pattern_snapshot(&value).await?;
         self.segment(
@@ -841,6 +927,7 @@ impl Expansion<'_> {
             segments: Segments::default(),
             captured: None,
             pattern: Some(pattern::Pattern::default()),
+            replacement: None,
             pattern_context: true,
             pattern_snapshots: true,
             ifs: None,
@@ -858,8 +945,12 @@ impl Expansion<'_> {
             .await?;
         self.raw_remaining -= capacity - child.raw_remaining;
         let ifs_changed = child.ifs_changed;
+        let replacement_output = child.segments.account_storage;
         let pattern = child.pattern.take().ok_or(2)?;
         drop(child);
+        if replacement_output {
+            self.admit_replacement_output().await?;
+        }
         self.ifs_changed |= ifs_changed;
         if ifs_changed {
             self.ifs = None;
@@ -936,7 +1027,8 @@ impl Expansion<'_> {
         let capacity = max_bytes.min(self.work.storage_remaining);
         let mut child = Expansion {
             segments: Segments {
-                account_storage: matches!(operator, ParameterOp::Error),
+                account_storage: self.segments.account_storage
+                    || matches!(operator, ParameterOp::Error),
                 ..Segments::default()
             },
             captured: (!matches!(operator, ParameterOp::Error)).then_some(Captured {
@@ -944,6 +1036,7 @@ impl Expansion<'_> {
                 max_bytes: capacity,
             }),
             pattern: None,
+            replacement: None,
             // Diagnostics leave the pattern context, including in nested operands.
             pattern_context: self.pattern_context && !matches!(operator, ParameterOp::Error),
             // Ordinary diagnostics also retain segments/output while snapshotting.
@@ -982,8 +1075,12 @@ impl Expansion<'_> {
             .await?;
         self.raw_remaining -= capacity - child.raw_remaining;
         let ifs_changed = child.ifs_changed || name == "IFS";
+        let replacement_output = child.segments.account_storage;
         let captured = child.captured.take().ok_or(2)?;
         drop(child);
+        if replacement_output {
+            self.admit_replacement_output().await?;
+        }
         self.work.admit_storage(captured.value.len())?;
         // A prefix frame may also retain the durable value it will restore.
         if state.borrow().prefix_saved(name) {
@@ -1155,6 +1252,7 @@ impl Expansion<'_> {
         if list {
             let ch = separator.ok_or(2)?;
             self.admit_raw(ch.len_utf8())?;
+            self.segments.admit_slot(self.work)?;
             self.segments.parts.push(Segment::ListSeparator(ch));
             return Ok(());
         }
@@ -1199,7 +1297,12 @@ fn bounded(value: Cow<'_, str>, max: usize) -> Result<String, Error> {
     }
     Ok(value.into_owned())
 }
-fn scalar_value(part: &WordPart, state: &SharedState, max: usize) -> Result<String, Error> {
+fn scalar_value(
+    part: &WordPart,
+    state: &SharedState,
+    max: usize,
+    snapshot_work: Option<&mut Work>,
+) -> Result<String, Error> {
     let s = state.borrow();
     let value = match part {
         WordPart::Literal(text) => Cow::Borrowed(text.as_str()),
@@ -1214,6 +1317,9 @@ fn scalar_value(part: &WordPart, state: &SharedState, max: usize) -> Result<Stri
         ),
         _ => return Err(2.into()),
     };
+    if let Some(work) = snapshot_work {
+        work.admit_storage(value.len())?;
+    }
     bounded(value, max)
 }
 fn list_value(
@@ -1271,6 +1377,7 @@ async fn expand(
         segments: Segments::default(),
         captured: None,
         pattern: None,
+        replacement: None,
         pattern_context: false,
         pattern_snapshots: false,
         ifs: None,

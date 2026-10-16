@@ -353,3 +353,29 @@ remain unsupported, including all subscript-bearing target values. Full invalid
 names fit the diagnostic limit or fail explicitly, rather than being truncated
 at upstream's 256-character diagnostic prefix. No parser, process, browser,
 filesystem, `mapfile` or output-buffering implementation is copied or changed.
+
+Scalar parameter replacement adapts Bashkit at
+`491c3281f668b76d64b15210b8f5d7bf97244be0`, MIT, Copyright 2024–2026 Everruns.
+The `ReplaceFirst`/`ReplaceAll` arms, `expand_replacement_operand`,
+`expand_replace_pattern`, `single_quotes_as_quoted`, `replace_pattern` and
+`find_pattern_matches{,_glob}` in `crates/bashkit/src/interpreter/expansion.rs`
+inform `shell/engine/src/expand.rs`, `expand/replacement.rs` and
+`expand/pattern.rs`. Scalar tests adapt `bashbox-word-expander.test.sh`,
+`param-operand-quotes.test.sh` and `string-ops.test.sh` in
+`crates/bashkit/tests/spec_cases/bash/`. `shellParameterReplace` in
+`sources.lock.json` records paths, ranges, classifications and local changes;
+`shell/parser/LICENSE` retains the license. Original parser corrections in
+`shell/parser/src/parser/mod.rs` preserve nested operands and quoted slashes in
+the Bashkit-derived replacement arm. No upstream parser tests are removed.
+
+Original async adapters use structural replacement protection and the existing
+iterative matcher. GNU Bash 5.3 controls correct operand order, unset versus
+set-empty selection, expansion-provided first-replacement anchors, global literal
+anchors, and default `patsub_replacement` ampersands. Inner quotes affect pattern
+matching or ampersands; outer quotes and scalar contexts protect the returned
+value. Final IFS writes still govern unquoted results. No candidate strings,
+regex engine, match-range collection, original-value fallback on exhaustion,
+whole-output buffering or mapfile implementation is ported. Shared admission
+and cancellation bounds replace upstream caps and fallback behavior. Only
+ordinary scalars with the existing basic UTF-8 patterns are included. Arrays,
+namerefs, option emulation, byte locales and locale collation are not claimed.
