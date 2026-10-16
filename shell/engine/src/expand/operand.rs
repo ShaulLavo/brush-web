@@ -340,8 +340,8 @@ fn validate_token(token: &str) -> Result<(), Error> {
     let name = &body[..name_end];
     let suffix = &body[name_end..];
     let operator = suffix.strip_prefix(':').unwrap_or(suffix);
-    let trim = suffix.starts_with(['#', '%']);
-    if !scalar_name(name) || !(!indirect && trim || operator.starts_with(['-', '+', '=', '?'])) {
+    let pattern = suffix.starts_with(['#', '%', '^', ',']);
+    if !scalar_name(name) || !(!indirect && pattern || operator.starts_with(['-', '+', '=', '?'])) {
         return Err(2.into());
     }
     Ok(())
@@ -365,6 +365,10 @@ fn supported(part: &WordPart) -> bool {
                         | ParameterOp::RemovePrefixLong
                         | ParameterOp::RemoveSuffixShort
                         | ParameterOp::RemoveSuffixLong
+                        | ParameterOp::UpperFirst
+                        | ParameterOp::UpperAll
+                        | ParameterOp::LowerFirst
+                        | ParameterOp::LowerAll
                 )
         }
         _ => false,

@@ -122,6 +122,369 @@ fn check_output(source: &str, expected: &str) {
     assert_eq!(rig.output.bytes(), expected.as_bytes(), "{source}");
 }
 
+// Case examples adapted from Bashkit 491c3281's variables:226-253,
+// string-ops:73-85 and bashbox-word-expander:181-186. Other cases are original
+// bounded GNU Bash controls and engine-specific admission/cancellation checks.
+#[test]
+fn adapted_scalar_case_examples() {
+    check_output(
+        "X=hello; echo ${X^^}; echo ${X^}; X=HELLO; echo ${X,,}; echo ${X,}; x=hello; echo ${x^} ${x^^} ${x,} ${x,,}; X='hello world'; echo \"${X^^}\"; X='HELLO WORLD'; echo \"${X,,}\"",
+        "HELLO\nHello\nhello\nhELLO\nHello HELLO hello hello\nHELLO WORLD\nhello world\n",
+    );
+}
+
+#[test]
+fn case_first_forms_inspect_only_the_first_character_and_patterns_match_one_character() {
+    check(
+        r#"v=aBaB; args "${v^B}" "${v^^B}" "${v,a}" "${v,,B}" "${v^a}" "${v^^a}"; v=ABAB; args "${v,B}" "${v,,A}" "${v,A}"; v='ab ab'; args "${v^^ab}" "${v^^a*}" "${v^^*b}" "${v^^*?}" "${v^^[!b]}" "${v^^[z-a]}""#,
+        &[
+            &["aBaB", "aBaB", "aBaB", "abab", "ABaB", "ABAB"],
+            &["ABAB", "aBaB", "aBAB"],
+            &["ab ab", "Ab Ab", "aB aB", "AB AB", "Ab Ab", "ab ab"],
+        ],
+    );
+}
+
+#[test]
+fn case_default_empty_and_unset_operands_remain_lazy() {
+    check(
+        r#"v=aBc; e=; p=; args "${v^}" "${v^^}" "${v,}" "${v,,}" "${v^^$p}" "${v^^''}" "${v^^""}" "${v^^"$p"}"; args ${u^^} ${e,,}; args "${u^${side:=bad}}" "${e,,${other:=x}}" "${u^^$(args forbidden)}" "${side-unset}" "${other-unset}"; yes=set; args "${yes:-${v^^$(args forbidden)}}" "${u+${1,,}}" "${yes:= ${v@U}}" "${yes:?${v^^[[:alpha:]]}}""#,
+        &[
+            &["ABc", "ABC", "aBc", "abc", "ABC", "aBc", "aBc", "aBc"],
+            &[],
+            &["", "", "", "unset", "x"],
+            &["set", "", "set", "set"],
+        ],
+    );
+}
+
+#[test]
+fn case_pattern_quotes_and_escapes_are_distinct_from_result_protection() {
+    check(
+        r#"v='a b'; p='?'; args ${v^^$p} "${v^^$p}" "${v^^'$p'}" "${v^^\?}" "${v^^'a'}" "${v^^\a}" "${v^^"$p"}"; v='ab'; p='\'; q=a; args "${v^^$p$q}" "${v^^$p"$q"}" "${v^^[$p"$q"]}"; p='[a-b]'; args "${v^^$p}" "${v^^"$p"}""#,
+        &[
+            &["A", "B", "A B", "a b", "a b", "A b", "A b", "a b"],
+            &["Ab", "ab", "Ab"],
+            &["AB", "ab"],
+        ],
+    );
+}
+
+#[test]
+fn case_scalar_selected_nested_and_declaration_contexts_preserve_values() {
+    check(
+        r#"v='a b'; x=${v^^}; export y=${v^}; f() { local z=${v^^[b]}; args "$z" "$1"; }; f arg; args "$x" "$y" "${u:-${v^^}}" "${yes:=${v^}}" "$yes"; args "${v^^${p:='[a-b]'}}" "$p"; args "${v^^${u:-${e:-a}}}"; args "$v"; v=ab; args "${v^^${v:=zz}}" "$v""#,
+        &[
+            &["a B", "arg"],
+            &["A B", "A b", "A B", "A b", "A b"],
+            &["A B", "[a-b]"],
+            &["A b"],
+            &["a b"],
+            &["ab", "ab"],
+        ],
+    );
+    check(
+        r#"_v1=abc; args "${_v1^^}" "${PWD^^}""#,
+        &[&["ABC", "/HOME/GUEST"]],
+    );
+    check(
+        r#"v=AbC; yes=set; p=B; args "${yes:+${v,,}}" "${u:-${v^}}" "${v^^${p,,}}"; e=; args "${e^^${e:=abc}}" "$e""#,
+        &[&["abc", "AbC", "ABC"], &["", "abc"]],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(r#"v='file name'; args >"${v^^}""#), 0);
+    assert!(
+        rig.fs
+            .read_file("/home/guest/FILE NAME")
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        rig.run(r#"v=abc; args ${bad:?${v^^}}; args forbidden"#),
+        127
+    );
+    assert_eq!(rig.errors.bytes(), b"/usr/bin/bash: line 1: bad: ABC\n");
+}
+
+#[test]
+fn case_pattern_effects_precede_final_ifs_splitting_and_use_the_original_value() {
+    check(
+        r#"IFS=; v='a:b'; args ${v^^}${IFS:=:}; IFS=; args ${v^^${IFS:=:}}; IFS=; args "${v^^${IFS:=:}}"; v=abc; args "${v^^${v:+${p:=a}}}" "$p" "$v"; TEMP=abc RESULT=${TEMP^^} args; args "${TEMP-unset}" "${RESULT-unset}""#,
+        &[
+            &["A", "B"],
+            &["a", "b"],
+            &["a:b"],
+            &["Abc", "a", "abc"],
+            &[],
+            &["unset", "unset"],
+        ],
+    );
+}
+
+#[test]
+fn case_latin1_mappings_never_expand_one_character_into_multiple_characters() {
+    check(
+        r#"LC_ALL=C.UTF-8; v='éÉßµÿ'; args "${v^^}" "${v,,}" "${v^}" "${v,}"; v='é🙂a'; args "${v^}" "${v^^a}"; v='🙂é'; args "${v^^é}"; LC_ALL=C; v='éÉßµÿaA'; args "${v^^}" "${v,,}" "${v^}" "${v,}""#,
+        &[
+            &["ÉÉßΜŸ", "ééßµÿ", "ÉÉßµÿ", "éÉßµÿ"],
+            &["É🙂a", "é🙂A"],
+            &["🙂É"],
+            &["éÉßµÿAA", "éÉßµÿaa", "éÉßµÿaA", "éÉßµÿaA"],
+        ],
+    );
+}
+
+#[test]
+fn case_locale_precedence_and_bounded_unknown_locale_policy() {
+    check(
+        r#"v=é; LC_ALL=C; LC_CTYPE=C.UTF-8; LANG=C.UTF-8; args "${v^^}"; LC_ALL=POSIX; args "${v^^}"; LC_ALL=; args "${v^^}"; LC_CTYPE=C; args "${v^^}"; LC_CTYPE=; args "${v^^}"; LANG=; args "${v^^}"; f() { local LC_ALL=C.utf8; args "${v^^}"; }; f; args "${v^^}""#,
+        &[
+            &["é"],
+            &["é"],
+            &["É"],
+            &["é"],
+            &["É"],
+            &["é"],
+            &["É"],
+            &["é"],
+        ],
+    );
+    check(
+        r#"LC_ALL=; LC_CTYPE=; LANG=C.UTF-8; v=é; x=C; args "${v^^${x#${LC_CTYPE:=C}}}" "$LC_CTYPE"; LC_CTYPE=; LANG=C; x=C.UTF-8; args "${v^^${x#${LC_CTYPE:=C.UTF-8}}}" "$LC_CTYPE""#,
+        &[&["é", "C"], &["É", "C.UTF-8"]],
+    );
+    for locale in ["en_US.UTF-8", "tr_TR.UTF-8", "unsupported"] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("LC_ALL", locale);
+        rig.variable("v", "abc");
+        assert_eq!(rig.run("args ${v^^}"), 2);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.run(r#"args "${u^^${bad:?never}}""#), 0);
+    }
+}
+
+#[test]
+fn unsupported_case_targets_transformations_and_selected_patterns_fail_closed() {
+    for form in [
+        "${1^}",
+        "${@^^}",
+        "${*,,}",
+        "${?^}",
+        "${#,,}",
+        "${a[0]^^}",
+        "${PIPESTATUS[@],,}",
+        "${PIPESTATUS^^}",
+        "${!v^^}",
+        "${v@U}",
+        "${v~}",
+        "${v~~}",
+        "${v^^$(args forbidden)}",
+        "${v^^`args forbidden`}",
+        "${v^^$((1+2))}",
+        "${v^^~}",
+        "${v^^@(a)}",
+        "${v^^?(a)}",
+        "${v^^*(a)}",
+        "${v^^!(a)}",
+        "${v^^[[:alpha:]]}",
+        "${v^^[[.a.]]}",
+        "${v^^[[=a=]]}",
+        "${v^^${v/a/b}}",
+        "${v^^${v:1}}",
+        "${v^^$@}",
+    ] {
+        for source in [format!("args {form}"), format!("args ${{u:-{form}}}")] {
+            let rig = Rig::new(Limits::default());
+            rig.variable("v", "abc");
+            assert_eq!(rig.run(&source), 2, "{source}");
+            assert!(rig.calls.borrow().is_empty(), "{source}");
+        }
+    }
+    for source in ["args ${v^^[[:alpha:]]}", "args ${v^^$(args forbidden)}"] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("v", "");
+        assert_eq!(
+            rig.run(source),
+            2,
+            "set empty target still selects the operand"
+        );
+        assert!(rig.calls.borrow().is_empty());
+    }
+    for ch in ["İ", "ı", "ﬃ", "ǰ", "Σ", "🙂"] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("LC_ALL", "C.UTF-8");
+        rig.variable("v", ch);
+        assert_eq!(rig.run("args ${v^^}"), 2, "{ch}");
+        assert_eq!(rig.run("args ${v,,}"), 2, "{ch}");
+        assert!(rig.calls.borrow().is_empty());
+    }
+    for source in [
+        "f() { args forbidden; }; X=${v^^} f",
+        "X=${v^^} echo forbidden",
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 2);
+        assert!(rig.calls.borrow().is_empty());
+        assert!(rig.output.bytes().is_empty());
+    }
+    let rig = Rig::new(Limits::default());
+    rig.variable("v", "abc");
+    rig.variable("p", "[[:alpha:]]");
+    assert_eq!(rig.run("args ${v^^$p}"), 2);
+    assert_eq!(rig.run(r#"args "${v^^"$p"}""#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["abc"]]);
+    rig.variable("p", "é");
+    assert_eq!(rig.run("args ${v^^$p}"), 2, "byte locale non-ASCII pattern");
+}
+
+#[test]
+fn case_snapshots_patterns_output_and_fields_share_limits() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 128,
+        ..Limits::default()
+    });
+    rig.variable("v", &"a".repeat(129));
+    assert_eq!(rig.run("args ${v^^}"), 2);
+    rig.variable("v", "abc");
+    rig.variable("p", &"?".repeat(129));
+    assert_eq!(rig.run("args ${v^^$p}"), 2);
+    rig.variable("p", "aaaaaaaa");
+    assert_eq!(rig.run("args ${v^^$p}"), 2, "compiled pattern storage");
+    assert!(rig.calls.borrow().is_empty());
+    let rig = Rig::new(Limits {
+        expansion_bytes: 256,
+        ..Limits::default()
+    });
+    rig.variable("v", &"a".repeat(80));
+    rig.variable("p", &"x".repeat(256));
+    assert_eq!(rig.run("args ${v^^${#p}}"), 2, "nested length snapshot");
+    assert_eq!(
+        rig.run("args ${v^^} ${v^^}"),
+        2,
+        "shared input and output storage"
+    );
+    let source = format!("args {}${{v^^}}", "x".repeat(200));
+    assert_eq!(rig.run(&source), 2, "aggregate output");
+    assert!(rig.calls.borrow().is_empty());
+    let rig = Rig::new(Limits {
+        arguments: 3,
+        ..Limits::default()
+    });
+    rig.variable("v", "a b c");
+    assert_eq!(rig.run("args ${v^^}"), 2);
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn case_matching_reparsing_and_redirects_share_work_without_a_candidate_cap() {
+    let rig = Rig::new(Limits {
+        source_bytes: 256,
+        expansion_bytes: 8192,
+        arguments: 16,
+        ..Limits::default()
+    });
+    rig.variable("v", &"a".repeat(1000));
+    assert_eq!(rig.run("args ${v^^}"), 0);
+    assert_eq!(rig.run("args ${v^^} ${v^^} ${v^^}"), 2);
+    assert_eq!(rig.run("args ${v^^} ${v^^} >${v^^}sink"), 2);
+    assert_eq!(rig.calls.borrow().len(), 1);
+    let rig = Rig::new(Limits::default());
+    rig.variable("v", "abc");
+    assert_eq!(
+        rig.run(&format!("args ${{u:-${{v^^{}}}}}", "x".repeat(4096))),
+        2
+    );
+    assert_eq!(
+        rig.run(&format!(
+            "args {}${{v^^}}{}",
+            "${u:-".repeat(34),
+            "}".repeat(34)
+        )),
+        2
+    );
+    assert!(rig.calls.borrow().is_empty());
+    rig.variable("v", &"a".repeat(12_000));
+    assert_eq!(rig.run(r#"args "${v^^*?}""#), 0);
+    assert_eq!(rig.calls.borrow()[0][0], "A".repeat(12_000));
+}
+
+#[test]
+fn case_matching_yields_cancels_and_restores_local_and_positional_frames() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("v", &"a".repeat(6000));
+    rig.variable("scope", "outside");
+    let job = rig
+        .shell
+        .start("f() { local scope=inside; args ${v^^${started:=a}*?*?*?*?*?*?*?}; }; f argument")
+        .unwrap();
+    rig.drive_until_variable("started", "a");
+    let peer = rig.ex.spawn(async { 42 });
+    rig.ex.drive(4);
+    assert!(peer.is_finished());
+    assert!(!job.is_finished());
+    rig.variable("peer", "ran");
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.run(r#"args "$scope" "$#" "$1" "$started""#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["outside", "0", "", "a"]]);
+}
+
+#[test]
+fn case_pattern_scanning_and_nested_token_admission_yield_and_cancel() {
+    for (pattern, polls) in [
+        ("$pattern".to_owned(), 4),
+        (format!("${{{}}}", "x".repeat(3000)), 80),
+    ] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("v", "abc");
+        rig.variable("scope", "outside");
+        rig.variable("pattern", &"[a-z]".repeat(20_000));
+        let job = rig
+            .shell
+            .start(&format!(
+                "f() {{ local scope=inside; args ${{v^^{pattern}}}; }}; f argument"
+            ))
+            .unwrap();
+        rig.drive_until_variable("scope", "inside");
+        rig.ex.drive(polls);
+        let peer = rig.ex.spawn(async { 42 });
+        rig.ex.drive(4);
+        assert!(peer.is_finished());
+        assert!(!job.is_finished());
+        rig.variable("peer", "ran");
+        rig.shell.interrupt();
+        assert_eq!(rig.finish(job), 130);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.run(r#"args "$scope" "$#" "$1""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["outside", "0", ""]]);
+    }
+}
+
+#[test]
+fn case_rhs_cancellation_restores_external_prefix_frames() {
+    for operand in ["${v^^}", "${u:-${v,,}}"] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("v", &"a".repeat(150_000));
+        rig.variable("result", "outside");
+        let job = rig
+            .shell
+            .start(&format!("TEMP=value result={operand} args"))
+            .unwrap();
+        rig.drive_until_variable("TEMP", "value");
+        let peer = rig.ex.spawn(async { 42 });
+        rig.ex.drive(4);
+        assert!(peer.is_finished());
+        assert!(!job.is_finished());
+        rig.variable("peer", "ran");
+        rig.shell.interrupt();
+        assert_eq!(rig.finish(job), 130);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.run(r#"args "${TEMP-unset}" "$result" "$#""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["unset", "outside", "0"]]);
+    }
+}
+
 // Scalar cases adapted from Bashkit 491c3281's remove-pattern-glob,
 // param-operand-quotes and variables specs. Other cases use focused GNU Bash
 // probes under LC_ALL=C.UTF-8, with engine-specific limit/cancellation checks.
