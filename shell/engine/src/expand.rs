@@ -94,9 +94,15 @@ impl Work {
 
 struct Ifs {
     chars: BTreeSet<char>,
-    separator: Option<char>,
 }
 impl Ifs {
+    fn separator(state: &SharedState) -> Option<char> {
+        state
+            .borrow()
+            .variables
+            .get("IFS")
+            .map_or(Some(' '), |value| value.chars().next())
+    }
     async fn new(
         state: &SharedState,
         cancel: &Cancel,
@@ -120,10 +126,7 @@ impl Ifs {
             work.checkpoint(cancel).await?;
             chars.insert(ch);
         }
-        Ok(Self {
-            chars,
-            separator: value.chars().next(),
-        })
+        Ok(Self { chars })
     }
     fn delimiter(&self, ch: char) -> Delimiter {
         if !self.chars.contains(&ch) {
@@ -139,6 +142,65 @@ enum Delimiter {
     Text,
     Whitespace,
     Other,
+}
+
+/// Retain protection and group boundaries until all parameter writes finish.
+/// Text is bounded by raw_remaining; empty/group events consume shared Work.
+/// Adjacent text with identical protection shares one allocation, including
+/// the operand scanner's character-sized pieces.
+enum Segment {
+    Text { value: String, protected: bool },
+    Empty,
+    Group,
+}
+#[derive(Default)]
+struct Segments {
+    parts: Vec<Segment>,
+    list_word: bool,
+}
+impl Segments {
+    fn character(&mut self, ch: char, protected: bool) {
+        if let Some(Segment::Text {
+            value,
+            protected: previous,
+        }) = self.parts.last_mut()
+            && *previous == protected
+        {
+            value.push(ch);
+            return;
+        }
+        self.parts.push(Segment::Text {
+            value: ch.to_string(),
+            protected,
+        });
+    }
+    fn empty(&mut self) {
+        if !matches!(self.parts.last(), Some(Segment::Empty)) {
+            self.parts.push(Segment::Empty);
+        }
+    }
+    fn end_group(&mut self) {
+        if !matches!(self.parts.last(), Some(Segment::Group)) {
+            self.parts.push(Segment::Group);
+        }
+    }
+    async fn split(
+        self,
+        ifs: &Ifs,
+        max_bytes: usize,
+        max_fields: usize,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<Vec<String>, Error> {
+        let mut fields = Fields::new(max_bytes, max_fields);
+        fields.list_word = self.list_word;
+        for part in self.parts {
+            work.checkpoint(cancel).await?;
+            fields.segment(part, ifs, work, cancel).await?;
+        }
+        fields.end_group()?;
+        Ok(fields.out)
+    }
 }
 
 /// Accumulates a single word's groups. IFS whitespace is deferred so an
@@ -175,6 +237,29 @@ impl Fields {
         }
         self.out.push(std::mem::take(&mut self.current));
         self.present = false;
+        Ok(())
+    }
+    async fn segment(
+        &mut self,
+        part: Segment,
+        ifs: &Ifs,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<(), Error> {
+        let (value, protected) = match part {
+            Segment::Empty => return self.text_boundary(),
+            Segment::Group => return self.end_group(),
+            Segment::Text { value, protected } => (value, protected),
+        };
+        for ch in value.chars() {
+            work.checkpoint(cancel).await?;
+            let delimiter = if protected {
+                Delimiter::Text
+            } else {
+                ifs.delimiter(ch)
+            };
+            self.character(ch, delimiter)?;
+        }
         Ok(())
     }
     fn text_boundary(&mut self) -> Result<(), Error> {
@@ -245,9 +330,8 @@ impl Captured {
 }
 
 struct Expansion<'a> {
-    fields: Fields,
+    segments: Segments,
     captured: Option<Captured>,
-    ifs: Ifs,
     work: &'a mut Work,
     cancel: &'a Cancel,
     /// Also bound intermediate expansion bytes, even if IFS removes them all.
@@ -274,16 +358,11 @@ impl Expansion<'_> {
             return captured.append(value);
         }
         if keeps_empty && value.is_empty() {
-            self.fields.text_boundary()?;
+            self.segments.empty();
         }
         for ch in value.chars() {
             self.work.checkpoint(self.cancel).await?;
-            let delimiter = if protected {
-                Delimiter::Text
-            } else {
-                self.ifs.delimiter(ch)
-            };
-            self.fields.character(ch, delimiter)?;
+            self.segments.character(ch, protected);
         }
         Ok(())
     }
@@ -391,15 +470,11 @@ impl Expansion<'_> {
         self.work.admit_storage(overhead)?;
         let capacity = max_bytes.min(self.work.storage_remaining);
         let mut child = Expansion {
-            fields: Fields::new(0, 0),
+            segments: Segments::default(),
             captured: Some(Captured {
                 value: String::new(),
                 max_bytes: capacity,
             }),
-            ifs: Ifs {
-                chars: BTreeSet::new(),
-                separator: None,
-            },
             work: self.work,
             cancel: self.cancel,
             raw_remaining: capacity,
@@ -505,15 +580,16 @@ impl Expansion<'_> {
             return Err(2.into());
         }
         self.elements_remaining -= count;
-        let groups = !scalar && ((quoted && at) || (!quoted && self.ifs.separator.is_none()));
+        let ifs_separator = Ifs::separator(state);
+        let groups = !scalar && ((quoted && at) || (!quoted && ifs_separator.is_none()));
         let separator = if scalar && at {
             Some(' ')
         } else {
-            self.ifs.separator
+            ifs_separator
         };
         // Quoted '*' and every scalar context keep one field even for no values.
         if scalar || (quoted && !at) {
-            self.fields.text_boundary()?;
+            self.segments.empty();
         }
         for index in 0..count {
             self.element_boundary(index, groups, separator, quoted || scalar)
@@ -536,7 +612,8 @@ impl Expansion<'_> {
             return Ok(());
         }
         if groups {
-            return self.fields.end_group();
+            self.segments.end_group();
+            return Ok(());
         }
         self.separator(separator, protected).await
     }
@@ -625,16 +702,15 @@ async fn expand(
     work: &mut Work,
 ) -> Result<Vec<String>, Error> {
     let mut expansion = Expansion {
-        fields: Fields::new(max_bytes, max_fields),
+        segments: Segments::default(),
         captured: None,
-        ifs: Ifs::new(state, cancel, max_raw, work).await?,
         work,
         cancel,
         raw_remaining: max_raw,
         elements_remaining: max_raw.saturating_add(max_fields),
     };
     if scalar {
-        expansion.fields.text_boundary()?;
+        expansion.segments.empty();
     }
     // QuotedWord tokens set Word.quoted after parsing their unmarked text, so
     // an all-false part vector is not an override of whole-word quoting.
@@ -650,7 +726,7 @@ async fn expand(
     for (index, part) in word.parts.iter().enumerate() {
         expansion.work.checkpoint(cancel).await?;
         if part_quoted(word, index, has_part_quotes) && is_at(part) && !scalar {
-            expansion.fields.list_word = true;
+            expansion.segments.list_word = true;
             break;
         }
     }
@@ -667,8 +743,11 @@ async fn expand(
         }
         expansion.part(part, state, quoted, scalar, 0).await?;
     }
-    expansion.fields.end_group()?;
-    Ok(expansion.fields.out)
+    let ifs = Ifs::new(state, cancel, max_raw, expansion.work).await?;
+    expansion
+        .segments
+        .split(&ifs, max_bytes, max_fields, expansion.work, cancel)
+        .await
 }
 
 pub(crate) async fn fields(

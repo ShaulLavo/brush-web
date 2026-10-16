@@ -107,7 +107,8 @@ Scalar assignment and error operators also adapt Bashkit at
 `491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT, Copyright 2024–2026 Everruns).
 Sources are `crates/bashkit/src/interpreter/expansion.rs` (`ParameterExpansion`,
 `resolve_param_expansion_name`, the `AssignDefault` and `Error` arms of
-`apply_parameter_op`, and selected operand quote removal) and
+`apply_parameter_op`, selected operand quote removal, and deferred splitting in
+`split_word_segments` and `split_marked_segments`) and
 `crates/bashkit/src/interpreter/mod.rs` (`set_parameter_expansion_target`, scalar
 branch, and `expansion_error_result` fatal-flow propagation). Adaptations live in
 `shell/engine/src/expand.rs`, `expand/operand.rs`, `state.rs` and `interpreter.rs`.
@@ -119,7 +120,15 @@ in `sources.lock.json`; the retained license is `shell/parser/LICENSE`.
 
 Local changes retain bounded selected operands before field splitting, store
 unsplit values after quote removal, and use cancellation-safe prefix frames to
-preserve completed parameter writes in the caller. Assignment result protection,
+preserve completed parameter writes in the caller. Original typed text,
+protected-empty and list-group segments defer field splitting until all word
+expansions finish, so selected IFS assignments also govern earlier unquoted
+text. List joins read IFS at their expansion point. Coalesced text stays within
+the intermediate byte allowance, and collection and splitting share command
+work and cancellation checkpoints. Independent GNU Bash regressions cover these
+IFS writes with mixed quote/list boundaries and bounded cancellation. No upstream
+sentinel strings or flattened-string re-splitting are used. Assignment result
+protection,
 command-word/RHS/redirect ordering, diagnostic spelling and environment-dependent
 fatal statuses follow bounded GNU Bash observations and the unchanged frozen
 oracle, deliberately replacing upstream's blanket status 1. Errors stop their

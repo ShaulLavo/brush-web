@@ -929,6 +929,139 @@ fn assignment_quote_removal_keeps_surrounding_word_boundaries() {
 }
 
 #[test]
+fn ifs_assignment_splits_the_entire_expanded_word_with_the_new_value() {
+    // Independent GNU Bash observations, including text emitted before the write.
+    for (source, expected) in [
+        (r#"IFS=; args ${IFS:=:}a:b"#, vec!["", "a:b"]),
+        (r#"IFS=; x=a:b; args ${x}${IFS:=:}"#, vec!["a", "b"]),
+        (r#"IFS=; x=a:b; args "${x}"${IFS:=:}"#, vec!["a:b"]),
+        (r#"IFS=; x=a:b; args ${x}"${IFS:=:}""#, vec!["a", "b:"]),
+        (r#"IFS=; x=a:b; args ${x}${IFS:=:}"""#, vec!["a", "b", ""]),
+        (r#"IFS=; args ${u:-a:b}${IFS:=:}"#, vec!["a", "b"]),
+        (r#"IFS=; args ${u:-"a:b"}${IFS:=:}"#, vec!["a:b"]),
+        (
+            r#"IFS=; x=a:b; args ${x}${u:=${IFS:=:}} "$u""#,
+            vec!["a", "b", ":"],
+        ),
+        (
+            r#"IFS=; x=a:b; out=${x}${IFS:=:}; args "$out" "$IFS""#,
+            vec!["a:b:", ":"],
+        ),
+    ] {
+        check(source, &[&expected]);
+    }
+}
+
+#[test]
+fn ifs_assignment_preserves_quote_and_list_boundaries() {
+    for (source, expected) in [
+        (
+            r#"f() { IFS=; args ${IFS:=:}"$@"; }; f a:b '' c:d"#,
+            vec!["", "a:b", "", "c:d"],
+        ),
+        (
+            r#"f() { IFS=; args ${IFS:=:}$@; }; f a:b '' c:d"#,
+            vec!["", "a", "b", "", "c", "d"],
+        ),
+        (
+            r#"f() { IFS=; args ${IFS:=:}"$*"; }; f a:b '' c:d"#,
+            vec!["", "a:b::c:d"],
+        ),
+        (
+            r#"f() { IFS=; args ${IFS:=:}$*; }; f a:b '' c:d"#,
+            vec!["", "a", "b", "", "c", "d"],
+        ),
+        (
+            r#"f() { IFS=; x=a:b; args ${x}${IFS:=:}"$@"; }; f one '' two"#,
+            vec!["a", "b", "one", "", "two"],
+        ),
+        (r#"f() { IFS=; args ${IFS:=:}"$@"; }; f"#, vec![""]),
+    ] {
+        check(source, &[&expected]);
+    }
+}
+
+#[test]
+fn deferred_ifs_splitting_keeps_field_byte_and_shared_work_bounds() {
+    let rig = Rig::new(Limits {
+        arguments: 3,
+        ..Limits::default()
+    });
+    rig.variable("v", "a:b:c");
+    assert_eq!(rig.run("IFS=; args ${v}${IFS:=:}"), 2);
+    assert!(rig.calls.borrow().is_empty());
+
+    let rig = Rig::new(Limits {
+        expansion_bytes: 32,
+        ..Limits::default()
+    });
+    rig.variable("v", &" ".repeat(33));
+    assert_eq!(rig.run("IFS=; args ${v}${IFS:= }"), 2);
+    assert!(rig.calls.borrow().is_empty());
+
+    let rig = Rig::new(Limits {
+        expansion_bytes: 8,
+        ..Limits::default()
+    });
+    rig.variable("v", "abc:def");
+    assert_eq!(rig.run("IFS=; args ${v}${IFS:=:}"), 2);
+    assert!(rig.calls.borrow().is_empty());
+
+    let rig = Rig::new(Limits {
+        source_bytes: 128,
+        expansion_bytes: 128,
+        arguments: 4,
+        ..Limits::default()
+    });
+    rig.variable("v", &" ".repeat(110));
+    assert_eq!(rig.run("IFS=; args ${v}${IFS:= } $v"), 2);
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn deferred_ifs_splitting_yields_and_cancels_after_the_parameter_write() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("IFS", ":");
+    rig.variable("v", &" ".repeat(8192));
+    let job = rig
+        .shell
+        .start("f() { local IFS=; args ${v}${IFS:= }; }; f")
+        .unwrap();
+    for _ in 0..1000 {
+        rig.ex.drive(1);
+        if rig
+            .shell
+            .state()
+            .borrow()
+            .variables
+            .get("IFS")
+            .map(String::as_str)
+            == Some(" ")
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.shell.state().borrow().variables.get("IFS").unwrap(),
+        " "
+    );
+    let peer = rig.ex.spawn(async { 42 });
+    rig.ex.drive(4);
+    assert!(peer.is_finished());
+    assert!(
+        !job.is_finished(),
+        "the deferred split must remain interruptible"
+    );
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(
+        rig.shell.state().borrow().variables.get("IFS").unwrap(),
+        ":"
+    );
+}
+
+#[test]
 fn assignment_effects_reach_rhs_argv_declarations_and_redirects() {
     check(
         r#"a=${b:=B} c=${a:=bad}; args "$a" "$b" "$c"; ${cmd:=args} "${arg:=A}" >"${path:=file}"; args "$cmd" "$arg" "$path"; export x=${y:=Y}; f() { local z=${nested:=N}; args "$z"; }; f; args "$x" "$y" "$nested""#,
