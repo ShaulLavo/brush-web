@@ -36,6 +36,8 @@
     "test:shell:wasi": "node scripts/test-shell-wasi.mjs",
     "test:shell:scoreboard": "node --test scripts/test-shell-scoreboard*.mjs scripts/test-compat-selection.mjs scripts/test-own-shell-runner.mjs",
     "compat:shell": "BASH_COMPAT_MODE=frozen BASH_COMPAT_ENGINES=own-shell node scripts/bash-compat.mjs",
+    "fuzz:shell-braces": "node scripts/fuzz-shell-braces.mjs",
+    "test:fuzz-shell-braces": "node --test scripts/test-fuzz-shell-braces.mjs",
     "fuzz:shell-words": "node scripts/fuzz-shell-words.mjs",
     "fuzz:shell-words:ci": "node scripts/fuzz-shell-words.mjs --replay scripts/fixtures/shell-words-seed-1.json --replay scripts/fixtures/shell-words-seed-42.json",
     "fuzz:shell-arithmetic": "node scripts/fuzz-shell-arithmetic.mjs",

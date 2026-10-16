@@ -324,3 +324,34 @@ Arithmetic seeds 7, 314 and 981 each match 3,674 Bash 5.3.15 cases. Seeds 7 and
 314 are recorded for CI. Readonly seeds 17 and 314 each match 267 cases, and
 27 parser compatibility cases match. Regenerated word fixtures for seeds 1
 and 42 remain byte-identical, with 3,014 cases each.
+
+## Brace expansion: fuzzer-first, implementation pending
+
+`npm run fuzz:shell-braces -- --shell /path/to/native/shell-engine` compares
+3,000 generated cases plus fixed controls with installed GNU Bash 5.3.15.
+Run both `--seed 1` (default) and `--seed 42`. `--self-control` instead compares
+two fresh Bash processes; `npm run test:fuzz-shell-braces` checks the generator,
+strict process matching and fixture validation without a shell build.
+
+The original bounded grammar pairs quoted/unquoted command words and covers
+nested/adjacent lists, empty alternatives, numeric and ASCII ranges, signed
+padding, step zero, escaped/unmatched delimiters and opaque parameter results.
+A leading fixed `printf '<%s>\\n'` argument distinguishes zero fields from one
+empty field. Arithmetic counters test expansion order and evaluation once per
+generated word; assignment and parameter-operand controls must not brace-expand.
+Arithmetic failures in an older baseline are **MISMATCH**, never exemptions.
+There is no tilde or command substitution. Generated letter ranges stay in one
+ASCII case: crossing `Z..a` beside `$v` can enter Bash's backtick parsing. An
+isolated cross-case fixed control remains. Cartesian products are capped at 128
+possible fields; engine resource-limit tests remain separate, not literal-output
+fallbacks. Structural shrinking preserves context, quoting and failure status.
+
+The fuzzer never builds. It self-queues through this host's light queue and cleans
+its private run directory (parent: `FUZZ_BRACES_SCRATCH`, default
+`/work/tmp/brush-web-climb-braces`). `--output PATH` keeps exact byte diagnostics.
+`--record PATH` refuses dirty candidate runs and Bash self-controls. Record seeds
+1/42 and add frozen CI replay **only after the implemented shell has zero
+mismatches**. No brace fixtures are recorded yet. Future `--replay PATH` runs need
+no Bash and validate the fuzzer hash, full ordered cases, coverage, seed, exact
+Bash version family, timeout, status and canonical base64 observations before
+executing the candidate. Existing scoreboard observations remain unchanged.
