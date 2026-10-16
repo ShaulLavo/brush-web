@@ -3272,6 +3272,15 @@ mod tests {
     }
 
     #[test]
+    fn quoted_parameter_depth_includes_the_enclosing_expansion() {
+        let source = r#""${u:-'${v}'}""#;
+        let mut lexer = Lexer::with_max_subst_depth(source, 1);
+        assert!(matches!(lexer.next_token(), Some(Token::Error(_))));
+        let mut lexer = Lexer::with_max_subst_depth(source, 2);
+        assert!(matches!(lexer.next_token(), Some(Token::QuotedWord(_))));
+    }
+
+    #[test]
     fn test_single_quoted_segment_in_word_escapes_dollar() {
         let mut lexer = Lexer::new("echo foo'$(id)'");
         assert_eq!(lexer.next_token(), Some(Token::Word("echo".to_string())));

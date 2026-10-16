@@ -96,18 +96,3 @@ fn syntax_error_locations_are_preserved() {
         })
     ));
 }
-
-#[test]
-fn quoted_parameter_depth_includes_the_enclosing_expansion() {
-    let source = r#""${u:-'${v}'}""#;
-    let mut lexer = shell_parser::Lexer::with_max_subst_depth(source, 1);
-    assert!(matches!(
-        lexer.next_token(),
-        Some(shell_parser::parser::tokens::Token::Error(_))
-    ));
-    let mut lexer = shell_parser::Lexer::with_max_subst_depth(source, 2);
-    assert!(matches!(
-        lexer.next_token(),
-        Some(shell_parser::parser::tokens::Token::QuotedWord(_))
-    ));
-}
