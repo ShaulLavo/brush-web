@@ -137,8 +137,30 @@ cancellation returns 130. Arrays, namerefs, option changes, byte locales and
 locale collation are outside this subset. Selected unsupported syntax fails
 closed. Empty patterns are inert except first-replacement empty anchors;
 global empty matches advance without revisiting the end of nonempty input.
-Other parameter operators, pathname globbing, substitution, arrays, traps, aliases,
-`lastpipe`, directory validation and full utility option coverage are not
+Scalar arithmetic supports `$((expression))`, `((expression))` and `let`, with
+signed 64-bit wrapping values, Bash numeric bases, operator precedence, recursive
+scalar variable values, assignments and increment/decrement. Logical operators
+and ternaries skip unselected arithmetic evaluation without skipping syntax
+validation. Shell dollar expansions happen before evaluating arithmetic syntax;
+`let` receives arguments already expanded by the ordinary word machinery.
+Completed variable writes remain visible even if a later operation fails.
+Arithmetic expansion errors stop the containing shell with status 1; arithmetic
+commands and `let` instead return status 1 and allow the next command to run.
+Resource exhaustion remains status 2 and cancellation 130.
+Scalar `${v:offset:length}` supports ordinary identifiers, positive positional
+parameters, `$?` and `$#`, with arithmetic expressions for the offset and optional
+length. UTF-8 locales count Unicode scalar values;
+C/POSIX and unknown locales count bytes, following scalar length's locale rules;
+selected byte slices must land on UTF-8 boundaries or return unsupported status 2
+rather than emit invalid text. Arbitrary byte-valued shell strings remain deferred.
+The source value is snapshotted before arithmetic side effects. Unset sources skip
+both expressions, and out-of-range offsets skip the length expression. Slices
+retain outer quote protection and final IFS splitting. Arithmetic parsing,
+recursive evaluation, snapshots and character scans share the command's bounded
+storage/work accounting and cancellation checkpoints. Arrays, subscript arithmetic,
+namerefs and command substitution remain outside this scalar arithmetic subset.
+Other parameter operators, pathname globbing, command substitution, arrays, traps,
+aliases, `lastpipe`, directory validation and full utility option coverage are not
 implemented. Unsupported AST forms return status 2. Utility names/format options
 here are not claims of full Bash compatibility.
 

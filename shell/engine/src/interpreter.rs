@@ -475,8 +475,14 @@ fn execute(
                 match command_redirects(&redirs, &state, fds, &context, &mut work).await {
                     Err(outcome) => outcome,
                     Ok(fds) => {
-                        execute_compound_body(compound, state.clone(), fds, context.compound_body())
-                            .await
+                        execute_compound_body(
+                            compound,
+                            state.clone(),
+                            fds,
+                            context.compound_body(),
+                            &mut work,
+                        )
+                        .await
                     }
                 }
             }
@@ -509,8 +515,12 @@ async fn execute_compound_body(
     state: SharedState,
     fds: Descriptors,
     context: Context,
+    work: &mut expand::Work,
 ) -> Outcome {
     match compound {
+        CompoundCommand::Arithmetic(source) => {
+            arithmetic_command(&source, &state, &fds, &context, work).await
+        }
         CompoundCommand::BraceGroup(commands) => {
             sequence(commands, state.clone(), fds, context.clone()).await
         }
@@ -549,10 +559,46 @@ async fn execute_compound_body(
     }
 }
 
+async fn arithmetic_command(
+    source: &str,
+    state: &SharedState,
+    fds: &Descriptors,
+    context: &Context,
+    work: &mut expand::Work,
+) -> Outcome {
+    match crate::arithmetic::evaluate(
+        source,
+        state,
+        &context.cancel,
+        context.limits().expansion_bytes,
+        work,
+    )
+    .await
+    {
+        Ok(value) => Outcome::status(i32::from(value == 0)),
+        Err(
+            error @ expand::Error::Arithmetic {
+                expansion: false, ..
+            },
+        ) => {
+            let mut outcome = expansion_failure(error.into(), fds, context).await;
+            outcome.flow = Flow::Normal;
+            outcome
+        }
+        Err(error) => expansion_failure(error.into(), fds, context).await,
+    }
+}
+
 async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Context) -> Outcome {
     let CommandError { error, stderr } = error;
     let (name, message, line, status) = match error {
         expand::Error::Status(code) => return Outcome::status(code),
+        expand::Error::Arithmetic { message, line, .. } => (
+            "arithmetic expression".to_owned(),
+            message.to_owned(),
+            line,
+            1,
+        ),
         expand::Error::BadSubstitution { message, line } => {
             ("bad substitution".to_owned(), message.to_owned(), line, 1)
         }
@@ -801,6 +847,7 @@ struct PreparedCommand {
     argv: Vec<String>,
     assigned: Vec<(String, String)>,
     fds: Descriptors,
+    work: expand::Work,
 }
 
 async fn simple_command(
@@ -911,6 +958,7 @@ async fn prepare_simple_command(
             argv,
             assigned: Vec::new(),
             fds,
+            work,
         });
     }
     let fds = redirects(&simple.redirects, state, fds, context, &mut work).await?;
@@ -927,6 +975,7 @@ async fn prepare_simple_command(
         argv,
         assigned,
         fds,
+        work,
     })
 }
 
@@ -939,6 +988,7 @@ async fn dispatch_simple_command(
         argv,
         assigned,
         fds,
+        mut work,
     } = prepared;
     let mut fields = argv.into_iter();
     let Some(name) = fields.next() else {
@@ -958,6 +1008,43 @@ async fn dispatch_simple_command(
             outcome.flow = Flow::Normal;
         }
         return Ok(outcome);
+    }
+    if name == "let" {
+        if !assigned.is_empty() {
+            return Err(2);
+        }
+        if args.is_empty() {
+            return Ok(arithmetic_command("()", &state, &fds, &context, &mut work).await);
+        }
+        let mut result = Outcome::status(0);
+        for source in &args {
+            match crate::arithmetic::evaluate_literal(
+                source,
+                &state,
+                &context.cancel,
+                context.limits().expansion_bytes,
+                &mut work,
+            )
+            .await
+            {
+                Ok(value) => result = Outcome::status(i32::from(value == 0)),
+                Err(error) => {
+                    let ordinary = matches!(
+                        error,
+                        expand::Error::Arithmetic {
+                            expansion: false,
+                            ..
+                        }
+                    );
+                    result = expansion_failure(error.into(), &fds, &context).await;
+                    if ordinary {
+                        result.flow = Flow::Normal;
+                    }
+                    break;
+                }
+            }
+        }
+        return Ok(result);
     }
     if builtins::is_builtin(&name) {
         if !assigned.is_empty() {

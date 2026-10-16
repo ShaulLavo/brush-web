@@ -1,0 +1,294 @@
+//! GNU Bash 5.3 scalar arithmetic regressions. Operator/bases cases adapt
+//! Bashkit arithmetic.rs unit tests and spec_cases/bash/arithmetic.test.sh at
+//! 491c3281f668b76d64b15210b8f5d7bf97244be0; async resource tests are original.
+use super::*;
+
+#[test]
+fn scalar_operators_precedence_bases_and_wrapping() {
+    let rig = Rig::new(Limits::default());
+    let cases = [
+        ("1+2*3", "7"),
+        ("2**3**2", "512"),
+        ("-2**2", "4"),
+        ("1<<2+1", "8"),
+        ("32>>2", "8"),
+        ("-1>>65", "-1"),
+        ("7/3", "2"),
+        ("7%3", "1"),
+        ("~0", "-1"),
+        ("!3", "0"),
+        ("1<2", "1"),
+        ("1<=1", "1"),
+        ("3>2", "1"),
+        ("3>=4", "0"),
+        ("1==1", "1"),
+        ("1!=1", "0"),
+        ("1|2&4", "1"),
+        ("7^3", "4"),
+        ("1||0&&0", "1"),
+        ("1,2,3", "3"),
+        ("0x1f+017+2#101", "51"),
+        ("64#@+64#_", "125"),
+        ("36#Z", "35"),
+        ("0x", "0"),
+        ("99999999999999999999", "7766279631452241919"),
+        ("9223372036854775807+1", "-9223372036854775808"),
+        ("-9223372036854775808/-1", "-9223372036854775808"),
+        ("-9223372036854775808%-1", "0"),
+        ("2**64", "0"),
+        ("5++1", "6"),
+        ("5--1", "6"),
+        ("--5", "5"),
+    ];
+    for (source, expected) in cases {
+        assert_eq!(rig.run(&format!("args \"$(({source}))\"")), 0, "{source}");
+        assert_eq!(rig.calls.borrow().last().unwrap(), &[expected], "{source}");
+    }
+}
+
+#[test]
+fn assignments_incdec_and_rhs_order_are_durable() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run("x=7; args \"$((x+=x=4))\" \"$x\"; args \"$((x=y=9,x++ + ++x))\" \"$x\" \"$y\""),
+        0
+    );
+    assert_eq!(
+        *rig.calls.borrow(),
+        vec![vec!["11", "11"], vec!["20", "11", "9"]]
+    );
+    let operations = [
+        ("+=", "10"),
+        ("-=", "4"),
+        ("*=", "21"),
+        ("/=", "2"),
+        ("%=", "1"),
+        ("<<=", "56"),
+        (">>=", "0"),
+        ("&=", "3"),
+        ("^=", "4"),
+        ("|=", "7"),
+    ];
+    for (op, expected) in operations {
+        assert_eq!(rig.run(&format!("x=7; args \"$((x{op}3))\" \"$x\"")), 0);
+        assert_eq!(rig.calls.borrow().last().unwrap(), &[expected, expected]);
+    }
+}
+
+#[test]
+fn short_circuit_skips_arithmetic_not_shell_expansion() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("x=1; y=2; args \"$((0&&(x=9)))\" \"$((1||(y=9)))\" \"$((1?x++:y++))\" \"$((0?1/0:3))\" \"$x\" \"$y\""), 0);
+    assert_eq!(
+        *rig.calls.borrow().last().unwrap(),
+        ["0", "1", "1", "3", "2", "2"]
+    );
+    assert_eq!(rig.run("args \"$((0 && ${missing:=4}))\" \"$missing\""), 0);
+    assert_eq!(*rig.calls.borrow().last().unwrap(), ["0", "4"]);
+}
+
+#[test]
+fn recursive_scalars_and_dollar_preexpansion_have_distinct_order() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("x=1; y='x+2'; args \"$((y))\"; args \"$((x=2,$x))\" \"$x\"; x=1; args \"$((x=2,$((x+1))))\" \"$x\""), 0);
+    assert_eq!(
+        *rig.calls.borrow(),
+        vec![vec!["3"], vec!["1", "2"], vec!["2", "2"]]
+    );
+    assert_eq!(rig.run("x='y=4'; y=0; args \"$((x))\" \"$y\""), 0);
+    assert_eq!(*rig.calls.borrow().last().unwrap(), ["4", "4"]);
+}
+
+#[test]
+fn arithmetic_commands_and_let_errors_do_not_abort_following_commands() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("x=0; ((x=9,1/0)); args \"$?\" \"$x\"; let 'x=4,08' 'x=99'; args \"$?\" \"$x\"; let 0 'x=3'; args \"$?\" \"$x\""), 0);
+    assert_eq!(
+        *rig.calls.borrow(),
+        vec![vec!["1", "9"], vec!["1", "4"], vec!["0", "3"]]
+    );
+    assert_eq!(rig.run("x=1; let 'x=2,$x'; args \"$?\" \"$x\""), 0);
+    assert_eq!(*rig.calls.borrow().last().unwrap(), ["1", "2"]);
+}
+
+#[test]
+fn expansion_errors_abort_and_completed_writes_survive() {
+    for expression in ["x=9,1/0", "x=9,08", "x=9,2**-1", "x=9,1+", "x=9,1=2"] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(
+            rig.run(&format!("x=0; args \"$(({expression}))\"; args after")),
+            1,
+            "{expression}"
+        );
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.shell.state().borrow().variables.get("x").unwrap(), "9");
+        assert!(!rig.errors.bytes().is_empty());
+    }
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("(( $((1/0)) )); args after"), 1);
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn scalar_substrings_use_arithmetic_and_snapshot_source() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("v=abcdef; x=1; args \"${v:x+1:2*2}\" \"${v: -3: -1}\"; args \"${v:(v=3):1}\" \"$v\"; v=abcdef; args \"${v:1:(v=2)}\" \"$v\""), 0);
+    assert_eq!(
+        *rig.calls.borrow(),
+        vec![vec!["cdef", "de"], vec!["d", "3"], vec!["bc", "2"]]
+    );
+}
+
+#[test]
+fn unset_and_out_of_range_slices_skip_unneeded_arithmetic() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("x=0; args \"${missing:x++:1/0}\" \"$x\"; v=abc; args \"${v:99:(x=9)}\" \"${v: -99:1/0}\" \"$x\""), 0);
+    assert_eq!(*rig.calls.borrow(), vec![vec!["", "0"], vec!["", "", "0"]]);
+    assert_eq!(rig.run("v=''; args \"${v:0:-1}\"; args after"), 1);
+}
+
+#[test]
+fn substring_utf8_and_special_scalars() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("LC_ALL", "C.UTF-8");
+    assert_eq!(rig.run("v='hé日本'; args \"${v:1:2}\" \"${v: -2:1}\" \"${PWD:0:5}\" \"${?:0:1}\"; f() { args \"${1:1:2}\" \"${#:0:1}\"; }; f abcd xyz"), 0);
+    assert_eq!(
+        *rig.calls.borrow(),
+        vec![vec!["é日", "日", "/home", "0"], vec!["bc", "2"]]
+    );
+}
+
+#[test]
+fn arithmetic_unavailable_categories_remain_explicit() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("args \"$((a[0]))\""), 2);
+    assert_eq!(rig.run("args \"${@:1:2}\""), 2);
+}
+
+#[test]
+fn nested_arithmetic_operands_and_scalar_slices_are_supported() {
+    check(
+        "v=abc; args ${v^^$((1+2))} ${v^^${v:1}} ${v#$((1+2))} ${v#${v:1}} ${u:-$((1+2))}",
+        &[&["abc", "abc", "abc", "abc", "3"]],
+    );
+    check(
+        "f() { args \"${unused:-${1:1:1}}\" \"${unused:-${#:0:1}}\" \"${unused:-${?:0:1}}\"; }; f abc",
+        &[&["b", "1", "0"]],
+    );
+    check("x=1; args \"${u:-$((1 + ${x:-')'}))}\"", &[&["2"]]);
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("args ${u:?$((1+2))}; args after"), 127);
+    assert!(rig.calls.borrow().is_empty());
+    assert!(String::from_utf8(rig.errors.bytes()).unwrap().contains("3"));
+}
+
+#[test]
+fn malformed_lengths_are_fatal_in_selected_operands() {
+    for token in [
+        "${#x-default}",
+        "${#x/foo/bar}",
+        "${#x:1}",
+        "${#!x}",
+        "${#,,}",
+    ] {
+        for source in [
+            format!("args {token}; args after"),
+            format!("args ${{u:-{token}}}; args after"),
+        ] {
+            let rig = Rig::new(Limits::default());
+            assert_eq!(rig.run(&source), 1, "{source}");
+            assert!(rig.calls.borrow().is_empty(), "{source}");
+        }
+    }
+}
+
+#[test]
+fn terminating_recursive_scalars_observe_intermediate_writes() {
+    check("x='(x=1)+x'; args \"$((x))\" \"$x\"", &[&["2", "1"]]);
+    check(
+        "x='(y-=1)>0?x:1'; y=3; args \"$((x))\" \"$y\"",
+        &[&["1", "0"]],
+    );
+}
+
+#[test]
+fn arithmetic_side_effects_refresh_ifs_for_the_whole_word() {
+    check("IFS=,; v=a1b; args pre$v$((IFS=1))", &[&["prea", "b"]]);
+    check(
+        "IFS=,; v=a1b; s=abc; args pre$v${s:(IFS=1):1}",
+        &[&["prea", "bb"]],
+    );
+    check(
+        "IFS=,; v=a1b; args pre$v$(( ${z:=$((IFS=1))} ))",
+        &[&["prea", "b"]],
+    );
+}
+
+#[test]
+fn substring_arithmetic_errors_are_fatal_in_arithmetic_commands() {
+    for source in [
+        "v=abc; (( ${v:1/0} )); args after",
+        "v=abc; (( ${v:0:-9} )); args after",
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 1, "{source}");
+        assert!(rig.calls.borrow().is_empty());
+    }
+}
+
+#[test]
+fn byte_locale_substrings_require_valid_utf8_boundaries() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("LC_ALL", "C");
+    assert_eq!(rig.run("v='aéb'; args \"${v:1:2}\""), 0);
+    assert_eq!(*rig.calls.borrow().last().unwrap(), ["é"]);
+    assert_eq!(rig.run("v='aéb'; args \"${v:1:1}\""), 2);
+}
+
+#[test]
+fn unchanged_writes_do_not_hide_arithmetic_recursion() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("x='(y=1)+x'; y=3; args \"$((x))\"; args after"), 1);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.shell.state().borrow().variables["y"], "1");
+}
+
+#[test]
+fn every_recursive_scalar_form_reaches_its_bounded_depth_without_stack_growth() {
+    // Run this unchanged in native and WASI suites. Walk through the deepest
+    // accepted form, not only an oversized input rejected by the outer parser.
+    for form in [
+        "indirect",
+        "default",
+        "replacement",
+        "arithmetic",
+        "substring",
+    ] {
+        let mut expression = "1".to_owned();
+        let mut rejected = false;
+        for depth in 1..=40 {
+            expression = match form {
+                "indirect" => format!("${{!p:-{expression}}}"),
+                "default" => format!("${{u:-{expression}}}"),
+                "replacement" => format!("${{v/1/{expression}}}"),
+                "arithmetic" => format!("$(({expression}))"),
+                "substring" => format!("${{v:0:{expression}}}"),
+                _ => unreachable!(),
+            };
+            eprintln!("depth trace {form} {depth}");
+            let rig = Rig::new(Limits::default());
+            rig.variable("p", "missing");
+            rig.variable("v", "1");
+            let code = rig.run(&format!("args \"{expression}\""));
+            if code == 2 {
+                assert!(depth >= 8, "{form} rejected too early at depth {depth}");
+                assert!(rig.calls.borrow().is_empty(), "{form} depth {depth}");
+                rejected = true;
+                break;
+            }
+            assert_eq!(code, 0, "{form} depth {depth}");
+            assert_eq!(*rig.calls.borrow(), [vec!["1"]], "{form} depth {depth}");
+        }
+        assert!(rejected, "{form} never reached its explicit depth bound");
+    }
+}

@@ -644,6 +644,14 @@ impl<'a> Parser<'a> {
                 self.top_starts.push((start_offset, start_line));
                 commands.push((*cmd, self.current_span.start.line));
             });
+            self.check_error_token()?;
+            // parse_command_list consumes semicolon/background separators.
+            // A remaining token on this line cannot silently start a second
+            // command after a completed compound command or its redirections.
+            if parsed.is_some() && self.current_token.is_some()
+                && !matches!(self.current_token, Some(tokens::Token::Newline)) {
+                return Err(self.error("unexpected token"));
+            }
             if parsed.is_none()
                 && self.current_token.is_some()
                 && self.current_span.start.offset == start_offset
@@ -5300,12 +5308,19 @@ fn bad_brace_parameter(chars: &WordChars<'_>) -> Option<String> {
     let length_prefix = match it.peek() {
         Some('!') => return None,
         Some('#') => {
+            if hash_param_with_op(chars) { return None; }
             it.next();
             match it.peek() {
                 // `${#}`, `${##}`, `${#-}`, ...: length of a special parameter
                 // or `$#` itself; leave these to the regular parser.
                 Some(c) if c.is_ascii_alphanumeric() || *c == '_' => true,
-                _ => return None,
+                Some('}') | None => return None,
+                Some(_) => {
+                    let mut tail = it.clone();
+                    tail.next();
+                    if tail.peek() == Some(&'}') { return None; }
+                    true
+                }
             }
         }
         _ => false,
@@ -5446,7 +5461,11 @@ fn read_slice_field(chars: &mut WordChars<'_>, stop_colon: bool) -> String {
 fn hash_param_with_op(chars: &WordChars<'_>) -> bool {
     let mut it = chars.clone();
     it.next(); // '#'
-    it.next() == Some('#') && !matches!(it.next(), Some('}') | None)
+    match it.next() {
+        Some(':') => true, // `${#:offset:length}` slices the scalar `$#`.
+        Some('#') => !matches!(it.next(), Some('}') | None),
+        _ => false,
+    }
 }
 
 /// After the parameter of `${...}`: whether `next` cannot start an operator.

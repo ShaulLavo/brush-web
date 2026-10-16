@@ -533,3 +533,33 @@ fn lazy_default_reparse_keeps_quoted_substitution_lookalikes_literal() {
         assert!(operand.ends_with('\''), "swallowed outer brace: {word:?}");
     }
 }
+
+#[test]
+fn hash_scalar_substrings_are_not_length_expansions() {
+    let word = argument("args ${#:0:1}");
+    assert!(
+        matches!(word.parts.as_slice(), [WordPart::Substring { name, offset, length }] if name == "#" && offset == "0" && length.as_deref() == Some("1"))
+    );
+    assert!(
+        matches!(argument("args ${#v}").parts.as_slice(), [WordPart::Length(name)] if name == "v")
+    );
+}
+
+#[test]
+fn compound_commands_require_separators_at_top_level() {
+    for source in [
+        "(missing)+(2)",
+        "(18446744073709551616)>=(64#_)",
+        "(echo x) echo y",
+    ] {
+        assert!(Parser::new(source).parse().is_err(), "{source}");
+    }
+    for source in [
+        "(echo x); (echo y)",
+        "(echo x)\n(echo y)",
+        "(echo x) | (echo y)",
+        "(echo x) && (echo y)",
+    ] {
+        assert!(Parser::new(source).parse().is_ok(), "{source}");
+    }
+}

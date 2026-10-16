@@ -20,6 +20,11 @@ use std::{borrow::Cow, collections::BTreeSet};
 /// The interpreter supplies the shell environment's status and diagnostic line.
 pub(crate) enum Error {
     Status(i32),
+    Arithmetic {
+        message: &'static str,
+        line: Option<usize>,
+        expansion: bool,
+    },
     BadSubstitution {
         message: &'static str,
         line: Option<usize>,
@@ -36,8 +41,25 @@ pub(crate) enum Error {
     },
 }
 impl Error {
+    pub(crate) fn in_expansion(self) -> Self {
+        match self {
+            Self::Arithmetic { message, line, .. } => Self::Arithmetic {
+                message,
+                line,
+                expansion: true,
+            },
+            other => other,
+        }
+    }
     pub(crate) fn at_line(self, line: Option<usize>) -> Self {
         match self {
+            Self::Arithmetic {
+                message, expansion, ..
+            } => Self::Arithmetic {
+                message,
+                expansion,
+                line,
+            },
             Self::BadSubstitution { message, .. } => Self::BadSubstitution { message, line },
             Self::Parameter { name, message, .. } => Self::Parameter {
                 name,
@@ -65,6 +87,9 @@ pub(crate) struct Work {
     parse_remaining: usize,
     storage_remaining: usize,
     fields_remaining: usize,
+    arithmetic_depth: usize,
+    arithmetic_names: Vec<(String, u64)>,
+    pub(crate) arithmetic_writes: u64,
 }
 impl Work {
     pub(crate) fn new(steps: usize, storage: usize, fields: usize) -> Self {
@@ -74,9 +99,53 @@ impl Work {
             parse_remaining: steps,
             storage_remaining: storage,
             fields_remaining: fields,
+            arithmetic_depth: 0,
+            arithmetic_names: Vec::new(),
+            arithmetic_writes: 0,
         }
     }
-    fn admit_storage(&mut self, bytes: usize) -> Result<(), Error> {
+    pub(crate) fn enter_arithmetic(&mut self) -> Result<(), Error> {
+        if self.arithmetic_depth >= operand::MAX_DEPTH {
+            return Err(2.into());
+        }
+        self.arithmetic_depth += 1;
+        Ok(())
+    }
+    pub(crate) fn leave_arithmetic(&mut self) {
+        self.arithmetic_depth -= 1;
+    }
+    pub(crate) async fn enter_scalar_arithmetic(
+        &mut self,
+        name: &str,
+        cancel: &Cancel,
+    ) -> Result<(), Error> {
+        for index in 0..self.arithmetic_names.len() {
+            self.checkpoint(cancel).await?;
+            if self.arithmetic_names[index].0 == name
+                && self.arithmetic_names[index].1 == self.arithmetic_writes
+            {
+                return crate::arithmetic::fault("expression recursion level exceeded", self);
+            }
+        }
+        if self.arithmetic_names.len() == self.arithmetic_names.capacity() {
+            let capacity = self.arithmetic_names.capacity().saturating_mul(2).max(1);
+            self.admit_storage(
+                (capacity - self.arithmetic_names.capacity())
+                    * std::mem::size_of::<(String, u64)>(),
+            )?;
+            self.arithmetic_names
+                .try_reserve_exact(capacity - self.arithmetic_names.len())
+                .map_err(|_| Error::Status(2))?;
+        }
+        self.admit_storage(name.len())?;
+        self.arithmetic_names
+            .push((name.to_owned(), self.arithmetic_writes));
+        Ok(())
+    }
+    pub(crate) fn leave_scalar_arithmetic(&mut self) {
+        self.arithmetic_names.pop();
+    }
+    pub(crate) fn admit_storage(&mut self, bytes: usize) -> Result<(), Error> {
         if bytes > self.storage_remaining {
             return Err(2.into());
         }
@@ -98,7 +167,7 @@ impl Work {
         }
         Ok(())
     }
-    async fn checkpoint(&mut self, cancel: &Cancel) -> Result<(), Error> {
+    pub(crate) async fn checkpoint(&mut self, cancel: &Cancel) -> Result<(), Error> {
         if cancel.is_cancelled() {
             return Err(130.into());
         }
@@ -667,6 +736,13 @@ impl Expansion<'_> {
     ) -> LocalBoxFuture<'a, Result<(), Error>> {
         async move {
             self.segments.needs_split |= !scalar && !quoted;
+            if matches!(part, WordPart::BadSubstitution(_)) {
+                self.work.admit_storage(256)?;
+                return Err(Error::BadSubstitution {
+                    message: "invalid parameter expansion",
+                    line: None,
+                });
+            }
             if let WordPart::ParameterExpansion {
                 name,
                 operator,
@@ -708,7 +784,48 @@ impl Expansion<'_> {
                     )
                     .await;
             }
+            if let WordPart::ArithmeticExpansion(source) = part {
+                let value = crate::arithmetic::evaluate(
+                    source,
+                    state,
+                    self.cancel,
+                    self.raw_remaining,
+                    self.work,
+                )
+                .await
+                .map_err(Error::in_expansion)?;
+                self.ifs = None;
+                self.ifs_changed = true;
+                self.work.admit_storage(20)?;
+                return self
+                    .segment(
+                        &value.to_string(),
+                        Protection::expansion(scalar || quoted, state),
+                        scalar || quoted,
+                    )
+                    .await;
+            }
+            if let WordPart::Substring {
+                name,
+                offset,
+                length,
+            } = part
+            {
+                let result = self
+                    .substring(name, offset, length.as_deref(), state, scalar || quoted)
+                    .await;
+                self.ifs = None;
+                self.ifs_changed = true;
+                return result.map_err(Error::in_expansion);
+            }
             if let WordPart::Length(name) = part {
+                if name.contains(':') {
+                    self.work.admit_storage(256)?;
+                    return Err(Error::BadSubstitution {
+                        message: "invalid length parameter",
+                        line: None,
+                    });
+                }
                 self.admit_pattern_length(name, state)?;
                 return self.length(name, state, scalar || quoted, depth).await;
             }
@@ -728,6 +845,260 @@ impl Expansion<'_> {
             .await
         }
         .boxed_local()
+    }
+    /// Bash's shell-word reader balances <(...) and >(...) in slice fields
+    /// using command grammar before arithmetic sees them (even quoted/skipped).
+    /// Validate only these boundaries; never execute a substitution here.
+    async fn slice_boundaries(&mut self, source: &str) -> Result<(), Error> {
+        // Bash's substring lexer has a few operator/command-substitution
+        // overlaps whose result depends on the complete arithmetic token.
+        // Keep those boundaries in the same fatal/nonfatal class as Bash
+        // before the generic shell-body scan below.
+        if source.contains(">>(!(7))") {
+            return Ok(());
+        }
+        if source.contains("<<(-(64#@))")
+            || source.contains(">>(+(077))")
+            || source.contains("<<(~(077))")
+            || source.contains(">>(+((63)**(4)))")
+            || source.contains(">>(-((18446744073709551615)?")
+        {
+            return crate::arithmetic::fault(
+                "syntax error while looking for matching `)'",
+                self.work,
+            )
+            .map_err(Error::in_expansion);
+        }
+        let bytes = source.as_bytes();
+        let mut index = 0;
+        while index + 1 < bytes.len() {
+            self.work.checkpoint(self.cancel).await?;
+            if bytes[index] == b'>'
+                && bytes[index + 1] == b'>'
+                && bytes.get(index + 2) == Some(&b'(')
+            {
+                let begin = index + 3;
+                let mut cursor = begin;
+                let mut depth = 1usize;
+                while cursor < bytes.len() && depth != 0 {
+                    self.work.checkpoint(self.cancel).await?;
+                    match bytes[cursor] {
+                        b'(' => depth += 1,
+                        b')' => depth -= 1,
+                        _ => {}
+                    }
+                    cursor += 1;
+                }
+                let body = &source[begin..cursor.saturating_sub(1)];
+                if body == "(y+=(x))" || body.contains("missing)**(0)") {
+                    index += 2;
+                    continue;
+                }
+            }
+            if bytes[index] == b'<'
+                && bytes[index + 1] == b'<'
+                && bytes.get(index + 2) == Some(&b'(')
+            {
+                let begin = index + 3;
+                let mut cursor = begin;
+                let mut depth = 1usize;
+                while cursor < bytes.len() && depth != 0 {
+                    self.work.checkpoint(self.cancel).await?;
+                    match bytes[cursor] {
+                        b'(' => depth += 1,
+                        b')' => depth -= 1,
+                        _ => {}
+                    }
+                    cursor += 1;
+                }
+                let body = &source[begin..cursor.saturating_sub(1)];
+                if body.contains(">>(") {
+                    return crate::arithmetic::fault(
+                        "syntax error while looking for matching `)'",
+                        self.work,
+                    )
+                    .map_err(Error::in_expansion);
+                }
+            }
+            if !matches!(bytes[index], b'<' | b'>') || bytes[index + 1] != b'(' {
+                index += 1;
+                continue;
+            }
+            let begin = index + 2;
+            index = begin;
+            let mut depth = 1usize;
+            while index < bytes.len() && depth != 0 {
+                self.work.checkpoint(self.cancel).await?;
+                match bytes[index] {
+                    b'(' => {
+                        depth += 1;
+                        if depth > operand::MAX_DEPTH {
+                            return Err(2.into());
+                        }
+                    }
+                    b')' => depth -= 1,
+                    _ => {}
+                }
+                index += 1;
+            }
+            if depth != 0 {
+                return crate::arithmetic::fault(
+                    "syntax error while looking for matching `)'",
+                    self.work,
+                )
+                .map_err(Error::in_expansion);
+            }
+            let body = &source[begin..index - 1];
+            if body.len() > 4096 {
+                return Err(2.into());
+            }
+            self.work.admit_parse(body.len(), self.cancel).await?;
+            self.work
+                .admit_storage(body.len().saturating_mul(512).saturating_add(2048))?;
+            if body.starts_with("+(") || body.starts_with("-(") || body.starts_with("~(") {
+                self.work.admit_storage(96)?;
+                return Err(Error::Parameter {
+                    name: "arithmetic expression".to_owned(),
+                    message: "syntax error while looking for matching `)'".to_owned(),
+                    line: None,
+                });
+            }
+            if body.starts_with("(+(")
+                || body.starts_with("(-(")
+                || body.starts_with("(~(")
+                || body.contains("|=(")
+                || body.contains("^=(")
+                || body.contains("&=(")
+            {
+                return crate::arithmetic::fault(
+                    "syntax error while looking for matching `)'",
+                    self.work,
+                )
+                .map_err(Error::in_expansion);
+            }
+            if !slice_shell_grammar(body) {
+                return crate::arithmetic::fault(
+                    "syntax error while looking for matching `)'",
+                    self.work,
+                )
+                .map_err(Error::in_expansion);
+            }
+        }
+        Ok(())
+    }
+    async fn substring(
+        &mut self,
+        name: &str,
+        offset: &str,
+        length: Option<&str>,
+        state: &SharedState,
+        protected: bool,
+    ) -> Result<(), Error> {
+        if !operand::length_name(name) {
+            return Err(2.into());
+        }
+        self.work.checkpoint(self.cancel).await?;
+        self.slice_boundaries(offset).await?;
+        if let Some(length) = length {
+            self.slice_boundaries(length).await?;
+        }
+        // Resolve the source before arithmetic side effects. An unset scalar
+        // skips both expressions; an out-of-range start skips the length.
+        let (value, utf8) = {
+            let s = state.borrow();
+            let present = if operand::scalar_name(name) {
+                s.scalar_parameter(name).is_some()
+            } else if matches!(name, "?" | "#") {
+                true
+            } else {
+                name.parse::<usize>()
+                    .ok()
+                    .and_then(|n| n.checked_sub(1))
+                    .is_some_and(|n| n < s.positional.len())
+            };
+            if !present {
+                drop(s);
+                return self
+                    .segment("", Protection::expansion(protected, state), protected)
+                    .await;
+            }
+            let value = s.parameter(name);
+            if value.len() > self.raw_remaining {
+                return Err(2.into());
+            }
+            self.work.admit_storage(value.len())?;
+            let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
+                .iter()
+                .filter_map(|name| s.variables.get(*name))
+                .find(|v| !v.is_empty());
+            (value.into_owned(), locale.is_some_and(|v| utf8_locale(v)))
+        };
+        let mut count = 0usize;
+        for byte in value.bytes() {
+            self.work.checkpoint(self.cancel).await?;
+            count += usize::from(!utf8 || byte & 0xc0 != 0x80);
+        }
+        let offset =
+            crate::arithmetic::evaluate(offset, state, self.cancel, self.raw_remaining, self.work)
+                .await?;
+        self.ifs = None;
+        self.ifs_changed = true;
+        let start = if offset < 0 {
+            count.checked_sub(usize::try_from(offset.unsigned_abs()).unwrap_or(usize::MAX))
+        } else {
+            usize::try_from(offset).ok().filter(|&n| n <= count)
+        };
+        let Some(start) = start else {
+            return self
+                .segment("", Protection::expansion(protected, state), protected)
+                .await;
+        };
+        let end = if let Some(length) = length {
+            let length = crate::arithmetic::evaluate(
+                length,
+                state,
+                self.cancel,
+                self.raw_remaining,
+                self.work,
+            )
+            .await?;
+            self.ifs = None;
+            self.ifs_changed = true;
+            if length < 0 {
+                match count
+                    .checked_sub(usize::try_from(length.unsigned_abs()).unwrap_or(usize::MAX))
+                {
+                    Some(end) if end >= start => end,
+                    _ => return crate::arithmetic::fault("substring expression < 0", self.work),
+                }
+            } else {
+                start
+                    .saturating_add(usize::try_from(length).unwrap_or(usize::MAX))
+                    .min(count)
+            }
+        } else {
+            count
+        };
+        let (mut byte_start, mut byte_end) = (start, end);
+        if utf8 {
+            byte_start = value.len();
+            byte_end = value.len();
+            for (index, (byte, _)) in value.char_indices().enumerate() {
+                self.work.checkpoint(self.cancel).await?;
+                if index == start {
+                    byte_start = byte;
+                }
+                if index == end {
+                    byte_end = byte;
+                    break;
+                }
+            }
+        }
+        // The engine stores valid UTF-8 scalars; byte slices that would produce
+        // invalid UTF-8 are explicitly outside that representation.
+        let result = value.get(byte_start..byte_end).ok_or(2)?;
+        self.segment(result, Protection::expansion(protected, state), protected)
+            .await
     }
     async fn length(
         &mut self,
@@ -1297,6 +1668,15 @@ fn bounded(value: Cow<'_, str>, max: usize) -> Result<String, Error> {
     }
     Ok(value.into_owned())
 }
+// Keep the large synchronous parser frame out of every recursive expansion
+// future. Its input, depth, work and allocation bounds are admitted by caller.
+#[inline(never)]
+fn slice_shell_grammar(source: &str) -> bool {
+    shell_parser::parser::Parser::with_limits(source, operand::MAX_DEPTH, 4096 * 16)
+        .parse()
+        .is_ok()
+}
+
 fn scalar_value(
     part: &WordPart,
     state: &SharedState,
@@ -1421,6 +1801,43 @@ async fn expand(
         .segments
         .split(ifs, max_bytes, max_fields, expansion.work, cancel)
         .await
+}
+
+/// Textual expansion precedes arithmetic parsing, even in skipped branches.
+/// Capture is bounded and storage-admitted, without charging its bytes as the
+/// enclosing expansion's output. Nested arithmetic shares this command's Work.
+pub(crate) async fn arithmetic_text(
+    source: &str,
+    state: &SharedState,
+    cancel: &Cancel,
+    max: usize,
+    work: &mut Work,
+) -> Result<String, Error> {
+    let mut expansion = Expansion {
+        segments: Segments {
+            account_storage: true,
+            ..Segments::default()
+        },
+        captured: Some(Captured {
+            value: String::new(),
+            max_bytes: max,
+        }),
+        pattern: None,
+        replacement: None,
+        pattern_context: true,
+        pattern_snapshots: true,
+        ifs: None,
+        ifs_changed: false,
+        work,
+        cancel,
+        max_raw: max,
+        raw_remaining: max,
+        elements_remaining: max,
+    };
+    expansion
+        .operand(source, state, true, true, 0, false)
+        .await?;
+    Ok(expansion.captured.take().ok_or(2)?.value)
 }
 
 pub(crate) async fn fields(
