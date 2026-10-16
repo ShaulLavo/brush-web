@@ -28,6 +28,8 @@ cargo(
     "--lib",
     "--test",
     "streaming",
+    "--test",
+    "words",
     "-j2",
     "--",
     "--test-threads=1",

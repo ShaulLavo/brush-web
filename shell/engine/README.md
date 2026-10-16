@@ -56,7 +56,8 @@ numbers, browser worker transport or shared-memory layout are frozen here.
 | Accumulating test consumer | 64 KiB capture, explicit failure (not unbounded collection) |
 | Memory filesystem | Caller supplies total data ceiling; growth fails |
 | Source input | 256 KiB per invocation plus parser depth, fuel, work and time limits |
-| Expanded command | 1 MiB, at most 4,096 argument words |
+| Expanded command | 1 MiB, at most 4,096 fields including command name and assignments |
+| Expansion work | Per command: source-byte + expansion-byte + argument capacity in character/part/element steps; cooperative yield every 64 steps; intermediate word bytes also capped at 1 MiB |
 | `read` line | 64 KiB, explicit failure |
 | Pipeline / jobs / function nesting | 128 stages / 128 retained jobs / 128 function frames |
 
@@ -71,15 +72,21 @@ Supported for the gate: literal/quoted words, ordinary variables and positional
 parameters, `$?`, `PIPESTATUS`, scalar assignments, function definitions/calls,
 AND/OR lists, background lists, brace groups, subshells, `while`, pipelines,
 `pipefail`, `!`, file/append/input and descriptor-duplication redirects, and a few
-streaming/state builtins. Broad Bash expansion, splitting, globbing, substitution,
-arrays, traps, aliases, `lastpipe`, directory validation and full utility option
+streaming/state builtins. The first word area adds quote-aware fields for literals,
+ordinary variables, positional parameters and `PIPESTATUS`, including IFS splitting,
+quoted `@` boundaries, `*` joins and command-name field promotion. Assignment and
+`export`/`local` assignment operands retain scalar expansion. Broad parameter
+operators, globbing, substitution, arrays, traps, aliases, `lastpipe`, directory validation and full utility option
 coverage are not implemented. Unsupported AST forms return status 2. Utility
 names/format options here are not claims of full Bash compatibility.
 
-The interpreter, scheduler, descriptors, process adapter and test programs are
-original implementations, not copied or adapted Bashkit interpreter/builtin code.
-Only `../parser/src/parser` is vendored, unchanged, as recorded in the source pin.
-No known Bashkit buffering or `mapfile` implementation is ported.
+The scheduler, descriptors, process adapter and streaming execution are original
+implementations. Word expansion and its focused `tests/words.rs` cases adapt the
+Bashkit sources recorded separately in `sources.lock.json` and
+`THIRD_PARTY_NOTICES.md`. Protection is structural, with cooperative work and
+explicit intermediate/aggregate limits instead of sentinel strings or truncation.
+`../parser/src/parser` remains vendored unchanged. No known Bashkit buffering or
+`mapfile` implementation is ported.
 
 ## Verification
 

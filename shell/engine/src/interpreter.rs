@@ -2,7 +2,7 @@
 //! interpreter fork. Unsupported syntax returns status 2 rather than guessing.
 use crate::{
     builtins,
-    executor::{Cancel, Executor, JoinHandle, yield_now},
+    executor::{Budget, Cancel, Executor, JoinHandle, yield_now},
     expand,
     io::{self, FdTable, FileSystem, OpenOptions},
     process::{GroupId, ProcessGroup, ProcessHost, SpawnRequest},
@@ -83,6 +83,7 @@ struct Core {
 #[derive(Clone)]
 pub(crate) struct Context {
     core: Rc<Core>,
+    source: Rc<str>,
     pub cancel: Cancel,
     pub group: GroupId,
     scope: u64,
@@ -217,6 +218,7 @@ impl Session {
         let foreground_cancel = cancel.clone();
         let context = Context {
             core: self.core.clone(),
+            source: Rc::from(source),
             cancel,
             group,
             scope: 0,
@@ -537,6 +539,7 @@ fn background(
     let cancel = Cancel::new();
     let child_context = Context {
         core: context.core.clone(),
+        source: context.source.clone(),
         cancel: cancel.clone(),
         group,
         scope: context.core.allocate_id(),
@@ -565,36 +568,85 @@ fn background(
     state.borrow_mut().pipestatus = vec![0];
     Outcome::status(0)
 }
+fn expansion_work(limits: &Limits) -> expand::Work {
+    expand::Work::new(
+        limits
+            .source_bytes
+            .saturating_add(limits.expansion_bytes)
+            .saturating_add(limits.arguments),
+    )
+}
+
+/// Function words already retain raw spelling. For top-level declarations use
+/// the unchanged lexer's raw-capture API on this command's bounded source span.
+/// AST order supplies assignment/argument counts; operators stay lexer-owned.
+async fn retain_declaration_syntax(
+    simple: &mut SimpleCommand,
+    source: &str,
+    cancel: &Cancel,
+) -> Result<(), i32> {
+    if simple.name.raw.is_some() || !builtins::declaration_command(&simple.name) {
+        return Ok(());
+    }
+    let source = source
+        .get(simple.span.start.offset..simple.span.end.offset)
+        .ok_or(2)?;
+    let mut lexer = Lexer::new(source);
+    lexer.set_capture_raw(true);
+    let mut assignments = simple.assignments.len();
+    let mut words = std::iter::once(&mut simple.name).chain(simple.args.iter_mut());
+    let mut target = words.next();
+    let mut redirect_operand = false;
+    let mut budget = Budget::default();
+    while let Some(token) = lexer.next_spanned_token() {
+        budget.checkpoint(cancel).await.map_err(|_| 130)?;
+        let Some(raw) = token.raw else {
+            let spelling = &source[token.span.start.offset..token.span.end.offset];
+            redirect_operand = spelling.ends_with(['<', '>'])
+                || spelling.ends_with(">|")
+                || spelling.ends_with(">&")
+                || spelling.ends_with("<&");
+            continue;
+        };
+        if redirect_operand {
+            redirect_operand = false;
+            continue;
+        }
+        if assignments > 0 {
+            assignments -= 1;
+            continue;
+        }
+        let word = target.take().ok_or(2)?;
+        word.raw = Some(raw);
+        target = words.next();
+        if target.is_none() {
+            return Ok(());
+        }
+    }
+    Err(2)
+}
+
 async fn simple_command(
-    simple: SimpleCommand,
+    mut simple: SimpleCommand,
     state: SharedState,
     fds: Descriptors,
     context: Context,
 ) -> Result<Outcome, i32> {
-    let name_words = usize::from(
-        !simple
-            .name
-            .parts
-            .iter()
-            .all(|part| matches!(part, WordPart::Literal(text) if text.is_empty())),
-    );
-    if simple
-        .args
-        .len()
-        .saturating_add(simple.assignments.len())
-        .saturating_add(name_words)
-        > context.limits().arguments
-    {
-        return Err(2);
-    }
+    retain_declaration_syntax(&mut simple, &context.source, &context.cancel).await?;
     let mut assigned = Vec::new();
     let mut bytes = 0usize;
+    let mut budget = Budget::default();
+    let mut work = expansion_work(context.limits());
     let assignment_state = if simple.assignments.is_empty() {
         state.clone()
     } else {
         state.borrow().clone().shared()
     };
     for assignment in simple.assignments {
+        budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
+        if assigned.len() >= context.limits().arguments {
+            return Err(2);
+        }
         if assignment.index.is_some() || assignment.append {
             return Err(2);
         }
@@ -605,7 +657,13 @@ async fn simple_command(
             &word,
             &assignment_state,
             &context.cancel,
+            context
+                .limits()
+                .expansion_bytes
+                .saturating_sub(bytes)
+                .saturating_sub(assignment.name.len().saturating_add(1)),
             context.limits().expansion_bytes,
+            &mut work,
         )
         .await?;
         bytes = bytes
@@ -623,33 +681,65 @@ async fn simple_command(
     }
     let original_fds = fds.clone();
     let fds = redirects(&simple.redirects, &state, fds, &context).await?;
-    let name = expand::word(
+    let mut argv = expand::fields(
         &simple.name,
         &state,
         &context.cancel,
+        context.limits().expansion_bytes.saturating_sub(bytes),
+        context.limits().arguments.saturating_sub(assigned.len()),
         context.limits().expansion_bytes,
+        &mut work,
     )
     .await?;
-    let mut args = Vec::new();
+    bytes += argv.iter().map(String::len).sum::<usize>();
     drop(assignment_state);
-    bytes = bytes.saturating_add(name.len());
-    if bytes > context.limits().expansion_bytes {
-        return Err(2);
-    }
+    let declaration = builtins::declaration_command(&simple.name);
     for word in simple.args {
-        let value = expand::word(
-            &word,
-            &state,
-            &context.cancel,
-            context.limits().expansion_bytes,
-        )
-        .await?;
-        bytes = bytes.saturating_add(value.len());
-        if bytes > context.limits().expansion_bytes {
-            return Err(2);
-        }
-        args.push(value);
+        budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
+        let remaining_bytes = context.limits().expansion_bytes.saturating_sub(bytes);
+        let remaining_words = context
+            .limits()
+            .arguments
+            .saturating_sub(assigned.len())
+            .saturating_sub(argv.len());
+        let fields = if declaration && builtins::assignment_operand(&word) {
+            if remaining_words == 0 {
+                return Err(2);
+            }
+            vec![
+                expand::word(
+                    &word,
+                    &state,
+                    &context.cancel,
+                    remaining_bytes,
+                    context.limits().expansion_bytes,
+                    &mut work,
+                )
+                .await?,
+            ]
+        } else {
+            expand::fields(
+                &word,
+                &state,
+                &context.cancel,
+                remaining_bytes,
+                remaining_words,
+                context.limits().expansion_bytes,
+                &mut work,
+            )
+            .await?
+        };
+        bytes += fields.iter().map(String::len).sum::<usize>();
+        argv.extend(fields);
     }
+    let mut fields = argv.into_iter();
+    let Some(name) = fields.next() else {
+        for (key, value) in assigned {
+            state.borrow_mut().variables.insert(key, value);
+        }
+        return Ok(Outcome::status(0));
+    };
+    let args: Vec<_> = fields.collect();
     if name == "exec" {
         if !args.is_empty() || !assigned.is_empty() {
             return Err(2);
@@ -659,12 +749,6 @@ async fn simple_command(
     }
     // Prefix assignments for external commands belong only to their environment.
     // Prefix assignments on functions/builtins are deferred until full Bash rules.
-    if name.is_empty() {
-        for (key, value) in assigned {
-            state.borrow_mut().variables.insert(key, value);
-        }
-        return Ok(Outcome::status(0));
-    }
     let function = state.borrow().functions.get(&name).cloned();
     if let Some(body) = function {
         if !assigned.is_empty() {
@@ -726,6 +810,7 @@ async fn redirects(
         return Ok(fds);
     }
     let mut fds = fds.borrow().clone();
+    let mut work = expansion_work(context.limits());
     for redirect in redirs {
         if redirect.fd_var.is_some() {
             return Err(2);
@@ -735,6 +820,8 @@ async fn redirects(
             state,
             &context.cancel,
             context.limits().expansion_bytes,
+            context.limits().expansion_bytes,
+            &mut work,
         )
         .await?;
         let input = matches!(redirect.kind, RedirectKind::Input | RedirectKind::DupInput);

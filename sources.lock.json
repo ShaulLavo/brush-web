@@ -158,9 +158,61 @@
       "note": "Initial metadata refined from nodeMajor 26 to the exact setup-node version; script bytes, classifications and GNU bash observations unchanged."
     },
     "baselineMeasurement": {
-      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38882791088",
-      "source": "5489846",
-      "note": "Exact measured outcomes retained; identity updated for exact Node metadata, classifications copied from oracle, diagnostics compacted."
+      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38886633355",
+      "source": "1149096283079ec18b7b1fe3b5a4d6bd0801588f",
+      "note": "Measured word-field outcomes: Oils 291, Brush-suite 304, Bashkit-suite 452; nineteen gains and no lost cases. Oracle, classification and environment identity unchanged. Fresh CI must match this pass membership."
     }
+  },
+  "shellWords": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "implementationSources": [
+      {
+        "path": "crates/bashkit/src/interpreter/expansion.rs",
+        "items": [
+          "expand_word_to_fields",
+          "expand_word_inner quote-metadata selection",
+          "is_assignment_prefix",
+          "unquoted_positional_fields",
+          "split_word_segments",
+          "mixed_word_segment",
+          "split_marked_segments",
+          "expand_at_word_fields",
+          "ifs_split_marked",
+          "push_ifs_field"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/interpreter/mod.rs",
+        "items": [
+          "execute_simple_command_body command-name field promotion and declaration operands",
+          "is_decl_assignment_word",
+          "is_decl_keyword"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/parser/print_cmd.rs",
+        "items": [
+          "normalize_raw_word continuation removal, adapted as a lazy prefix iterator"
+        ]
+      }
+    ],
+    "testSources": [
+      "crates/bashkit/tests/spec_cases/bash/word-split.test.sh",
+      "crates/bashkit/tests/spec_cases/bash/command-word-expansion.test.sh",
+      "crates/bashkit/tests/spec_cases/bash/quote.test.sh",
+      "crates/bashkit/src/interpreter/mod.rs:15435-15462,18002-18062"
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/interpreter.rs",
+      "shell/engine/src/state.rs",
+      "shell/engine/src/builtins.rs"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words.rs"
+    ],
+    "strategy": "Adapt quote-aware literal/basic variable/positional/PIPESTATUS fields, IFS rules, scalar contexts and command-name promotion into the original streaming engine. Structural protection replaces sentinel strings. Declaration syntax requires an unquoted literal command and assignment prefix; retained raw spelling rejects escapes lost by token decoding, using only continuation removal from normalize_raw_word. An original bounded engine adapter uses the unchanged public Lexer raw-capture API for top-level declaration words not retained by the parser; quoted-at words trim leading mixed-IFS delimiters as verified with GNU Bash, diverging from upstream where needed. Cooperative Budget work, intermediate byte/element bounds and aggregate command field/byte limits reject overflow instead of truncating. No parser modifications, general parameter operators, globbing, substitutions, mapfile or output buffering are ported."
   }
 }

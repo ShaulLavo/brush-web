@@ -6,7 +6,62 @@ use crate::{
     io::{Endpoint, FdTable, OpenOptions},
     state::{SharedState, absolute},
 };
+use shell_parser::parser::{Word, WordPart};
 use std::fmt::Write as _;
+
+/// Bashkit's is_decl_keyword starts with the command's syntax, not the name
+/// produced by expansion. Quoting also prevents declaration-keyword syntax.
+pub(crate) fn declaration_command(word: &Word) -> bool {
+    if word.quoted || word.part_quoted.first().copied().unwrap_or(false) {
+        return false;
+    }
+    let [WordPart::Literal(name)] = word.parts.as_slice() else {
+        return false;
+    };
+    matches!(name.as_str(), "export" | "local")
+        && word
+            .raw
+            .as_deref()
+            .is_none_or(|raw| uncontinued(raw).eq(name.bytes()))
+}
+
+/// The prefix-only part of Bashkit normalize_raw_word: continuations disappear
+/// before recognition. Other escapes and quotes must remain syntax. Callers
+/// stop at '=' so quote handling in the assignment value is unaffected.
+fn uncontinued(raw: &str) -> impl Iterator<Item = u8> + '_ {
+    raw.split("\\\n").flat_map(str::bytes)
+}
+
+/// Adapted from Bashkit is_assignment_prefix/is_decl_assignment_word. Only
+/// syntactic assignment operands of declaration builtins suppress splitting.
+pub(crate) fn assignment_operand(word: &Word) -> bool {
+    let prefix_quoted = if word.part_quoted.iter().any(|quoted| *quoted) {
+        word.part_quoted.first().copied().unwrap_or(false)
+    } else {
+        word.quoted
+    };
+    if prefix_quoted {
+        return false;
+    }
+    let Some(WordPart::Literal(prefix)) = word.parts.first() else {
+        return false;
+    };
+    let Some((name, _)) = prefix.split_once('=') else {
+        return false;
+    };
+    if word.raw.as_deref().is_some_and(|raw| {
+        !uncontinued(raw)
+            .take(name.len() + 1)
+            .eq(prefix[..=name.len()].bytes())
+    }) {
+        return false;
+    }
+    let mut bytes = name.bytes();
+    bytes
+        .next()
+        .is_some_and(|b| b == b'_' || b.is_ascii_alphabetic())
+        && bytes.all(|b| b == b'_' || b.is_ascii_alphanumeric())
+}
 
 pub(crate) fn is_builtin(name: &str) -> bool {
     matches!(

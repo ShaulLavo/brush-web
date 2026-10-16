@@ -2,6 +2,7 @@
 //! this value: isolated shell environments copy rules/state, never byte streams.
 use shell_parser::parser::Command;
 use std::{
+    borrow::Cow,
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
     rc::Rc,
@@ -40,20 +41,19 @@ impl State {
     pub fn shared(self) -> SharedState {
         Rc::new(RefCell::new(self))
     }
-    pub(crate) fn parameter(&self, name: &str) -> String {
+    pub(crate) fn parameter(&self, name: &str) -> Cow<'_, str> {
         match name {
-            "?" => self.status.to_string(),
-            "PWD" => self.cwd.clone(),
-            "#" => self.positional.len().to_string(),
-            "*" | "@" => self.positional.join(" "),
+            "?" => Cow::Owned(self.status.to_string()),
+            "PWD" => Cow::Borrowed(&self.cwd),
+            "#" => Cow::Owned(self.positional.len().to_string()),
             _ => name
                 .parse::<usize>()
                 .ok()
                 .and_then(|n| n.checked_sub(1))
                 .and_then(|n| self.positional.get(n))
                 .or_else(|| self.variables.get(name))
-                .cloned()
-                .unwrap_or_default(),
+                .map(|value| Cow::Borrowed(value.as_str()))
+                .unwrap_or(Cow::Borrowed("")),
         }
     }
     pub(crate) fn environment(&self) -> BTreeMap<String, String> {

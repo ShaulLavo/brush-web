@@ -26,3 +26,36 @@ is covered by its [retained MIT license](shell/parser/LICENSE), Copyright
 GNU bash executable code is not included. Keep these notices and licenses with
 copies of the fixture. The new CLI's fixture helpers and replay/comparison scripts
 are original code; no additional upstream implementation is ported.
+
+The shell's first word-expansion area is separately adapted from Bashkit at
+`491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT, Copyright 2024–2026 Everruns).
+Implementation sources are `crates/bashkit/src/interpreter/expansion.rs`
+(`expand_word_to_fields`, segment protection, positional fields and IFS splitting)
+and `crates/bashkit/src/interpreter/mod.rs` (command-name field promotion,
+declaration operands, `is_decl_keyword` and `is_decl_assignment_word`). Adaptations live in
+`shell/engine/src/expand.rs`, `interpreter.rs`, `state.rs` and `builtins.rs`.
+Tests in `shell/engine/tests/words.rs` adapt
+`crates/bashkit/tests/spec_cases/bash/word-split.test.sh`,
+`command-word-expansion.test.sh`, `quote.test.sh` and
+`crates/bashkit/src/interpreter/mod.rs:15435–15462,18002–18062`.
+`sources.lock.json` records these paths separately from the unchanged parser.
+The upstream MIT license is retained at `shell/parser/LICENSE` and included by
+the notices script. Structural quote protection, cooperative work bounds and
+explicit overflow errors replace upstream sentinel/truncation paths; no output
+buffering or `mapfile` implementation is included in this port.
+
+The word port also corrects declaration syntax recognition and leading mixed-IFS
+handling in quoted `@` words against bounded GNU Bash observations. These local
+regressions extend the adapted tests; the declaration command check starts from
+Bashkit's `is_decl_keyword` at the same pinned revision. Prefix quote protection
+and list-word delimiter handling deliberately diverge from upstream where its
+rules disagree with GNU Bash. No additional upstream code or parser changes are
+included by these corrections.
+
+Declaration spelling checks also adapt the continuation-removal rule from
+`crates/bashkit/src/parser/print_cmd.rs::normalize_raw_word` at
+`491c3281f668b76d64b15210b8f5d7bf97244be0`. The engine uses a lazy prefix
+iterator, retaining other quotes and escapes. An original engine adapter uses
+the unchanged lexer's public raw-capture API within bounded command spans when
+`Word.raw` is absent outside function bodies. Escaped declaration spellings
+are corrected against GNU Bash; no parser files are modified.
