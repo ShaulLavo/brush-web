@@ -332,9 +332,24 @@ async fn expand(
     if scalar {
         expansion.fields.text_boundary()?;
     }
+    // QuotedWord tokens set Word.quoted after parsing their unmarked text, so
+    // an all-false part vector is not an override of whole-word quoting.
+    // Bashkit uses per-part flags only when at least one flag is true.
+    let mut has_part_quotes = false;
+    for &quoted in &word.part_quoted {
+        expansion.work.checkpoint(cancel).await?;
+        if quoted {
+            has_part_quotes = true;
+            break;
+        }
+    }
     for (index, part) in word.parts.iter().enumerate() {
         expansion.work.checkpoint(cancel).await?;
-        let quoted = word.part_quoted.get(index).copied().unwrap_or(word.quoted);
+        let quoted = if has_part_quotes {
+            word.part_quoted.get(index).copied().unwrap_or(false)
+        } else {
+            word.quoted
+        };
         if is_list(part) {
             expansion.elements(part, state, quoted, scalar).await?;
             continue;

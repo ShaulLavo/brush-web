@@ -4,7 +4,7 @@ use futures::FutureExt;
 use shell_engine::{
     Limits, Session,
     executor::{Executor, JoinHandle},
-    io::MemoryFs,
+    io::{Capture, Endpoint, FdTable, MemoryFs, capture},
     process::InProcessHost,
 };
 use std::{cell::RefCell, rc::Rc};
@@ -14,6 +14,7 @@ struct Rig {
     shell: Session,
     host: InProcessHost,
     calls: Rc<RefCell<Vec<Vec<String>>>>,
+    output: Capture,
 }
 impl Rig {
     fn new(limits: Limits) -> Self {
@@ -35,11 +36,18 @@ impl Rig {
             Rc::new(MemoryFs::new(1024)),
             limits,
         );
+        let (out, output) = capture(64 * 1024);
+        let mut fds = FdTable::default();
+        fds.insert(0, Endpoint::null());
+        fds.insert(1, out);
+        fds.insert(2, Endpoint::null());
+        shell.set_descriptors(fds).unwrap();
         Self {
             ex,
             shell,
             host,
             calls,
+            output,
         }
     }
     fn finish(&self, job: JoinHandle<i32>) -> i32 {
@@ -83,6 +91,75 @@ fn check(source: &str, expected: &[&[&str]]) {
     let rig = Rig::new(Limits::default());
     assert_eq!(rig.run(source), 0, "{source}");
     assert_eq!(*rig.calls.borrow(), expected, "{source}");
+}
+
+fn check_output(source: &str, expected: &str) {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(source), 0, "{source}");
+    assert_eq!(rig.output.bytes(), expected.as_bytes(), "{source}");
+}
+
+#[test]
+fn whole_word_quotes_override_unmarked_part_flags() {
+    // Standalone QuotedWord tokens have whole-word quoting, while mixed words
+    // carry explicit true/false part flags. Exercise both through the parser.
+    check(
+        r#"v=' a  b '; args "$v" "${v}" "" "$missing"; args $v"$v" "$v"$v"#,
+        &[
+            &[" a  b ", " a  b ", "", ""],
+            &["a", "b", " a  b ", " a  b ", "a", "b"],
+        ],
+    );
+    check(
+        r#"f() { args "$1" "$2" "$3" "$4"; }; f '' non-empty '' last"#,
+        &[&["", "non-empty", "", "last"]],
+    );
+}
+
+#[test]
+fn frozen_parent_losses_preserve_whole_word_quoting() {
+    // Every loss from the first replay is kept verbatim here. Expected stdout
+    // comes from docs/evidence/own-shell-oracle.json, not the old scalar engine.
+    for (source, expected) in [
+        (
+            "f() {\n  echo f\n  return \"\"\n}\n\nf\necho status=$?\n",
+            "f\nstatus=2\n",
+        ),
+        ("zz=$'one\\ntwo'\nset -x\necho \"$zz\"\n", "one\ntwo\n"),
+        ("printf \"\"\n", ""),
+        (
+            "myfunc() {\n    echo \"count: $#\"\n    echo \"1: '$1'\"\n    echo \"2: '$2'\"\n    echo \"3: '$3'\"\n    echo \"4: '$4'\"\n}\n\nmyfunc \"\" \"non-empty\" \"\" \"last\"\n",
+            "count: 4\n1: ''\n2: 'non-empty'\n3: ''\n4: 'last'\n",
+        ),
+        (
+            "echo \"  a  b  \" | { read; echo \"[$REPLY]\"; }\n",
+            "[  a  b  ]\n",
+        ),
+        (
+            "x=\"hello   world   foo\"; echo \"$x\"\n",
+            "hello   world   foo\n",
+        ),
+        ("x=\"hello   world\"; echo \"$x\"\n", "hello   world\n"),
+        ("x=$'hello\\nworld'; echo \"$x\"\n", "hello\nworld\n"),
+        (
+            "c=\"echo hi\"\n\"$c\" 2>/dev/null\necho \"rc=$?\"\n",
+            "rc=127\n",
+        ),
+    ] {
+        check_output(source, expected);
+    }
+}
+
+#[test]
+fn pipestatus_star_is_scalar_and_at_preserves_each_status() {
+    check_output(
+        r#"false | true; printf 'STATUS:%s:%s\n' "$?" "${PIPESTATUS[*]}""#,
+        "STATUS:0:1 0\n",
+    );
+    check(
+        r#"false | true; args "$?" "${PIPESTATUS[*]}" "${PIPESTATUS[@]}"; IFS=:; false | true; args "${PIPESTATUS[*]}" "${PIPESTATUS[@]}""#,
+        &[&["0", "1 0", "1", "0"], &["1:0", "1", "0"]],
+    );
 }
 
 #[test]

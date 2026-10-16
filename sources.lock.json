@@ -172,6 +172,7 @@
         "path": "crates/bashkit/src/interpreter/expansion.rs",
         "items": [
           "expand_word_to_fields",
+          "expand_word_inner quote-metadata selection",
           "is_assignment_prefix",
           "unquoted_positional_fields",
           "split_word_segments",
