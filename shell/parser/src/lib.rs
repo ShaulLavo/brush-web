@@ -27,7 +27,7 @@ pub fn parse(source: &str, limits: &limits::ExecutionLimits) -> Result<Script> {
 
 /// Parse using a shared request work budget and cancellation flag.
 ///
-/// The unchanged parser's optional AST plausibility check, [`validate_budget`],
+/// The parser's optional AST plausibility check, [`validate_budget`],
 /// is separate: it uses upstream fixed ceilings, not interpreter runtime limits.
 pub fn parse_with_budget(
     source: &str,
