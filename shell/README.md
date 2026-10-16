@@ -83,3 +83,9 @@ command and the WASI release build. `build:shell` compiles the **library** for
 `wasm32-wasip1`; it does not yet produce or publish a runnable `.wasm` shell.
 `../scripts/notices.mjs` includes the pinned MIT license and this workspace's Rust
 dependency licenses in the existing distribution notices flow.
+
+## Async engine core
+
+The original async [engine core](engine/README.md) is now tested natively and under
+wasmtime against an explicitly in-process `ProcessHost`. This is not the browser
+worker gate: Brush remains the default, and no browser runtime wiring is included.
