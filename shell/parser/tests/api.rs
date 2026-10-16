@@ -723,3 +723,16 @@ fn substring_word_validation_shares_fuel_and_request_budget() {
         ))
     ));
 }
+
+#[test]
+fn substring_fields_ignore_delimiters_inside_quoted_operands() {
+    for text in ["<(bad", "(", ")", "}", "{", "?:", "\\\"("] {
+        let source = format!("args \"${{v:0:${{u:-'{text}'}}}}\"");
+        let word = argument(&source);
+        assert!(
+            matches!(word.parts.as_slice(), [WordPart::Substring { name, offset, length }]
+            if name == "v" && offset == "0" && length.as_deref() == Some(format!("${{u:-'{text}'}}").as_str())),
+            "{source}: {word:?}"
+        );
+    }
+}

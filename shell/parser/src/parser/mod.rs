@@ -5511,7 +5511,38 @@ fn read_slice_field(chars: &mut WordChars<'_>, stop_colon: bool) -> String {
     let mut field = String::new();
     let mut depth = 0usize;
     let mut ternary = 0usize;
+    let mut quote = None;
+    let mut escaped = false;
     while let Some(&c) = chars.peek() {
+        if escaped {
+            field.push(c);
+            chars.next();
+            escaped = false;
+            continue;
+        }
+        if c == '\\' && quote != Some('\'') {
+            field.push(c);
+            chars.next();
+            escaped = true;
+            continue;
+        }
+        if quote == Some(c) {
+            quote = None;
+            field.push(c);
+            chars.next();
+            continue;
+        }
+        if quote.is_some() {
+            field.push(c);
+            chars.next();
+            continue;
+        }
+        if matches!(c, '\'' | '"') {
+            quote = Some(c);
+            field.push(c);
+            chars.next();
+            continue;
+        }
         match c {
             '(' | '{' => depth += 1,
             ')' => depth = depth.saturating_sub(1),
