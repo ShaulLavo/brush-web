@@ -12,6 +12,7 @@ pub type SharedState = Rc<RefCell<State>>;
 
 #[derive(Clone, Debug)]
 pub struct State {
+    pub shell_name: String,
     pub variables: BTreeMap<String, String>,
     pub exported: BTreeSet<String>,
     pub cwd: String,
@@ -26,6 +27,7 @@ pub struct State {
 impl Default for State {
     fn default() -> Self {
         Self {
+            shell_name: "bash".into(),
             variables: BTreeMap::from([("IFS".into(), " \t\n".into())]),
             exported: BTreeSet::new(),
             cwd: "/home/guest".into(),
@@ -45,6 +47,7 @@ impl State {
     }
     pub(crate) fn parameter(&self, name: &str) -> Cow<'_, str> {
         match name {
+            "0" => Cow::Borrowed(&self.shell_name),
             "?" => Cow::Owned(self.status.to_string()),
             "PWD" => Cow::Borrowed(&self.cwd),
             "#" => Cow::Owned(self.positional.len().to_string()),

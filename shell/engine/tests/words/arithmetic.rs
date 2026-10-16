@@ -162,7 +162,7 @@ fn substring_utf8_and_special_scalars() {
 fn arithmetic_unavailable_categories_remain_explicit() {
     let rig = Rig::new(Limits::default());
     assert_eq!(rig.run("args \"$((a[0]))\""), 2);
-    assert_eq!(rig.run("args \"${@:1:2}\""), 2);
+    assert_eq!(rig.run("args \"${array[@]:1:2}\""), 2);
 }
 
 #[test]
@@ -291,4 +291,53 @@ fn every_recursive_scalar_form_reaches_its_bounded_depth_without_stack_growth() 
         }
         assert!(rejected, "{form} never reached its explicit depth bound");
     }
+}
+
+#[test]
+fn arithmetic_errors_discard_the_read_unit_and_resume_at_top_level_newline() {
+    for command in [
+        "args $((1/0))",
+        "result=$((1/0))",
+        "args $((echo unexpected [))",
+        "v=abc; args ${v:1/0}",
+        "{ args $((1/0)); args inner; }",
+        "f() { args $((1/0)); args inner; }; f",
+        "args $((1/0)) && args inner",
+        "args $((1/0)) || args inner",
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(
+            rig.run(&format!("{command}; args skipped\nargs after=$?")),
+            0,
+            "{command}"
+        );
+        assert_eq!(*rig.calls.borrow(), [vec!["after=1"]], "{command}");
+        assert!(!rig.errors.bytes().is_empty());
+    }
+}
+
+#[test]
+fn positional_substrings_preserve_selected_empty_fields_and_shell_name() {
+    check(
+        "f() { args \"${@:0:2}\"; args \"${@:2:2}\"; args \"${@: -1}\"; args \"${@:99:1/0}\"; }; f 'a b' '' c",
+        &[&["bash", "a b"], &["", "c"], &["c"], &[]],
+    );
+    check(
+        "f() { args \"${unused:-${@:2:2}}\"; }; f a '' c",
+        &[&["", "c"]],
+    );
+}
+
+#[test]
+fn positional_slice_arithmetic_orders_effects_and_rejects_negative_lengths() {
+    check(
+        "x=1; f() { args \"${@:x++:1}\" \"$x\"; }; f a b",
+        &[&["a", "2"]],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run("f() { args \"${@:1:-1}\"; args forbidden; }; f a b"),
+        1
+    );
+    assert!(rig.calls.borrow().is_empty());
 }

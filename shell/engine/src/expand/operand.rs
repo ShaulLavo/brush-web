@@ -436,7 +436,7 @@ fn validate_token(token: &str, work: &mut Work) -> Result<(), Error> {
     {
         return bad_substitution("invalid length parameter", work);
     }
-    let name_end = if body.starts_with(['#', '?']) {
+    let name_end = if body.starts_with(['#', '?', '@']) {
         1
     } else {
         body.find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
@@ -448,7 +448,7 @@ fn validate_token(token: &str, work: &mut Work) -> Result<(), Error> {
     let trim = suffix.starts_with(['#', '%', '/', '^', ',']);
     let substring =
         !indirect && suffix.starts_with(':') && !operator.starts_with(['-', '+', '=', '?']);
-    if !(scalar_name(name) || substring && length_name(name))
+    if !(scalar_name(name) || substring && (length_name(name) || name == "@"))
         || !(substring || !indirect && trim || operator.starts_with(['-', '+', '=', '?']))
     {
         return Err(2.into());
@@ -458,7 +458,7 @@ fn validate_token(token: &str, work: &mut Work) -> Result<(), Error> {
 fn supported(part: &WordPart) -> bool {
     match part {
         WordPart::ArithmeticExpansion(_) | WordPart::BadSubstitution(_) => true,
-        WordPart::Substring { name, .. } => length_name(name),
+        WordPart::Substring { name, .. } => length_name(name) || name == "@",
         WordPart::Variable(name) => basic_name(name),
         WordPart::Length(name) => length_name(name),
         WordPart::IndirectExpansion { name, operator, .. } => {

@@ -49,6 +49,7 @@ pub(crate) enum Flow {
     Normal,
     Exit,
     Return,
+    DiscardReadUnit,
 }
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Outcome {
@@ -294,7 +295,7 @@ impl Session {
         let join = self.core.executor.spawn(async move {
             let _foreground = ForegroundGuard(context.core.clone());
             let mut processes = ProcessGroup::new(context.core.host.clone(), group);
-            let result = sequence(
+            let result = script_sequence(
                 script.commands,
                 state.clone(),
                 context.core.descriptors.clone(),
@@ -355,6 +356,28 @@ impl Drop for ForegroundGuard {
     fn drop(&mut self) {
         self.0.foreground.borrow_mut().take();
     }
+}
+
+async fn script_sequence(
+    commands: Vec<Command>,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+) -> Outcome {
+    let mut result = Outcome::status(0);
+    // The parser groups each top-level read unit through its terminating
+    // newline. Arithmetic expansion errors unwind functions and compound
+    // commands in that unit, then Bash's reader accepts the next one.
+    for command in commands {
+        result = execute(command, state.clone(), fds.clone(), context.clone()).await;
+        if context.cancel.is_cancelled() {
+            return Outcome::status(130);
+        }
+        if matches!(result.flow, Flow::Exit | Flow::Return) {
+            break;
+        }
+    }
+    result
 }
 
 fn sequence(
@@ -591,6 +614,11 @@ async fn arithmetic_command(
 
 async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Context) -> Outcome {
     let CommandError { error, stderr } = error;
+    let flow = if matches!(error, expand::Error::Arithmetic { .. }) {
+        Flow::DiscardReadUnit
+    } else {
+        Flow::Exit
+    };
     let (name, message, line, status) = match error {
         expand::Error::Status(code) => return Outcome::status(code),
         expand::Error::Arithmetic { message, line, .. } => (
@@ -641,10 +669,7 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
     if context.cancel.is_cancelled() {
         return Outcome::status(130);
     }
-    Outcome {
-        code: status,
-        flow: Flow::Exit,
-    }
+    Outcome { code: status, flow }
 }
 
 async fn subshell(

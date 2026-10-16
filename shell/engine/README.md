@@ -144,8 +144,10 @@ and ternaries skip unselected arithmetic evaluation without skipping syntax
 validation. Shell dollar expansions happen before evaluating arithmetic syntax;
 `let` receives arguments already expanded by the ordinary word machinery.
 Completed variable writes remain visible even if a later operation fails.
-Arithmetic expansion errors stop the containing shell with status 1; arithmetic
-commands and `let` instead return status 1 and allow the next command to run.
+Arithmetic expansion errors return status 1 and discard the current top-level
+read unit, including same-line commands and active function/compound bodies.
+Execution resumes at the next top-level newline. Arithmetic commands and `let`
+instead return status 1 and allow the next command in the same unit to run.
 Resource exhaustion remains status 2 and cancellation 130.
 Scalar `${v:offset:length}` supports ordinary identifiers, positive positional
 parameters, `$?` and `$#`, with arithmetic expressions for the offset and optional
@@ -153,12 +155,18 @@ length. UTF-8 locales count Unicode scalar values;
 C/POSIX and unknown locales count bytes, following scalar length's locale rules;
 selected byte slices must land on UTF-8 boundaries or return unsupported status 2
 rather than emit invalid text. Arbitrary byte-valued shell strings remain deferred.
+`${@:offset:length}` slices positional fields, retaining quoted empty elements.
+Offset zero includes the configurable `State::shell_name`, which defaults to `bash`.
+Negative offsets count from one past the last positional argument; negative
+lengths are errors. Source elements are copied and charged one at a time.
 The source value is snapshotted before arithmetic side effects. Unset sources skip
 both expressions, and out-of-range offsets skip the length expression. Slices
 retain outer quote protection and final IFS splitting. Arithmetic parsing,
 recursive evaluation, snapshots and character scans share the command's bounded
 storage/work accounting and cancellation checkpoints. Arrays, subscript arithmetic,
 namerefs and command substitution remain outside this scalar arithmetic subset.
+Nested scalar operands have an explicit depth limit of 16, exercised through the
+deepest accepted level in both native and WASI tests.
 Other parameter operators, pathname globbing, command substitution, arrays, traps,
 aliases, `lastpipe`, directory validation and full utility option coverage are not
 implemented. Unsupported AST forms return status 2. Utility names/format options

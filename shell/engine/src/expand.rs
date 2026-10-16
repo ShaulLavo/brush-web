@@ -13,6 +13,7 @@ mod case;
 mod indirect;
 mod operand;
 mod pattern;
+mod positional;
 mod replacement;
 use std::{borrow::Cow, collections::BTreeSet};
 
@@ -811,6 +812,12 @@ impl Expansion<'_> {
                 length,
             } = part
             {
+                if name == "@" {
+                    return self
+                        .positional_substring(offset, length.as_deref(), state, quoted, scalar)
+                        .await
+                        .map_err(Error::in_expansion);
+                }
                 let result = self
                     .substring(name, offset, length.as_deref(), state, scalar || quoted)
                     .await;
@@ -1022,16 +1029,12 @@ impl Expansion<'_> {
                     .segment("", Protection::expansion(protected, state), protected)
                     .await;
             }
-            let value = s.parameter(name);
-            if value.len() > self.raw_remaining {
-                return Err(2.into());
-            }
-            self.work.admit_storage(value.len())?;
+            let value = substring_snapshot(&s, name, self.raw_remaining, self.work)?;
             let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
                 .iter()
                 .filter_map(|name| s.variables.get(*name))
                 .find(|v| !v.is_empty());
-            (value.into_owned(), locale.is_some_and(|v| utf8_locale(v)))
+            (value, locale.is_some_and(|v| utf8_locale(v)))
         };
         let mut count = 0usize;
         for byte in value.bytes() {
@@ -1662,6 +1665,28 @@ fn utf8_locale(locale: &str) -> bool {
             .is_some_and(|suffix| suffix.eq_ignore_ascii_case(".UTF8"))
 }
 
+fn substring_snapshot(
+    state: &crate::state::State,
+    name: &str,
+    max: usize,
+    work: &mut Work,
+) -> Result<String, Error> {
+    let size = match name {
+        "?" => {
+            state.status.unsigned_abs().checked_ilog10().unwrap_or(0) as usize
+                + 1
+                + usize::from(state.status < 0)
+        }
+        "#" => state.positional.len().checked_ilog10().unwrap_or(0) as usize + 1,
+        _ => state.parameter(name).len(),
+    };
+    if size > max {
+        return Err(2.into());
+    }
+    work.admit_storage(size)?;
+    Ok(state.parameter(name).into_owned())
+}
+
 fn bounded(value: Cow<'_, str>, max: usize) -> Result<String, Error> {
     if value.len() > max {
         return Err(2.into());
@@ -1875,6 +1900,28 @@ pub(crate) async fn word(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn substring_special_snapshots_admit_decimal_storage_before_formatting() {
+        let mut state = crate::state::State::default();
+        state.status = i32::MIN;
+        state.positional = vec![String::new(); 12];
+        for (name, expected) in [("?", "-2147483648"), ("#", "12")] {
+            let mut work = Work::new(64, 0, 1);
+            assert!(matches!(
+                substring_snapshot(&state, name, 32, &mut work),
+                Err(Error::Status(2))
+            ));
+            let mut work = Work::new(64, expected.len(), 1);
+            assert_eq!(
+                substring_snapshot(&state, name, 32, &mut work)
+                    .ok()
+                    .as_deref(),
+                Some(expected)
+            );
+            assert_eq!(work.storage_remaining, 0);
+        }
+    }
 
     fn join_with_storage(storage: usize, max_fields: usize) -> Result<(Fields, usize), Error> {
         let mut work = Work::new(64, storage, max_fields);

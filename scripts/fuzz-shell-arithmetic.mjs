@@ -289,7 +289,41 @@ function fixedCases() {
     "unset unused; false; printf '%s\\n' \"${unused:-${?:0:1}}\"",
   ].entries())
     cases.push({ id: `boundary-${index}`, context: "boundary", script });
+  for (const [index, command] of [
+    'printf "%s\\n" "$((1/0))"',
+    'result=$((1/0))',
+    'printf "%s\\n" "$((echo unexpected [))"',
+    'v=abc; printf "%s\\n" "${v:1/0}"',
+    '{ printf "%s\\n" "$((1/0))"; echo inner; }',
+    'f() { printf "%s\\n" "$((1/0))"; echo inner; }; f',
+    'printf "%s\\n" "$((1/0))" && echo inner',
+    'printf "%s\\n" "$((1/0))" || echo inner',
+  ].entries()) {
+    for (const separator of [";", "\n"]) {
+      cases.push({
+        id: `read-unit-${index}-${separator === ";" ? "same" : "next"}`,
+        context: "boundary",
+        script: `${command}; echo skipped${separator}printf '<%s>\\n' after=$?`,
+      });
+    }
+  }
+  for (const offset of ["0", "1", "2", "4", "5", " -1", " -4", " -5", "x++", "1/0"]) {
+    for (const length of [null, "0", "2", "-1", "1/0"]) {
+      positionalSliceCases(cases, offset, length);
+    }
+  }
   return cases;
+}
+
+function positionalSliceCases(cases, offset, length) {
+  for (const quoted of [true, false]) {
+    const token = `\${@:${offset}${length === null ? "" : `:${length}`}}`;
+    cases.push({
+      id: `positional-slice-${offset}-${length}-${quoted}`,
+      context: "substring",
+      script: `x=1; f() { printf '<%s>\\n' ${quoted ? `"${token}"` : token} tail; echo x=$x; }; f 'a b' '' c`,
+    });
+  }
 }
 
 function generate(seed, count) {
