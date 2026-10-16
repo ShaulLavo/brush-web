@@ -564,6 +564,116 @@ mod tests {
         assert_eq!(fs.used_bytes(), 6);
     }
     #[test]
+    fn runtime_endpoint_is_cancellable_and_closes_on_last_reference() {
+        struct RuntimeRead {
+            endpoint: Endpoint,
+            closed: Rc<Cell<bool>>,
+        }
+        impl HostEndpoint for RuntimeRead {
+            fn read<'a>(
+                &'a self,
+                output: &'a mut [u8],
+            ) -> LocalBoxFuture<'a, Result<usize, IoError>> {
+                Box::pin(self.endpoint.read(output))
+            }
+            fn write<'a>(&'a self, _: &'a [u8]) -> LocalBoxFuture<'a, Result<usize, IoError>> {
+                Box::pin(async { Ok(0) })
+            }
+        }
+        impl Drop for RuntimeRead {
+            fn drop(&mut self) {
+                self.closed.set(true);
+            }
+        }
+        let (read, write) = pipe();
+        let closed = Rc::new(Cell::new(false));
+        let endpoint = Endpoint::host(Rc::new(RuntimeRead {
+            endpoint: read,
+            closed: closed.clone(),
+        }));
+        let duplicate = endpoint.clone();
+        let cancel = Cancel::new();
+        let mut output = [0; 1];
+        let mut operation = Box::pin(endpoint.read_cancelled(&mut output, &cancel));
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        assert!(operation.as_mut().poll(&mut cx).is_pending());
+        cancel.cancel();
+        assert_eq!(
+            operation.as_mut().poll(&mut cx),
+            Poll::Ready(Err(IoError::Cancelled))
+        );
+        drop(operation);
+        assert_eq!(endpoint.read(&mut []).now_or_never(), Some(Ok(0)));
+        assert_eq!(endpoint.write(b"").now_or_never(), Some(Ok(0)));
+        assert_eq!(
+            endpoint.write_all(b"x", &Cancel::new()).now_or_never(),
+            Some(Err(IoError::WriteZero))
+        );
+        drop(endpoint);
+        assert!(!closed.get());
+        drop(duplicate);
+        assert!(closed.get());
+        assert_eq!(
+            write.write(b"x").now_or_never(),
+            Some(Err(IoError::BrokenPipe))
+        );
+    }
+    #[test]
+    fn file_append_truncation_and_allocation_bounds() {
+        let fs = MemoryFs::new(8);
+        fs.write_file("/f", b"abcd").unwrap();
+        let original = fs
+            .open(
+                "/f",
+                &OpenOptions {
+                    write: true,
+                    ..OpenOptions::default()
+                },
+            )
+            .unwrap();
+        let mut bytes = [0; 4];
+        assert_eq!(original.read(&mut bytes).now_or_never(), Some(Ok(4)));
+        let append = fs
+            .open(
+                "/f",
+                &OpenOptions {
+                    write: true,
+                    append: true,
+                    ..OpenOptions::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(append.write(b"ef").now_or_never(), Some(Ok(2)));
+        fs.open(
+            "/f",
+            &OpenOptions {
+                write: true,
+                truncate: true,
+                ..OpenOptions::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(original.read(&mut bytes).now_or_never(), Some(Ok(0))); // EOF must not move offset backwards
+        assert_eq!(original.write(b"z").now_or_never(), Some(Ok(1)));
+        assert_eq!(fs.read_file("/f").unwrap(), b"\0\0\0\0z");
+        assert_eq!(append.write(b"xy").now_or_never(), Some(Ok(2)));
+        assert_eq!(fs.read_file("/f").unwrap(), b"\0\0\0\0zxy");
+        assert_eq!(
+            append.write(b"too much").now_or_never(),
+            Some(Err(IoError::LimitExceeded))
+        );
+        assert_eq!(fs.used_bytes(), 7);
+        assert_eq!(
+            fs.write_file(&"x".repeat(MAX_PATH_BYTES + 1), b""),
+            Err(IoError::InvalidPath)
+        );
+        for index in 1..MAX_MEMORY_FILES {
+            fs.write_file(&format!("/{index}"), b"").unwrap();
+        }
+        assert_eq!(fs.write_file("/overflow", b""), Err(IoError::LimitExceeded));
+    }
+    #[test]
     fn arbitrary_fds_share_open_endpoints() {
         let (read, write) = pipe();
         let mut fds = FdTable::default();

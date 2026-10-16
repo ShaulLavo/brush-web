@@ -446,11 +446,16 @@ mod tests {
         let ex = Executor::new();
         let gate = Event::default();
         let wait = gate.listen();
-        let mut first = ex.spawn(async move { wait.await; 9 });
+        let mut first = ex.spawn(async move {
+            wait.await;
+            9
+        });
         let mut second = first.clone();
         let waker = noop_waker();
         let mut cx = Context::from_waker(&waker);
-        for _ in 0..100 { assert!(Pin::new(&mut first).poll(&mut cx).is_pending()); }
+        for _ in 0..100 {
+            assert!(Pin::new(&mut first).poll(&mut cx).is_pending());
+        }
         assert!(Pin::new(&mut second).poll(&mut cx).is_pending());
         assert_eq!(first.event.waiter_count(), 2);
         drop(second);

@@ -430,6 +430,59 @@ mod tests {
         assert_eq!(host.retained_count(), 0);
     }
     #[test]
+    fn cancellation_before_first_poll_drops_inherited_endpoints() {
+        let ex = Executor::new();
+        let host = InProcessHost::new(ex.clone());
+        let called = Rc::new(Cell::new(false));
+        let invocation = called.clone();
+        host.register("never", move |_, _| {
+            invocation.set(true);
+            Box::pin(async { 0 })
+        });
+        let (read, write) = pipe();
+        let mut req = request("never", 1);
+        req.fds.insert(77, write);
+        host.spawn(req).unwrap();
+        host.abandon_group(1, 2);
+        ex.drive(10);
+        assert!(!called.get());
+        assert_eq!(host.retained_count(), 0);
+        assert_eq!(read.read(&mut [0; 1]).now_or_never(), Some(Ok(0)));
+    }
+    #[test]
+    fn subtree_kill_survives_intermediate_reaping() {
+        let ex = Executor::new();
+        let host = InProcessHost::new(ex.clone());
+        host.register("wait", |_, _| Box::pin(futures::future::pending()));
+        let gate = crate::executor::Event::default();
+        let event = gate.clone();
+        host.register("exit", move |_, _| {
+            let wait = event.listen();
+            Box::pin(async move {
+                wait.await;
+                0
+            })
+        });
+        let root = host.spawn(request("wait", 1)).unwrap();
+        let mut req = request("exit", 1);
+        req.parent = Some(root);
+        let middle = host.spawn(req).unwrap();
+        let mut req = request("wait", 1);
+        req.parent = Some(middle);
+        let leaf = host.spawn(req).unwrap();
+        ex.drive(10);
+        gate.notify();
+        ex.drive(10);
+        assert_eq!(host.wait(middle).now_or_never(), Some(Ok(0)));
+        host.kill(root, 2).unwrap();
+        ex.drive(10);
+        assert_eq!(
+            host.wait_group(1).now_or_never(),
+            Some(Ok(vec![(root, 130), (leaf, 130)]))
+        );
+        assert_eq!(host.retained_count(), 0);
+    }
+    #[test]
     fn dropped_group_transfers_confirmed_cleanup_to_executor() {
         let ex = Executor::new();
         let host = InProcessHost::new(ex.clone());
