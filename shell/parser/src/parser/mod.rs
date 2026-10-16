@@ -4999,7 +4999,7 @@ impl<'a> Parser<'a> {
             }
             chars.next();
             out.push(ch);
-            if matches!(ch, '\x00' | '\\') {
+            if ch == '\x00' || ch == '\\' && quote != Some('\'') {
                 out.extend(chars.next());
                 continue;
             }
@@ -5016,7 +5016,7 @@ impl<'a> Parser<'a> {
                 quote = Some(ch);
                 continue;
             }
-            if ch == '{' {
+            if ch == '$' && chars.peek() == Some(&'{') {
                 depth += 1;
             } else if ch == '}' && depth > 0 {
                 depth -= 1;

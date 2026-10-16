@@ -428,3 +428,22 @@ fn replacement_operands_retain_nested_slashes_and_quotes() {
         assert!(matches!(word.parts.last(), Some(WordPart::Literal(tail)) if tail == "tail"));
     }
 }
+
+#[test]
+fn replacement_operands_keep_bare_braces_and_single_quote_backslashes_bounded() {
+    for source in [r#"args ${v/b/{}} next"#, r#"args "${v/b/'a\'}" next"#] {
+        let script = Parser::new(source).parse().unwrap();
+        let Command::Simple(command) = script.commands.into_iter().next().unwrap() else {
+            panic!("expected a simple command: {source}");
+        };
+        assert_eq!(command.args.len(), 2, "{source}");
+        assert!(matches!(
+            command.args[0].parts.first(),
+            Some(WordPart::ParameterExpansion { .. })
+        ));
+        assert!(matches!(
+            command.args[1].parts.as_slice(),
+            [WordPart::Literal(next)] if next == "next"
+        ));
+    }
+}

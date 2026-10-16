@@ -154,6 +154,15 @@
         "classification": "Original ParameterHeader helper and regression tests in the owned Bashkit-derived lexer/API adapter; no additional upstream implementation copied.",
         "change": "Track target-header and subscript context separately for each nested unquoted parameter. Reuse the existing ordinary single-quote handler for brackets in scalar operands rather than treating them as array subscripts. Retain raw single quotes in actual target subscripts, the original literal-escape metadata, quote/escape emission and all upstream assertions. Add controls for all trim operators, nested and malformed bracket patterns, target arrays/lengths, literal apostrophe spans and partial escape protection. Bump parser to 0.0.4.",
         "reason": "Quoted opening/closing braces in basic scalar bracket patterns must stay inside the operand. ParameterHeader frames use the existing nesting ceiling, and each frame transition runs in the already budgeted lexer character loop; no new sentinel or reparsing path is added."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original parser boundary correction and regression tests in the owned Bashkit-derived replacement operand scanner.",
+        "change": "Stop replacement operands at the outer closing brace while nesting only nested ${...} operands, and keep backslashes literal inside single-quoted spans. Add parser regressions for bare braces and escaped single-quote boundaries with following words. Preserve existing quote, escape, slash and upstream parser behavior.",
+        "reason": "Bash replacement operands do not treat bare braces as nested syntax, and backslashes have no escape role inside single quotes. Counting either incorrectly swallows the replacement boundary and can silently change argv or reject a command that Bash accepts."
       }
     ],
     "removedUpstreamTests": []
