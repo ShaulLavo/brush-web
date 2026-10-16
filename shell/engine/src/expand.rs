@@ -9,6 +9,8 @@ use crate::{
 use futures::{FutureExt, future::LocalBoxFuture};
 use shell_parser::parser::{ParameterOp, Word, WordPart};
 
+mod case;
+mod indirect;
 mod operand;
 mod pattern;
 mod replacement;
@@ -18,6 +20,11 @@ use std::{borrow::Cow, collections::BTreeSet};
 /// The interpreter supplies the shell environment's status and diagnostic line.
 pub(crate) enum Error {
     Status(i32),
+    Indirect {
+        name: String,
+        unset: bool,
+        line: Option<usize>,
+    },
     Parameter {
         name: String,
         message: String,
@@ -32,6 +39,7 @@ impl Error {
                 message,
                 line,
             },
+            Self::Indirect { name, unset, .. } => Self::Indirect { name, unset, line },
             status => status,
         }
     }
@@ -507,7 +515,6 @@ struct Expansion<'a> {
     captured: Option<Captured>,
     pattern: Option<pattern::Pattern>,
     replacement: Option<replacement::Replacement>,
-    replacement_dynamic: bool,
     pattern_context: bool,
     // Diagnostics leave pattern syntax but retain enclosing snapshot charges.
     pattern_snapshots: bool,
@@ -605,6 +612,9 @@ impl Expansion<'_> {
     ) -> Result<(), Error> {
         if let Some(pattern) = &mut self.pattern {
             self.work.checkpoint(self.cancel).await?;
+            if value.is_empty() && keeps_empty {
+                pattern.keep_empty();
+            }
             for ch in value.chars() {
                 self.work.checkpoint(self.cancel).await?;
                 pattern.push(ch, protection, self.work)?;
@@ -615,15 +625,7 @@ impl Expansion<'_> {
             self.work.checkpoint(self.cancel).await?;
             for ch in value.chars() {
                 self.work.checkpoint(self.cancel).await?;
-                replacement.push(
-                    ch,
-                    if self.replacement_dynamic {
-                        Protection::All
-                    } else {
-                        protection
-                    },
-                    self.work,
-                )?;
+                replacement.push(ch, protection, self.work)?;
             }
             return Ok(());
         }
@@ -671,6 +673,27 @@ impl Expansion<'_> {
                     .parameter(
                         name,
                         operator,
+                        operand,
+                        *colon_variant,
+                        state,
+                        quoted,
+                        scalar,
+                        depth,
+                        None,
+                    )
+                    .await;
+            }
+            if let WordPart::IndirectExpansion {
+                name,
+                operator,
+                operand,
+                colon_variant,
+            } = part
+            {
+                return self
+                    .indirect(
+                        name,
+                        operator.as_ref(),
                         operand,
                         *colon_variant,
                         state,
@@ -750,8 +773,9 @@ impl Expansion<'_> {
         quoted: bool,
         scalar: bool,
         depth: usize,
+        error_pointer: Option<&str>,
     ) -> Result<(), Error> {
-        if !operand::scalar_name(name) || depth >= operand::MAX_DEPTH {
+        if error_pointer.is_none() && !operand::scalar_name(name) || depth >= operand::MAX_DEPTH {
             return Err(2.into());
         }
         if let ParameterOp::ReplaceFirst {
@@ -788,6 +812,14 @@ impl Expansion<'_> {
                 )
                 .await;
         }
+        if let Some((upper, all)) = case_mode(operator) {
+            if name == "PIPESTATUS" {
+                return Err(2.into());
+            }
+            return self
+                .change_case(name, operand, state, scalar || quoted, depth, upper, all)
+                .await;
+        }
         let replacement = match operator {
             ParameterOp::UseDefault => false,
             ParameterOp::UseReplacement => true,
@@ -800,7 +832,17 @@ impl Expansion<'_> {
             .is_none_or(|v| colon && v.is_empty());
         if absent && matches!(operator, ParameterOp::AssignDefault | ParameterOp::Error) {
             return self
-                .effect_operand(name, operator, operand, colon, state, quoted, scalar, depth)
+                .effect_operand(
+                    name,
+                    operator,
+                    operand,
+                    colon,
+                    state,
+                    quoted,
+                    scalar,
+                    depth,
+                    error_pointer,
+                )
                 .await;
         }
         if replacement != absent {
@@ -859,13 +901,25 @@ impl Expansion<'_> {
         for _ in value.bytes() {
             self.work.checkpoint(self.cancel).await?;
         }
+        let mut pattern = self.pattern_operand(source, state, depth).await?;
+        let result = pattern
+            .remove(&value, prefix, longest, self.work, self.cancel)
+            .await?;
+        self.segment(result, Protection::expansion(protected, state), protected)
+            .await
+    }
+    async fn pattern_operand(
+        &mut self,
+        source: &str,
+        state: &SharedState,
+        depth: usize,
+    ) -> Result<pattern::Pattern, Error> {
         let capacity = self.raw_remaining;
         let mut child = Expansion {
             segments: Segments::default(),
             captured: None,
             pattern: Some(pattern::Pattern::default()),
             replacement: None,
-            replacement_dynamic: false,
             pattern_context: true,
             pattern_snapshots: true,
             ifs: None,
@@ -876,7 +930,7 @@ impl Expansion<'_> {
             raw_remaining: capacity,
             elements_remaining: self.elements_remaining,
         };
-        // A trim's pattern has its own quote context. Outer quotes protect
+        // A transformation pattern has its own quote context. Outer quotes protect
         // only its returned value; quotes inside protect pattern characters.
         child
             .operand(source, state, false, false, depth + 1, true)
@@ -884,7 +938,7 @@ impl Expansion<'_> {
         self.raw_remaining -= capacity - child.raw_remaining;
         let ifs_changed = child.ifs_changed;
         let replacement_output = child.segments.account_storage;
-        let mut pattern = child.pattern.take().ok_or(2)?;
+        let pattern = child.pattern.take().ok_or(2)?;
         drop(child);
         if replacement_output {
             self.admit_replacement_output().await?;
@@ -893,10 +947,51 @@ impl Expansion<'_> {
         if ifs_changed {
             self.ifs = None;
         }
+        Ok(pattern)
+    }
+    async fn change_case(
+        &mut self,
+        name: &str,
+        source: &str,
+        state: &SharedState,
+        protected: bool,
+        depth: usize,
+        upper: bool,
+        all: bool,
+    ) -> Result<(), Error> {
+        self.work.checkpoint(self.cancel).await?;
+        let (value, present) = {
+            let s = state.borrow();
+            let parameter = s.scalar_parameter(name);
+            let value = parameter.unwrap_or("");
+            if value.len() > self.raw_remaining.min(self.work.remaining) {
+                return Err(2.into());
+            }
+            self.work.admit_storage(value.len())?;
+            (value.to_owned(), parameter.is_some())
+        };
+        if !present {
+            return self
+                .segment("", Protection::expansion(protected, state), protected)
+                .await;
+        }
+        for _ in value.bytes() {
+            self.work.checkpoint(self.cancel).await?;
+        }
+        let mut pattern = self.pattern_operand(source, state, depth).await?;
+        let locale = case::Locale::from_state(state)?;
         let result = pattern
-            .remove(&value, prefix, longest, self.work, self.cancel)
+            .change_case(
+                &value,
+                upper,
+                all,
+                locale,
+                self.raw_remaining,
+                self.work,
+                self.cancel,
+            )
             .await?;
-        self.segment(result, Protection::expansion(protected, state), protected)
+        self.segment(&result, Protection::expansion(protected, state), protected)
             .await
     }
     async fn effect_operand(
@@ -909,15 +1004,16 @@ impl Expansion<'_> {
         quoted: bool,
         scalar: bool,
         depth: usize,
+        error_pointer: Option<&str>,
     ) -> Result<(), Error> {
         // Reserve target/diagnostic bytes before copying either name or value.
-        let overhead = name
-            .len()
-            .saturating_add(if matches!(operator, ParameterOp::Error) {
-                96
-            } else {
-                0
-            });
+        let diagnostic_bytes =
+            error_pointer.map_or(name.len(), |pointer| pointer.len().saturating_add(1));
+        let overhead = if matches!(operator, ParameterOp::Error) {
+            diagnostic_bytes.saturating_add(96)
+        } else {
+            name.len()
+        };
         let max_bytes = self.raw_remaining;
         self.work.admit_storage(overhead)?;
         let capacity = max_bytes.min(self.work.storage_remaining);
@@ -932,7 +1028,6 @@ impl Expansion<'_> {
             }),
             pattern: None,
             replacement: None,
-            replacement_dynamic: false,
             // Diagnostics leave the pattern context, including in nested operands.
             pattern_context: self.pattern_context && !matches!(operator, ParameterOp::Error),
             // Ordinary diagnostics also retain segments/output while snapshotting.
@@ -961,7 +1056,8 @@ impl Expansion<'_> {
             };
             return Err(Error::Parameter {
                 line: None,
-                name: name.to_owned(),
+                name: error_pointer
+                    .map_or_else(|| name.to_owned(), |pointer| format!("!{pointer}")),
                 message,
             });
         }
@@ -1064,13 +1160,8 @@ impl Expansion<'_> {
                 .await
             }
             operand::Piece::Expansion { part, protected } => {
-                let previous = self.replacement_dynamic;
-                self.replacement_dynamic = self.replacement.is_some();
-                let result = self
-                    .part(&part, state, quoted || protected, scalar, depth)
-                    .await;
-                self.replacement_dynamic = previous;
-                result
+                self.part(&part, state, quoted || protected, scalar, depth)
+                    .await
             }
         }
     }
@@ -1157,6 +1248,16 @@ impl Expansion<'_> {
             return Ok(());
         }
         self.separator(separator, protected).await
+    }
+}
+
+fn case_mode(operator: &ParameterOp) -> Option<(bool, bool)> {
+    match operator {
+        ParameterOp::UpperFirst => Some((true, false)),
+        ParameterOp::UpperAll => Some((true, true)),
+        ParameterOp::LowerFirst => Some((false, false)),
+        ParameterOp::LowerAll => Some((false, true)),
+        _ => None,
     }
 }
 
@@ -1268,7 +1369,6 @@ async fn expand(
         captured: None,
         pattern: None,
         replacement: None,
-        replacement_dynamic: false,
         pattern_context: false,
         pattern_snapshots: false,
         ifs: None,

@@ -142,7 +142,6 @@ impl Expansion<'_> {
             captured: None,
             pattern: Some(pattern::Pattern::default()),
             replacement: None,
-            replacement_dynamic: false,
             pattern_context: true,
             pattern_snapshots: true,
             ifs: None,

@@ -292,6 +292,68 @@ its existing limits. `shellParser.changeLog` and
 `shellParameterTrim.reviewCorrections` classify the paths and local changes.
 Fresh runtime and corpus checks for these repairs remain coordinator-owned CI.
 
+## Scalar parameter case modification
+
+The scalar `^`, `^^`, `,` and `,,` dispatch, first-character selection and
+per-character pattern rules in `shell/engine/src/expand.rs` and
+`expand/pattern.rs` adapt Bashkit's `crates/bashkit/src/interpreter/expansion.rs`
+(`apply_parameter_op:3238-3241`, `change_case:3250-3277` and
+`expand_pattern_operand:3286-3290`) at revision
+`491c3281f668b76d64b15210b8f5d7bf97244be0`, under the retained MIT license at
+`shell/parser/LICENSE`. Focused examples in `shell/engine/tests/words.rs` adapt
+`variables.test.sh:226-253`, `string-ops.test.sh:73-85` and
+`bashbox-word-expander.test.sh:181-186` in the pinned
+`crates/bashkit/tests/spec_cases/bash/` directory. Exact paths, classification,
+destinations and divergences are recorded in `shellParameterCase` in
+`sources.lock.json`.
+
+The async integration, selected-token admission, quoted-empty pattern flag,
+reusable matcher state and `expand/case.rs` locale table are original adapters.
+The existing bounded scalar-trim matcher and structural operand scanner are
+reused. Unlike upstream, quoted empty patterns match nothing, only unset targets
+skip operands, and full Rust Unicode case expansion is not used. GNU Bash 5.3.15
+controls check both directions for all 255 non-NUL Latin-1 characters under
+`C.UTF-8` and `C`, including unchanged sharp-s and the single-character micro-sign
+and y-diaeresis mappings. `C`/`POSIX` map ASCII with ASCII patterns; `C.UTF-8` and
+`C.utf8` additionally map Latin-1 inputs. Other selected UTF-8 inputs, other
+locales and non-ASCII byte-locale patterns fail closed. Unmatched characters and
+first-form tails remain unchanged. This does not claim full Unicode or locale
+collation compatibility. Pattern effects precede locale selection and final IFS
+splitting; shared bounds, cooperative yields and cancellation-safe frames remain
+in force. No process host, browser transport or output buffering is copied or
+changed. Versions and fixed measurement metadata remain coordinator-owned.
+
+The original integration also reserves actual matcher vector capacities and case
+result String capacities before allocation, including spare slots. Exact-budget
+unit controls reject before growth; this is not copied from Bashkit.
+
+Scalar indirection adapts Bashkit's `expand_word` `IndirectExpansion` branch
+(`crates/bashkit/src/interpreter/expansion.rs:655-717`), ordinary scalar checks in
+`indirect_target` (`2795-2860`) and indirect field-splitting classification
+(`1893-1912`) at revision `491c3281f668b76d64b15210b8f5d7bf97244be0`.
+Copyright 2024-2026 Everruns; the retained MIT license applies. The four scalar
+cases in `crates/bashkit/tests/spec_cases/bash/indirect-expansion.test.sh:1-31`
+and plain cases in `blackbox-exploration.test.sh:434-438`,
+`string-ops.test.sh:57-63` and `variables.test.sh:254-266` are adapted into
+`shell/engine/tests/words/indirect.rs`. Exact sources, destinations, classification
+and divergences are recorded under `shellParameterIndirect` in `sources.lock.json`.
+
+The direct resolver in `shell/engine/src/expand/indirect.rs`, shared budget
+integration in `expand.rs`/`expand/operand.rs`, fatal-error metadata in
+`interpreter.rs` and GNU Bash 5.3.15/engine regression controls are original
+adapters. Only identifier pointers to identifier scalars and the existing eight
+scalar conditional operators are included. Snapshots are admitted before bounded
+atomic copies; scans and validation share cooperative Work. Invalid indirection
+has fatal status 1; selected scalar errors keep the existing environment status
+and descriptor/source ownership. Nested error names are preserved separately from
+the outer `!pointer` label. The upstream `desugar_indirect` target-string reparse
+is inspected but not copied. No target value is parsed or evaluated. Positional
+and special names, arrays/namerefs, listings/options and generic indirect suffixes
+remain unsupported, including all subscript-bearing target values. Full invalid
+names fit the diagnostic limit or fail explicitly, rather than being truncated
+at upstream's 256-character diagnostic prefix. No parser, process, browser,
+filesystem, `mapfile` or output-buffering implementation is copied or changed.
+
 Scalar parameter replacement adapts Bashkit at
 `491c3281f668b76d64b15210b8f5d7bf97244be0`, MIT, Copyright 2024–2026 Everruns.
 The `ReplaceFirst`/`ReplaceAll` arms, `expand_replacement_operand`,

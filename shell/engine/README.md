@@ -86,6 +86,23 @@ with ASCII spaces, preserving direct literal whitespace and inner quotes even
 when the error is selected inside a trim pattern. Surrounding quotes and scalar
 contexts do not suppress diagnostic splitting. All eight forms currently require
 ordinary identifier targets.
+Scalar indirection (`${!pointer}`) resolves one ordinary identifier pointer to
+one ordinary identifier scalar target. The eight scalar operators above also
+apply to that resolved target: `${!pointer:-fallback}`, `${!pointer:=value}` and
+`${!pointer:?message}`, with their non-colon and alternative forms. Valid unset
+targets expand empty or select their operand; unset, empty and invalid pointers
+are fatal status 1 errors. Selected error operands retain the existing fatal
+parameter status and identify `!pointer`; nested errors keep their own names.
+Quotes, final IFS splitting, lazy operands, persistent writes and child containment
+use the existing machinery. Pointer/value snapshots share command storage/work
+before copying; scans and identifier validation yield and check cancellation.
+There is no target-string reparse. Positional/special pointers and targets,
+arrays/namerefs, prefix listing, options and all generic indirect suffixes
+(including trim, case, replacement and substring) remain status 2 unsupported.
+Subscript-bearing target strings are rejected without interpreting their contents.
+Supported indirect results can appear inside existing lazy operands, trim
+patterns, diagnostics, scalar assignments, declarations and redirects. This does
+not add indirect length or suffix composition; the existing parser AST is unchanged.
 Scalar length (`${#name}`) also supports ordinary identifiers, positive positional
 parameters, `$?` and `$#`; unset values have length zero. `C`/`POSIX` count bytes;
 recognized UTF-8 locales count Unicode scalar values, not grapheme clusters.
