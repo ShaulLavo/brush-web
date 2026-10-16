@@ -1191,6 +1191,13 @@ fn deferred_list_splitting_distinguishes_element_spaces_and_word_split_mode() {
 fn lexical_escapes_keep_only_the_escaped_character_protected_after_ifs_writes() {
     for (source, expected) in [
         (r#"IFS=; args a:\:b${IFS:=:}"#, vec!["a", ":b"]),
+        // Keep neighboring letters splittable, not just neighboring colons.
+        (r#"IFS=; args a\:b${IFS:=ab}"#, vec!["", ":", "", ""]),
+        (r#"IFS=; args a\:b${IFS:=a}"#, vec!["", ":b"]),
+        (r#"IFS=; args a\:b${IFS:=b}"#, vec!["a:", ""]),
+        (r#"IFS=; args a\:b${IFS:=:ab}"#, vec!["", ":", "", "", ""]),
+        (r#"IFS=; args a"x"b${IFS:=axb}"#, vec!["", "x", "", "", ""]),
+        (r#"IFS=; args a\ b${IFS:=ab}"#, vec!["", " ", "", ""]),
         (r#"IFS=; args a\:b:c${IFS:=:}"#, vec!["a:b", "c"]),
         (r#"IFS=; args a""\:b:c${IFS:=:}"#, vec!["a:b", "c"]),
         (r#"IFS=; args "a"\:b:c${IFS:=:}"#, vec!["a:b", "c"]),
