@@ -75,9 +75,10 @@ AND/OR lists, background lists, brace groups, subshells, `while`, pipelines,
 streaming/state builtins. The first word area adds quote-aware fields for literals,
 ordinary variables, positional parameters and `PIPESTATUS`, including IFS splitting,
 quoted `@` boundaries, `*` joins and command-name field promotion. Assignment and
-`export`/`local` assignment operands retain scalar expansion. Broad parameter
-operators, globbing, substitution, arrays, traps, aliases, `lastpipe`, directory validation and full utility option
-coverage are not implemented. Unsupported AST forms return status 2. Utility
+`export`/`local` assignment operands retain scalar expansion. Scalar default/alternative operators (`-`, `:-`, `+`, `:+`) lazily expand selected
+operands with quote protection and shared work limits. Other parameter operators,
+globbing, substitution, arrays, traps, aliases, `lastpipe`, directory validation
+and full utility option coverage are not implemented. Unsupported AST forms return status 2. Utility
 names/format options here are not claims of full Bash compatibility.
 
 The scheduler, descriptors, process adapter and streaming execution are original
@@ -85,7 +86,8 @@ implementations. Word expansion and its focused `tests/words.rs` cases adapt the
 Bashkit sources recorded separately in `sources.lock.json` and
 `THIRD_PARTY_NOTICES.md`. Protection is structural, with cooperative work and
 explicit intermediate/aggregate limits instead of sentinel strings or truncation.
-`../parser/src/parser` remains vendored unchanged. No known Bashkit buffering or
+The parser starts from Bashkit at the recorded base revision and is maintained
+freely with local changes recorded in the source pin. No known Bashkit buffering or
 `mapfile` implementation is ported.
 
 ## Verification

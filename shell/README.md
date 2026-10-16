@@ -16,16 +16,16 @@ let script: Script = Parser::new("echo hello | cat").parse()?;
 assert!(matches!(&script.commands[0], Command::Pipeline(_)));
 ```
 
-All nine files in `parser/src/parser/`, including their unit tests, are copied
-**unchanged** from `everruns/bashkit`, revision
+The parser starts from `everruns/bashkit`, revision
 `491c3281f668b76d64b15210b8f5d7bf97244be0`, directory
-`crates/bashkit/src/parser/`. That directory is the only vendored code here. Its
-MIT license is retained at `parser/LICENSE`. The `shellParser` entry in
-`../sources.lock.json` pins the source and file/license SHA-256 checksums.
-`node scripts/check-shell-parser.mjs` from the repository root verifies the exact
-file set and bytes without downloading anything. Rustfmt skips the vendored
-module so formatting the adapters cannot rewrite upstream source. Any upstream
-update must update the pin, checksums and provenance together.
+`crates/bashkit/src/parser/`, including its upstream unit tests. It is now our
+parser and may change freely. Its MIT license is retained at `parser/LICENSE`.
+The `shellParser` entry in `../sources.lock.json` records that base revision,
+local changes and reasons, and the license checksum.
+`node scripts/check-shell-parser.mjs` verifies that provenance record and license,
+not source byte identity. Keep upstream parser tests running; remove one only for
+a deliberate behavior change recorded with a reason in `removedUpstreamTests`.
+Rustfmt skips the imported module to avoid unrelated formatting changes.
 
 The spike at `/work/tmp/own-shell-spike-tloM5o/proof/parser` was inspected only as
 a reference for extracting the module. Its adapters and mock engine are not
@@ -77,7 +77,7 @@ cargo fmt --manifest-path shell/Cargo.toml --all --check
 npm run build:shell
 ```
 
-`test:rust` checks vendored checksums, runs all upstream parser unit tests plus
+`test:rust` checks parser provenance and the retained license, runs all upstream parser unit tests plus
 original adapter/API tests, then retains the existing Brush tests. CI runs that
 command and the WASI release build. `build:shell` produces the runnable
 `.build/shell/wasm32-wasip1/release/shell-engine.wasm` CLI as well as the libraries.

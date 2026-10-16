@@ -6,7 +6,7 @@ Brush is MIT licensed and retained as a pinned source submodule with its license
 
 The source-built Bashkit Terminal is MIT licensed and pinned separately from the published npm package. Its build gathers license files from Cargo's actual compiler artifacts, including the vt100 and vte dependencies, and includes them in the generated distribution notices.
 
-The new shell's parser is vendored byte-for-byte from Bashkit's `crates/bashkit/src/parser/` at `491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT, Copyright 2024–2026 Everruns), including its upstream unit tests. `shell/parser/LICENSE` retains the upstream license; `sources.lock.json` records every parser file's SHA-256 and the license checksum. The notices script includes that license and the parser workspace's Rust dependency licenses. The error, parser-only limits and monotonic-clock adapters outside the vendored directory are original implementations, not copies of Bashkit's interpreter or the spike's shims. See [the parser workspace](shell/README.md) for the boundary and checks.
+The new shell's parser starts from Bashkit's `crates/bashkit/src/parser/` at `491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT, Copyright 2024–2026 Everruns), including its upstream unit tests. `shell/parser/LICENSE` retains the upstream license; `sources.lock.json` records the base revision, our local change log and the license checksum. The notices script includes that license and the parser workspace's Rust dependency licenses. The error, parser-only limits and monotonic-clock adapters outside the vendored directory are original implementations, not copies of Bashkit's interpreter or the spike's shims. See [the parser workspace](shell/README.md) for the boundary and checks.
 
 The terminal's historical notice names an older Ghostty revision. The actual included `ghostty-vt.wasm` provenance names `7b11f3dca034d8d24369ad3856afe57946d7902a`, and the build records that correction while preserving the original notice text.
 
@@ -59,3 +59,46 @@ iterator, retaining other quotes and escapes. An original engine adapter uses
 the unchanged lexer's public raw-capture API within bounded command spans when
 `Word.raw` is absent outside function bodies. Escaped declaration spellings
 are corrected against GNU Bash; no parser files are modified.
+
+Scalar default and alternative parameter operators are adapted from Bashkit's
+`crates/bashkit/src/interpreter/expansion.rs` at the same pinned revision
+`491c3281f668b76d64b15210b8f5d7bf97244be0`, under the retained MIT license,
+Copyright 2024–2026 Everruns. This takes the scalar `ParameterExpansion` dispatch,
+`resolve_param_expansion_name`, the `UseDefault` and `UseReplacement` arms of
+`apply_parameter_op`, and quote/operand rules from `expand_operand`,
+`parse_marked_operand`, `strip_operand_quotes_with_count`, `operand_word`,
+`quoted_operand_used` and `split_word_segments`. Adaptations live in
+`shell/engine/src/expand.rs`, `shell/engine/src/expand/operand.rs` and
+`shell/engine/src/state.rs`, with shared-work wiring in `interpreter.rs`. The
+scanner follows the unchanged quote/escape contract of `read_unquoted_param_body`
+and `read_param_expansion_into` in `crates/bashkit/src/parser/lexer.rs` and adapts
+opaque substitution boundaries from `read_brace_operand` in
+`crates/bashkit/src/parser/mod.rs`. Its `parse_word_string_with_limits` API is
+called only after engine admission. Additional cases in `shell/engine/tests/words.rs`
+adapt `var-op-test.test.sh`, `variables.test.sh`, `string-ops.test.sh`,
+`param-operand-quotes.test.sh` and `word-split.test.sh` from
+`crates/bashkit/tests/spec_cases/bash/`; exact ranges and destinations are recorded
+under `shellParameterDefaults` in `sources.lock.json`.
+
+Local operand handling streams structural protection into the existing field
+splitter instead of inserting upstream quote markers. Only selected scalar
+operands are scanned or reparsed. Each synchronous scalar-token reparse is
+admitted at 4,096 bytes, with cumulative token-byte/work accounting, cooperative
+checkpoints, a 32-level operator limit and a parsed-shape check. Local changes in
+`lexer.rs` retain raw backslashes in double-quoted parameter operands and nested
+scalar braces inside literal apostrophe spans. Operand matching in `mod.rs` and
+the lexer's quoted-word boundary scan keep raw escapes and existing lexer
+protection indivisible. The engine removes escapes once and distinguishes quoted
+process-substitution lookalikes from unsupported substitutions. Assignment and
+error operators, list operands, arrays,
+indirection, patterns, pathname/tilde/brace expansion,
+arithmetic and substitutions are not ported. The original async engine keeps
+its aggregate bounds and cancellation guards; no `mapfile` or output-buffering
+code is included.
+
+The parser starts from Bashkit revision `491c3281f668b76d64b15210b8f5d7bf97244be0`
+and is now maintained freely as our own code. Its base revision, local change log
+and any deliberately removed upstream tests with reasons are recorded under
+`shellParser` in `sources.lock.json`. The provenance check validates that record
+and the retained license, not byte identity. All upstream parser tests remain in
+place; the local quote and escape changes are recorded there.

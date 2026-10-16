@@ -1,11 +1,15 @@
 //! Quote-aware fields adapted from Bashkit expansion.rs at the revision pinned
 //! in sources.lock.json. Protection and empty fields are structural, never data
-//! sentinels. Operators, globbing and substitutions remain outside this slice.
+//! sentinels. Scalar default/alternative operands are lazy and bounded.
+//! Other operators, globbing and substitutions remain unsupported.
 use crate::{
     executor::{Budget, Cancel},
     state::SharedState,
 };
-use shell_parser::parser::{Word, WordPart};
+use futures::{FutureExt, future::LocalBoxFuture};
+use shell_parser::parser::{ParameterOp, Word, WordPart};
+
+mod operand;
 use std::{borrow::Cow, collections::BTreeSet};
 
 /// Command-wide work accounting, including words that disappear and empty list
@@ -14,13 +18,27 @@ use std::{borrow::Cow, collections::BTreeSet};
 pub(crate) struct Work {
     remaining: usize,
     budget: Budget,
+    parse_remaining: usize,
 }
 impl Work {
     pub(crate) fn new(steps: usize) -> Self {
         Self {
             remaining: steps,
             budget: Budget::default(),
+            parse_remaining: steps,
         }
+    }
+    async fn admit_parse(&mut self, bytes: usize, cancel: &Cancel) -> Result<(), i32> {
+        if bytes > self.parse_remaining {
+            return Err(2);
+        }
+        self.parse_remaining -= bytes;
+        // Reserve cumulative parser work before its synchronous, nonrecursive
+        // scalar-token call. No parser fuel/fallback is relied on for admission.
+        for _ in 0..bytes.saturating_mul(8) {
+            self.checkpoint(cancel).await?;
+        }
+        Ok(())
     }
     async fn checkpoint(&mut self, cancel: &Cancel) -> Result<(), i32> {
         if cancel.is_cancelled() {
@@ -205,6 +223,120 @@ impl Expansion<'_> {
         }
         Ok(())
     }
+    fn part<'a>(
+        &'a mut self,
+        part: &'a WordPart,
+        state: &'a SharedState,
+        quoted: bool,
+        scalar: bool,
+        depth: usize,
+    ) -> LocalBoxFuture<'a, Result<(), i32>> {
+        async move {
+            if let WordPart::ParameterExpansion {
+                name,
+                operator,
+                operand,
+                colon_variant,
+            } = part
+            {
+                return self
+                    .parameter(
+                        name,
+                        operator,
+                        operand,
+                        *colon_variant,
+                        state,
+                        quoted,
+                        scalar,
+                        depth,
+                    )
+                    .await;
+            }
+            let value = scalar_value(part, state, self.raw_remaining)?;
+            self.segment(&value, scalar || quoted, scalar || quoted)
+                .await
+        }
+        .boxed_local()
+    }
+    async fn parameter(
+        &mut self,
+        name: &str,
+        operator: &ParameterOp,
+        operand: &str,
+        colon: bool,
+        state: &SharedState,
+        quoted: bool,
+        scalar: bool,
+        depth: usize,
+    ) -> Result<(), i32> {
+        if !operand::scalar_name(name) || depth >= operand::MAX_DEPTH {
+            return Err(2);
+        }
+        let replacement = match operator {
+            ParameterOp::UseDefault => false,
+            ParameterOp::UseReplacement => true,
+            _ => return Err(2),
+        };
+        let absent = state
+            .borrow()
+            .scalar_parameter(name)
+            .is_none_or(|v| colon && v.is_empty());
+        if replacement != absent {
+            return self
+                .operand(operand, state, quoted, scalar, depth + 1)
+                .await;
+        }
+        let value = if replacement {
+            String::new()
+        } else {
+            let s = state.borrow();
+            bounded(
+                Cow::Borrowed(s.scalar_parameter(name).unwrap_or("")),
+                self.raw_remaining,
+            )?
+        };
+        self.segment(&value, scalar || quoted, scalar || quoted)
+            .await
+    }
+    async fn operand(
+        &mut self,
+        source: &str,
+        state: &SharedState,
+        quoted: bool,
+        scalar: bool,
+        depth: usize,
+    ) -> Result<(), i32> {
+        let mut scanner = operand::Scanner::new(source, quoted);
+        while let Some(piece) = scanner.next(self.work, self.cancel).await? {
+            self.operand_piece(piece, state, quoted, scalar, depth)
+                .await?;
+        }
+        // An outer quoted expansion exists even when its selected operand is empty.
+        self.segment("", scalar || quoted, scalar || quoted).await
+    }
+    async fn operand_piece(
+        &mut self,
+        piece: operand::Piece<'_>,
+        state: &SharedState,
+        quoted: bool,
+        scalar: bool,
+        depth: usize,
+    ) -> Result<(), i32> {
+        match piece {
+            operand::Piece::Text { value, protected } => {
+                self.segment(
+                    value,
+                    scalar || quoted || protected,
+                    scalar || quoted || protected,
+                )
+                .await
+            }
+            operand::Piece::Expansion { part, protected } => {
+                self.part(&part, state, quoted || protected, scalar, depth)
+                    .await
+            }
+        }
+    }
     async fn separator(&mut self, ch: Option<char>, protected: bool) -> Result<(), i32> {
         if let Some(ch) = ch {
             self.segment(ch.encode_utf8(&mut [0; 4]), protected, false)
@@ -386,11 +518,11 @@ async fn expand(
             expansion.elements(part, state, quoted, scalar).await?;
             continue;
         }
-        let literal = matches!(part, WordPart::Literal(_));
-        let value = scalar_value(part, state, expansion.raw_remaining)?;
-        expansion
-            .segment(&value, scalar || literal || quoted, scalar || quoted)
-            .await?;
+        if let WordPart::Literal(value) = part {
+            expansion.segment(value, true, scalar || quoted).await?;
+            continue;
+        }
+        expansion.part(part, state, quoted, scalar, 0).await?;
     }
     expansion.fields.end_group()?;
     Ok(expansion.fields.out)

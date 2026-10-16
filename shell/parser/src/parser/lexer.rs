@@ -2522,6 +2522,14 @@ impl<'a> Lexer<'a> {
 
         while i < n {
             let ch = char_vec[i];
+            // Parameter operands retain raw escapes and lexer protection.
+            // Neither escaped braces nor escaped dollars change nesting.
+            if !expansion_stack.is_empty() && matches!(ch, '\\' | '\x00') && i + 1 < n {
+                result.push(ch);
+                result.push(char_vec[i + 1]);
+                i += 2;
+                continue;
+            }
             // Sentinel pairs are indivisible; escaped NUL/marker bytes stay data.
             if ch == '\x00'
                 && let Some(&next) = char_vec.get(i + 1)
@@ -2671,109 +2679,13 @@ impl<'a> Lexer<'a> {
                         break;
                     }
                 }
-                '"' => {
-                    // Quotes inside ${...} are part of the expansion, not string
-                    // delimiters. Braces inside them are literal
-                    // (`"${v-"}"}"` is `}`) unless they belong to a nested `${`.
-                    content.push('"');
-                    self.advance();
-                    let mut inner = 0usize;
-                    while let Some(q) = self.peek_char() {
-                        self.advance();
-                        match q {
-                            '"' => {
-                                content.push('"');
-                                break;
-                            }
-                            '\\' => {
-                                content.push('\\');
-                                if let Some(n) = self.peek_char() {
-                                    self.advance();
-                                    content.push(n);
-                                }
-                            }
-                            '$' if self.peek_char() == Some('{') => {
-                                self.advance();
-                                content.push_str("${");
-                                inner += 1;
-                            }
-                            '}' if inner > 0 => {
-                                inner -= 1;
-                                content.push('}');
-                            }
-                            '{' | '}' => {
-                                content.push('\x00');
-                                content.push(q);
-                            }
-                            _ => content.push(q),
-                        }
-                    }
-                }
-                '\'' => {
-                    // Bash keeps `'` literal in "${x:-'d'}" but still matches
-                    // braces past it: "${x:-'}'}" is `'}'`. NUL-escape braces in
-                    // the span so the parser does not close the operand early.
-                    let ansi_c = content.ends_with('$');
-                    content.push('\'');
-                    self.advance();
-                    while let Some(q) = self.peek_char() {
-                        self.advance();
-                        if matches!(q, '{' | '}') {
-                            content.push('\x00');
-                        }
-                        content.push(q);
-                        if ansi_c && q == '\\' {
-                            if let Some(n) = self.peek_char() {
-                                self.advance();
-                                content.push(n);
-                            }
-                        } else if q == '\'' {
-                            break;
-                        }
-                    }
-                }
+                '"' | '\'' => self.read_param_quoted_span(content, c, depth)?,
                 '\\' => {
-                    // Inside ${...} within double quotes, same escape rules apply:
-                    // \", \\, \$, \` produce the escaped char; others keep backslash
+                    // Keep operand escapes raw. The expansion scanner owns
+                    // quote removal, including inside literal apostrophe spans.
+                    content.push(c);
                     self.advance();
-                    if let Some(esc) = self.peek_char() {
-                        match esc {
-                            '$' => {
-                                content.push('\x00');
-                                content.push('$');
-                                self.advance();
-                            }
-                            '"' => {
-                                // Use NUL sentinel so strip_operand_quotes()
-                                // can distinguish literal " from quoting "
-                                content.push('\x00');
-                                content.push('"');
-                                self.advance();
-                            }
-                            '\\' | '`' => {
-                                content.push(esc);
-                                self.advance();
-                            }
-                            '}' => {
-                                // \} is a literal } without closing the expansion
-                                // (`"${v-\}}"` is `}`, `"${v#\}}"` strips one).
-                                content.push('\x00');
-                                content.push('}');
-                                self.advance();
-                            }
-                            // Line continuation.
-                            '\n' => {
-                                self.advance();
-                            }
-                            _ => {
-                                content.push('\\');
-                                content.push(esc);
-                                self.advance();
-                            }
-                        }
-                    } else {
-                        content.push('\\');
-                    }
+                    content.extend(self.advance());
                 }
                 '$' => {
                     content.push('$');
@@ -2796,6 +2708,76 @@ impl<'a> Lexer<'a> {
                     self.advance();
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Quotes inside an outer double-quoted parameter retain their spelling.
+    /// Bare braces cannot end the operand, but nested `${...}` stays structural
+    /// even inside literal apostrophe spans.
+    fn read_param_quoted_span(
+        &mut self,
+        content: &mut String,
+        quote: char,
+        enclosing_depth: usize,
+    ) -> Result<(), String> {
+        // A nested parameter owns its quote context. Once it closes, resume
+        // the enclosing quoted span rather than treating its quotes as ours.
+        // This explicit stack also includes the enclosing parameter in limits.
+        let ansi_c = quote == '\'' && content.ends_with('$');
+        let mut quotes = vec![(quote, ansi_c, enclosing_depth)];
+        let mut depth = enclosing_depth;
+        content.push(quote);
+        self.advance();
+        while let Some(c) = self.advance() {
+            let active = quotes.last().copied().filter(|frame| frame.2 == depth);
+            if active.is_some_and(|frame| c == frame.0) {
+                content.push(c);
+                quotes.pop();
+                if quotes.is_empty() {
+                    return Ok(());
+                }
+                continue;
+            }
+            if c == '\\'
+                && active.is_none_or(|(quote, ansi_c, _)| {
+                    quote != '\'' || ansi_c || self.peek_char() != Some('\'')
+                })
+            {
+                content.push(c);
+                content.extend(self.advance());
+                continue;
+            }
+            if c == '$' && self.peek_char() == Some('(') {
+                content.push_str("$(");
+                self.advance();
+                self.read_command_subst_into(content);
+                continue;
+            }
+            if c == '$' && self.peek_char() == Some('{') {
+                if depth >= self.max_subst_depth {
+                    return Err("parameter expansion nesting too deep".to_string());
+                }
+                depth += 1;
+                self.advance();
+                content.push_str("${");
+                continue;
+            }
+            if active.is_none() && matches!(c, '\'' | '"') {
+                quotes.push((c, c == '\'' && content.ends_with('$'), depth));
+            } else if matches!(c, '{' | '}') {
+                if active.is_some() {
+                    content.push('\x00');
+                } else if c == '{' {
+                    if depth >= self.max_subst_depth {
+                        return Err("parameter expansion nesting too deep".to_string());
+                    }
+                    depth += 1;
+                } else {
+                    depth -= 1;
+                }
+            }
+            content.push(c);
         }
         Ok(())
     }
@@ -3287,6 +3269,15 @@ mod tests {
             lexer.next_token(),
             Some(Token::QuotedWord("${a:-${b}}".to_string()))
         );
+    }
+
+    #[test]
+    fn quoted_parameter_depth_includes_the_enclosing_expansion() {
+        let source = r#""${u:-'${v}'}""#;
+        let mut lexer = Lexer::with_max_subst_depth(source, 1);
+        assert!(matches!(lexer.next_token(), Some(Token::Error(_))));
+        let mut lexer = Lexer::with_max_subst_depth(source, 2);
+        assert!(matches!(lexer.next_token(), Some(Token::QuotedWord(_))));
     }
 
     #[test]

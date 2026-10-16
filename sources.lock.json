@@ -96,19 +96,38 @@
     "directory": "shell/parser",
     "vendoredDirectory": "shell/parser/src/parser",
     "license": "MIT",
-    "strategy": "Byte-identical parser files and upstream unit tests; original parser-only error, limits and WASI clock adapters live outside the vendored directory.",
-    "filesSha256": {
-      "ast.rs": "ec92b2d8f810f03de4f4a096619f6335ce8a560224db16a1520b836e589fcfdd",
-      "budget.rs": "791d43612d1537f4a9a2cafd25d7fe3b64720e8a1a7f41e2339acc95b9e8439e",
-      "lexer.rs": "f8968a40b9add73dfaf68f7c4544dce8ba9730030b72998bae33083519cf25e5",
-      "mod.rs": "cf9be1320820e238051f684ff6d904351861afc7a8bd5d189cf956a8479be4c1",
-      "print_cmd.rs": "45ee78fdc6de9ab83c3b081d6b4d9cbea23ac3f18946afe6f4de806e8579a570",
-      "raw.rs": "2ac87cc6930eaf0f7229714263f602625a5c203b299ea2f63262bcff48f2910c",
-      "span.rs": "09c8ae13791167ae4ba7f9b85b9ced7266562ecb4e1331d8eb0671fcf91f307a",
-      "subst_scan.rs": "054afc19f017891d80ea134deb8f975a83536ef581d67a830935c9bd96f29723",
-      "tokens.rs": "14d7c19d7cda696bca22e723c891de9d4bec5922ebd33894b43748ace3797d37"
-    },
-    "licenseSha256": "b3e3b2f3fd15c45106e08434a52c5ad9ca97f15a1cc9894ab5b01078124cf613"
+    "strategy": "Owned parser starting from the pinned Bashkit revision, with freely maintained local changes and upstream parser tests retained unless a deliberate behavior change is recorded.",
+    "licenseSha256": "b3e3b2f3fd15c45106e08434a52c5ad9ca97f15a1cc9894ab5b01078124cf613",
+    "changeLog": [
+      {
+        "paths": [
+          "shell/parser/src/lib.rs",
+          "shell/parser/src/error.rs",
+          "shell/parser/src/limits.rs",
+          "shell/parser/src/time_compat.rs"
+        ],
+        "change": "Original parser-only error, limits and WASI clock adapters around the initial Bashkit parser import.",
+        "reason": "Expose a standalone parser crate with explicit input, work and cancellation limits."
+      },
+      {
+        "paths": [
+          "scripts/check-shell-parser.mjs",
+          "plans/004-own-shell.md"
+        ],
+        "change": "Replace the source byte-identity requirement with this base-revision and change record. No upstream parser behavior or tests changed.",
+        "reason": "The parser is maintained as our own code; fixes may diverge freely from Bashkit."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "change": "Keep double-quoted parameter operand backslashes raw, preserve nested ${...} inside literal apostrophe spans, and treat raw escapes and existing lexer protection as indivisible when matching operand and quoted-word boundaries. Share the double-quote and literal-apostrophe span scanner. No upstream tests removed or changed. An explicit quote-context stack resumes outer spans after nested parameters and includes enclosing depth in the substitution ceiling. Original API regressions check the configured limit.",
+        "reason": "The engine needs the original escape and quote context to distinguish escaped dollars/backticks and braced variables from literal text without context-specific decoding state. Nested parameter quotes must not close the enclosing span or reset its depth accounting."
+      }
+    ],
+    "removedUpstreamTests": []
   },
   "shellScoreboard": {
     "oracleFile": "docs/evidence/own-shell-oracle.json",
@@ -158,9 +177,9 @@
       "note": "Initial metadata refined from nodeMajor 26 to the exact setup-node version; script bytes, classifications and GNU bash observations unchanged."
     },
     "baselineMeasurement": {
-      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38886633355",
-      "source": "1149096283079ec18b7b1fe3b5a4d6bd0801588f",
-      "note": "Measured word-field outcomes: Oils 291, Brush-suite 304, Bashkit-suite 452; nineteen gains and no lost cases. Oracle, classification and environment identity unchanged. Fresh CI must match this pass membership."
+      "url": "https://github.com/ShaulLavo/brush-web/actions/runs/38890920195",
+      "source": "ca47cdce0b2d4b46bbf95ac2a8d0afa2bc86b2c9",
+      "note": "Measured lazy scalar default/alternative and parser escape fixes: Oils305, Brush-suite322, Bashkit-suite479; 59 gains versus main and zero lost cases. Fixed input identity unchanged; fresh CI must match pass membership."
     }
   },
   "shellWords": {
@@ -214,5 +233,56 @@
       "shell/engine/tests/words.rs"
     ],
     "strategy": "Adapt quote-aware literal/basic variable/positional/PIPESTATUS fields, IFS rules, scalar contexts and command-name promotion into the original streaming engine. Structural protection replaces sentinel strings. Declaration syntax requires an unquoted literal command and assignment prefix; retained raw spelling rejects escapes lost by token decoding, using only continuation removal from normalize_raw_word. An original bounded engine adapter uses the unchanged public Lexer raw-capture API for top-level declaration words not retained by the parser; quoted-at words trim leading mixed-IFS delimiters as verified with GNU Bash, diverging from upstream where needed. Cooperative Budget work, intermediate byte/element bounds and aggregate command field/byte limits reject overflow instead of truncating. No parser modifications, general parameter operators, globbing, substitutions, mapfile or output buffering are ported."
+  },
+  "shellParameterDefaults": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "implementationSources": [
+      {
+        "path": "crates/bashkit/src/interpreter/expansion.rs",
+        "items": [
+          "ParameterExpansion dispatch (scalar default/alternative only)",
+          "resolve_param_expansion_name (ordinary scalar unset/null lookup only)",
+          "apply_parameter_op (UseDefault and UseReplacement arms only)",
+          "expand_operand (lazy operand evaluation)",
+          "parse_marked_operand and strip_operand_quotes_with_count (quote handling adapted structurally)",
+          "operand_word (operand protection and surrounding-word concatenation)",
+          "quoted_operand_used and split_word_segments (selected operand IFS protection)"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/parser/lexer.rs",
+        "items": [
+          "read_unquoted_param_body and read_param_expansion_into (base quote/escape handling; local double-quoted operands retain raw escapes and nested scalar braces)"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/parser/mod.rs",
+        "items": [
+          "parse_word_string_with_limits (unchanged API, called only after engine admission)",
+          "read_brace_operand (opaque nested substitution boundaries adapted to bounded engine scanning; local parser keeps raw escapes indivisible)"
+        ]
+      }
+    ],
+    "testSources": [
+      "crates/bashkit/tests/spec_cases/bash/var-op-test.test.sh:20-35,52-76,150-164",
+      "crates/bashkit/tests/spec_cases/bash/variables.test.sh:50-62",
+      "crates/bashkit/tests/spec_cases/bash/string-ops.test.sh:15-26,35-48",
+      "crates/bashkit/tests/spec_cases/bash/param-operand-quotes.test.sh:1-43 (scalar +/- quote cases only)",
+      "crates/bashkit/tests/spec_cases/bash/word-split.test.sh:525-537"
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/expand/operand.rs",
+      "shell/engine/src/state.rs",
+      "shell/engine/src/interpreter.rs",
+      "shell/parser/src/parser/lexer.rs",
+      "shell/parser/src/parser/mod.rs"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words.rs"
+    ],
+    "strategy": "Adapt only ordinary scalar ${v-word}, ${v:-word}, ${v+word} and ${v:+word}. Preserve unset versus empty and select operands lazily without copying unused values. A cooperative engine scanner streams quote-protected operand pieces into existing Fields; the engine injects no quote sentinels. Single quotes protect unquoted operands and remain literal inside outer double quotes. Reparse only admitted basic-variable or scalar +/- tokens through the unchanged parser API, with at most 4096 UTF-8 bytes per synchronous call and 32 scalar-operator levels. The lexer retains raw operand backslashes in outer double quotes, and nested ${...} remains structural inside literal apostrophe spans. Parser operand and quoted-word boundary scans keep raw escapes and existing lexer protection indivisible. The engine scanner removes escapes once, uses quote context for literal process-substitution lookalikes, and recognizes opaque substitution boundaries without evaluating them; heredoc/comment syntax in those skipped regions fails closed. Simple-command redirects and argv share Work. Cumulative token bytes and eight reserved work steps per parsed byte share the command Work allowance with scanning and expansion; all admission loops yield and check cancellation. Check parsed shape instead of accepting parser literal fallbacks. Large literal operands bypass reparsing and retain existing intermediate/aggregate expansion and argument limits. Tests adapt unset cases by leaving variables absent, observe argv directly, and add lazy nested unsupported operands, quotes, IFS, scalar contexts, budgets, depth, size and cancellation regressions. The existing WASI runner explicitly includes words.rs. Assignment/error operators, arrays/list operands, indirection, pattern operations, globbing, tilde, brace expansion, arithmetic and substitutions remain unsupported when selected. Independent regressions cover escaped dollars, braced variables, quoted process-substitution lookalikes and escaped backticks, including nested, scalar and IFS contexts. Parser changes are recorded under shellParser.changeLog; upstream tests, captured oracle, baseline, mapfile implementation and output buffering remain unchanged."
   }
 }

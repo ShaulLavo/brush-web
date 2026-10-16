@@ -404,7 +404,8 @@ fn execute(
             }
             Command::List(list) => list_command(list, state.clone(), fds, context.clone()).await,
             Command::Compound(compound, redirs) => {
-                match redirects(&redirs, &state, fds, &context).await {
+                let mut work = expansion_work(context.limits());
+                match redirects(&redirs, &state, fds, &context, &mut work).await {
                     Err(code) => Outcome::status(code),
                     Ok(fds) => match compound {
                         CompoundCommand::BraceGroup(commands) => {
@@ -680,7 +681,7 @@ async fn simple_command(
         assigned.push((assignment.name, value));
     }
     let original_fds = fds.clone();
-    let fds = redirects(&simple.redirects, &state, fds, &context).await?;
+    let fds = redirects(&simple.redirects, &state, fds, &context, &mut work).await?;
     let mut argv = expand::fields(
         &simple.name,
         &state,
@@ -805,12 +806,12 @@ async fn redirects(
     state: &SharedState,
     fds: Descriptors,
     context: &Context,
+    work: &mut expand::Work,
 ) -> Result<Descriptors, i32> {
     if redirs.is_empty() {
         return Ok(fds);
     }
     let mut fds = fds.borrow().clone();
-    let mut work = expansion_work(context.limits());
     for redirect in redirs {
         if redirect.fd_var.is_some() {
             return Err(2);
@@ -821,7 +822,7 @@ async fn redirects(
             &context.cancel,
             context.limits().expansion_bytes,
             context.limits().expansion_bytes,
-            &mut work,
+            work,
         )
         .await?;
         let input = matches!(redirect.kind, RedirectKind::Input | RedirectKind::DupInput);
