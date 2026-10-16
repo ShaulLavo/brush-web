@@ -1200,3 +1200,42 @@ fn cancellation_during_error_operand_keeps_effects_without_partial_diagnostic() 
     assert_eq!(rig.run(r#"args "$saved" "$v" "$#""#), 0);
     assert_eq!(*rig.calls.borrow(), &[vec!["yes", "", "0"]]);
 }
+
+#[test]
+fn review_assignment_uses_post_expansion_ifs() {
+    check(r#"IFS=; args ${IFS:=:}a:b"#, &[&["", "a:b"]]);
+}
+
+#[test]
+fn review_redirect_error_keeps_completed_stderr_redirect() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("echo ok 2>&1 >${u:?bad}; args after"), 127);
+    assert_eq!(rig.output.bytes(), b"/usr/bin/bash: line 1: u: bad\n");
+    assert!(rig.errors.bytes().is_empty());
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn review_compound_redirect_errors_keep_pre_body_child_status() {
+    check(
+        r#"{ args body; } >${u:?bad} | args sink; args "${PIPESTATUS[@]}"; { args body; } >${u:?bad} & wait 1; args "$?""#,
+        &[&["sink"], &["127", "0"], &["127"]],
+    );
+}
+
+#[test]
+fn review_multiline_compound_redirect_errors_keep_source_line() {
+    for source in [
+        "\n\n{ args body; } >${u:?bad}",
+        "\n\n(args body) >${u:?bad}",
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_ne!(rig.run(source), 0, "{source}");
+        assert_eq!(
+            rig.errors.bytes(),
+            b"/usr/bin/bash: line 3: u: bad\n",
+            "{source}"
+        );
+        assert!(rig.calls.borrow().is_empty());
+    }
+}
