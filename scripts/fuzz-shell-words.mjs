@@ -228,9 +228,8 @@ function renderCase(testCase) {
   ];
   const printed =
     testCase.quote === "double" ? `"${testCase.expression.source}"` : testCase.expression.source;
-  // Native printf currently consumes only one argument; argv.py preserves every
-  // post-expansion field while retaining the same printf-style boundary evidence.
-  return `${assignments.join("; ")}; argv.py ${printed} following`;
+  // Repeating %s consumes every post-expansion field, preserving boundaries.
+  return `${assignments.join("; ")}; printf '<%s>\\n' ${printed} following`;
 }
 
 function generatedCase(random, index, requestedQuote) {
@@ -312,7 +311,7 @@ function fixedCases() {
       expectedUnsupported: entry.expectedUnsupported ?? false,
       expression: { source: entry.source, tags: entry.tags },
       featureTags: combineTags(entry.tags, [quote]),
-      fixedScript: `unset v u pointer; ${entry.valueState === "unset" ? "unset v" : "v='abc'"}; u=''; pointer=v; argv.py ${quote === "double" ? `"${entry.source}"` : entry.source} following`,
+      fixedScript: `unset v u pointer; ${entry.valueState === "unset" ? "unset v" : "v='abc'"}; u=''; pointer=v; printf '<%s>\\n' ${quote === "double" ? `"${entry.source}"` : entry.source} following`,
     })),
   );
 }
@@ -426,8 +425,6 @@ function validateFixture(fixturePath, fixture, expectedCases, expectedSeed, expe
   }
 }
 
-const bashPrelude = "argv.py() { python3 -c 'import sys; print(repr(sys.argv[1:]))' \"$@\"; }";
-
 function runProcess(command, args, script, timeoutMs) {
   const env = { ...process.env, LC_ALL: "C.UTF-8", LANG: "C.UTF-8" };
   delete env.BASH_ENV;
@@ -487,7 +484,7 @@ function execute(testCase, bashBin, shellBin, timeoutMs) {
   const script = renderCase(testCase);
   const bash = runProcess(
     bashBin,
-    ["--noprofile", "--norc", "-c", `${bashPrelude}\nset -f\n${script}`],
+    ["--noprofile", "--norc", "-c", `set -f\n${script}`],
     script,
     timeoutMs,
   );

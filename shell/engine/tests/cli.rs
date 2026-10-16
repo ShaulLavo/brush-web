@@ -12,6 +12,31 @@ fn cli_keeps_stderr_separate_and_returns_status() {
 }
 
 #[test]
+fn cli_printf_reuses_consuming_formats_for_extra_arguments() {
+    let output = Command::new(env!("CARGO_BIN_EXE_shell-engine"))
+        .args([
+            "-c",
+            "printf '<%s>' a b; printf '<%s:%s>' a b c; printf fixed a b; printf '%%' a b",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"<a><b><a:b><c:>fixed%");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn cli_printf_reuses_formats_after_field_splitting() {
+    let output = Command::new(env!("CARGO_BIN_EXE_shell-engine"))
+        .args(["-c", "values='a b'; printf '<%s>\\n' $values"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"<a>\n<b>\n");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
 fn cli_drains_both_bounded_streams() {
     let output = Command::new(env!("CARGO_BIN_EXE_shell-engine"))
         .args(["-c", "seq 20000 >&2; printf done"])

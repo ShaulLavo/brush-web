@@ -8,9 +8,8 @@ assignments, alternatives, errors, indirection, length, trim, replacement, and c
 operators at the top level and inside double quotes. Operands cover nested expansions,
 quote boundaries, escaped and literal braces, raw `${`/`$(` text in single quotes,
 slashes, patterns, spaces, empty text, and following words. Seven fixed regressions from
-the parameter-boundary review are included in every run. Field capture uses the shell's
-registered `argv.py` compatibility helper because native `printf` currently consumes only
-one argument; Bash is given an equivalent function.
+the parameter-boundary review are included in every run. Field capture uses a repeating
+`printf '<%s>\\n'` format so every post-expansion field is observed without a helper.
 
 The command builds the native binary through the shared heavy-job queue, using a temporary
 `CARGO_TARGET_DIR`, unless `--shell PATH` (or `FUZZ_SHELL_BIN`) supplies an existing
@@ -22,10 +21,6 @@ npm run fuzz:shell-words -- --count 3000 --seed 42 --timeout-ms 2000 \
 npm run fuzz:shell-words -- --shell /work/tmp/brush-web-climb-parameter-replace-target/debug/shell-engine \
   --count 3000 --seed 42
 ```
-
-Python 3 supplies Bash's argv dumper; the native compatibility host provides `argv.py`.
-This temporarily avoids the known native `printf` format-reuse bug recorded in plan
-004 step 3.6, and can be removed when that builtin is fixed.
 
 The summary and full JSON report are printed. `--output` writes the same report to a
 persistent file. Each case is `MATCH`, `UNSUPPORTED` (a known unsupported feature exits
