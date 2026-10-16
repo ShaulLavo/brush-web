@@ -301,6 +301,8 @@ function fixedCases() {
     "result=$((1/0))",
     'printf "%s\\n" "$((echo unexpected [))"',
     'v=abc; printf "%s\\n" "${v:1/0}"',
+    'v=abcdef; printf "%s\\n" "${v:1>>(+(2))}"',
+    'present=ok; printf "%s\\n" "${present:-${v:1>>(+(2))}}"',
     '{ printf "%s\\n" "$((1/0))"; echo inner; }',
     'f() { printf "%s\\n" "$((1/0))"; echo inner; }; f',
     'printf "%s\\n" "$((1/0))" && echo inner',

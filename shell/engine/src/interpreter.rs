@@ -646,7 +646,12 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
     let CommandError { error, stderr } = error;
     let flow = if matches!(
         error,
-        expand::Error::Arithmetic { .. } | expand::Error::Readonly { .. }
+        expand::Error::Arithmetic { .. }
+            | expand::Error::Readonly { .. }
+            | expand::Error::ShellBoundary {
+                stage: expand::ShellBoundaryStage::Expansion,
+                ..
+            }
     ) {
         Flow::DiscardReadUnit
     } else {

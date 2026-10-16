@@ -300,6 +300,7 @@ fn arithmetic_errors_discard_the_read_unit_and_resume_at_top_level_newline() {
         "result=$((1/0))",
         "args $((echo unexpected [))",
         "v=abc; args ${v:1/0}",
+        "v=abc; args ${v:1>>(+(2))}",
         "{ args $((1/0)); args inner; }",
         "f() { args $((1/0)); args inner; }; f",
         "args $((1/0)) && args inner",
@@ -507,5 +508,12 @@ fn quoted_boundary_text_in_unselected_substring_operands_stays_lazy() {
         rig.run("v=abcdef; args \"${v:0:${u:-'<(bad'}}\"; args forbidden"),
         1
     );
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn a_later_word_error_remains_visible_after_an_arithmetic_read_unit_error() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("args $((1/0))\nargs \"${v:1>(+(2))}\""), 127);
     assert!(rig.calls.borrow().is_empty());
 }
