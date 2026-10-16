@@ -89,8 +89,8 @@ checkpoints, a 32-level operator limit and a parsed-shape check. Local changes i
 scalar braces inside literal apostrophe spans. Operand matching in `mod.rs` and
 the lexer's quoted-word boundary scan keep raw escapes and existing lexer
 protection indivisible. The engine removes escapes once and distinguishes quoted
-process-substitution lookalikes from unsupported substitutions. Assignment and
-error operators, list operands, arrays,
+process-substitution lookalikes from unsupported substitutions. The assignment
+and error follow-on is described below. List operands, arrays,
 indirection, patterns, pathname/tilde/brace expansion,
 arithmetic and substitutions are not ported. The original async engine keeps
 its aggregate bounds and cancellation guards; no `mapfile` or output-buffering
@@ -102,3 +102,102 @@ and any deliberately removed upstream tests with reasons are recorded under
 `shellParser` in `sources.lock.json`. The provenance check validates that record
 and the retained license, not byte identity. All upstream parser tests remain in
 place; the local quote and escape changes are recorded there.
+
+Scalar assignment and error operators also adapt Bashkit at
+`491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT, Copyright 2024–2026 Everruns).
+Sources are `crates/bashkit/src/interpreter/expansion.rs` (`ParameterExpansion`,
+`resolve_param_expansion_name`, the `AssignDefault` and `Error` arms of
+`apply_parameter_op`, selected operand quote removal, and deferred splitting in
+`split_word_segments` and `split_marked_segments`) and
+`crates/bashkit/src/interpreter/mod.rs` (`set_parameter_expansion_target`, scalar
+branch, and `expansion_error_result` fatal-flow propagation). Adaptations live in
+`shell/engine/src/expand.rs`, `expand/operand.rs`, `state.rs` and `interpreter.rs`.
+Tests in `shell/engine/tests/words.rs` adapt the scalar assignment/error cases in
+`var-op-test.test.sh`, `variables.test.sh`, `string-ops.test.sh`, quote-removal
+rules in `param-operand-quotes.test.sh`, and `test_colon_variable_side_effect`.
+Exact source paths and adaptations are recorded under `shellParameterEffects`
+in `sources.lock.json`; the retained license is `shell/parser/LICENSE`.
+
+Local changes retain bounded selected operands before field splitting, store
+unsplit values after quote removal, and use cancellation-safe prefix frames to
+preserve completed parameter writes in the caller. Original typed text,
+protected-empty and list-separator segments defer field splitting until all word
+expansions finish, so selected IFS assignments also govern earlier unquoted
+text. List separators retain their expansion-time character and resolve their
+boundaries against final IFS. Original GNU Bash adaptations protect data spaces
+emitted under empty IFS and select space splitting for positional unquoted `*`
+emitted under empty IFS. Literal protection uses the IFS active at emission;
+a bounded cache propagates nested IFS writes and is reused for final splitting.
+Only an unquoted expansion or quoted `@` requests field splitting. Quoted `@`
+and unquoted lists apply Bash's leading mixed-delimiter rules. Coalesced text
+stays within the intermediate byte allowance, and collection and splitting share
+command work and cancellation checkpoints. Original accounting records list-word
+and splitting modes in the existing part visit and uses the first character
+checkpoint for nonempty emission and split entry. Empty, captured and list-separator paths keep explicit
+checkpoints. Generated separators consume raw UTF-8 bytes before retention and
+output bytes when emitted. Per-character work, the command ceiling and shared
+argv/redirect parser allowance are unchanged. The shared redirect/argv reparse
+regression remains unchanged at its 100-step ceiling and 97-step success. Independent GNU
+Bash regressions cover both list orders around IFS writes, quoted/unquoted
+`@` and `*`, zero/empty/multiple elements, protected delimiters, `PIPESTATUS`,
+literal protection, nested writes, limits and cancellation. No upstream
+sentinel strings or flattened-string re-splitting are used. Assignment result
+protection,
+command-word/RHS/redirect ordering, diagnostic spelling and environment-dependent
+fatal statuses follow bounded GNU Bash observations and the unchanged frozen
+oracle, deliberately replacing upstream's blanket status 1. Errors stop their
+containing shell environment and remain isolated in subshells, pipeline stages
+and background jobs. Shared command work/storage bounds and cancellation
+checkpoints remain in force. This slice changes no parser files or upstream
+parser tests, includes no substitution/array/pattern implementation, and adds no
+whole-output buffering.
+
+The assignment/error diagnostic follow-on extends the owned Bashkit-derived
+`SimpleCommand` and `Redirect` structures in `crates/bashkit/src/parser/ast.rs`
+and their grammar construction in `crates/bashkit/src/parser/mod.rs`, at the
+same base revision and under the same retained MIT license. Local adaptations
+in `shell/parser/src/parser/{ast.rs,mod.rs}` preserve parse-time diagnostic line
+anchors before lexer lookahead, including multiline targets and stored function
+bodies. Constructor metadata in `budget.rs` and upstream AST tests retains every
+original assertion. The original engine adapter carries these anchors with fatal
+parameter errors; it changes no exit statuses or control flow. New original
+regressions in `shell/parser/tests/api.rs` and `shell/engine/tests/words.rs` use
+bounded GNU Bash observations. `shellParser.changeLog` and
+`shellParameterEffects` in `sources.lock.json` record the paths and reasons.
+
+The assignment/error review corrections are original interpreter adapters in
+`shell/engine/src/interpreter.rs`, rather than additional upstream implementation.
+They retain the effective diagnostic stderr on redirect-target failure, preserve
+the distinct prefix-RHS route, and select isolated compound body status only
+after redirects succeed. Command preparation finishes diagnostics and releases
+its descriptor owners before dispatch or body execution, restoring prompt EPIPE
+when a child closes its input before exiting. The existing streaming regression
+and all source-anchor assertions are retained. Additional original cases in
+`shell/engine/tests/words.rs` follow bounded GNU Bash routing/status observations
+and check frame restoration and cancellation. No parser or expansion-field
+implementation is changed by these corrections.
+
+The startup IFS follow-on is an original shell-state initialization adapter in
+`shell/engine/src/state.rs`, verified against clean GNU Bash 5.3.15 startup.
+It seeds nonexported IFS once with space/tab/newline. Later empty, changed and
+removed values retain ordinary state representation, without expansion-time
+reinitialization. Original state and scalar-operator regressions check startup,
+export exclusion, lookup and local restoration. The existing seeded-IFS
+cancellation regression remains unchanged. This adapter copies no additional
+upstream implementation.
+
+The escape-boundary follow-on uses original typed lexical metadata in
+`shell/parser/src/parser/lexical.rs`, carried by the Bashkit-derived lexer and
+parser in `shell/parser/src/parser/{lexer.rs,mod.rs}` at the same pinned revision.
+It preserves escaped characters as protected literal parts, including expansion
+name boundaries, while retaining existing token spellings. Quote and glob
+transformations carry the metadata; assignment values retain sliced protection.
+Backslash-newline remains a continuation. Indexed spellings are restored from
+escape events, and grammar classification respects protected syntax. Metadata
+work uses the existing parser and shared request budgets. No new in-band
+protection marker or context-specific raw-source reparse is added. Original parser API and engine
+regressions cover partial protection, syntax characters, quote continuations,
+UTF-8, assignments and stored functions; upstream assertions remain intact.
+`shellParser.changeLog` records the local paths and reason. The engine fixtures
+explicitly remove startup IFS only for observations made with native `unset IFS`.
+Separate controls retain Bash startup behavior and all 136 prior observations.

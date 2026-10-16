@@ -10,7 +10,7 @@
   "counts": {
     "oils": {
       "total": 2492,
-      "passed": 305,
+      "passed": 314,
       "skipped": 810,
       "categories": {
         "Quoting and word splitting": {
@@ -20,7 +20,7 @@
         },
         "Parameter expansion": {
           "total": 228,
-          "passed": 14,
+          "passed": 19,
           "skipped": 55
         },
         "Brace expansion": {
@@ -40,7 +40,7 @@
         },
         "Assignment, scope and special vars": {
           "total": 188,
-          "passed": 10,
+          "passed": 11,
           "skipped": 79
         },
         "Command substitution and subshells": {
@@ -50,7 +50,7 @@
         },
         "Globbing and extglob": {
           "total": 128,
-          "passed": 24,
+          "passed": 26,
           "skipped": 52
         },
         "Conditionals, test, [[ ]] and case": {
@@ -60,7 +60,7 @@
         },
         "Grammar, functions and control flow": {
           "total": 235,
-          "passed": 84,
+          "passed": 85,
           "skipped": 55
         },
         "Here-docs and redirects": {
@@ -97,7 +97,7 @@
     },
     "brush-suite": {
       "total": 2894,
-      "passed": 322,
+      "passed": 328,
       "skipped": 1006,
       "categories": {
         "and_or": {
@@ -457,7 +457,7 @@
         },
         "errors": {
           "total": 61,
-          "passed": 11,
+          "passed": 13,
           "skipped": 38
         },
         "extended_tests": {
@@ -502,7 +502,7 @@
         },
         "nameref": {
           "total": 230,
-          "passed": 16,
+          "passed": 18,
           "skipped": 19
         },
         "options/bash_xtracefd": {
@@ -682,7 +682,7 @@
         },
         "word_expansion/params": {
           "total": 59,
-          "passed": 7,
+          "passed": 8,
           "skipped": 4
         },
         "word_expansion/quotes": {
@@ -697,14 +697,14 @@
         },
         "word_expansion/vars": {
           "total": 10,
-          "passed": 4,
+          "passed": 5,
           "skipped": 0
         }
       }
     },
     "bashkit-suite": {
       "total": 3835,
-      "passed": 479,
+      "passed": 492,
       "skipped": 1613,
       "categories": {
         "alias": {
@@ -1124,7 +1124,7 @@
         },
         "bashbox-word-expander": {
           "total": 43,
-          "passed": 7,
+          "passed": 9,
           "skipped": 0
         },
         "bashbox-xargs": {
@@ -1149,7 +1149,7 @@
         },
         "blackbox-exploration": {
           "total": 199,
-          "passed": 42,
+          "passed": 44,
           "skipped": 37
         },
         "brace-expansion-order": {
@@ -1609,7 +1609,7 @@
         },
         "nounset": {
           "total": 10,
-          "passed": 4,
+          "passed": 5,
           "skipped": 1
         },
         "numfmt": {
@@ -1639,7 +1639,7 @@
         },
         "param-operand-quotes": {
           "total": 18,
-          "passed": 5,
+          "passed": 6,
           "skipped": 0
         },
         "paren-ambiguity": {
@@ -1849,7 +1849,7 @@
         },
         "string-ops": {
           "total": 14,
-          "passed": 5,
+          "passed": 6,
           "skipped": 0
         },
         "strings": {
@@ -1864,7 +1864,7 @@
         },
         "subshell": {
           "total": 15,
-          "passed": 6,
+          "passed": 7,
           "skipped": 2
         },
         "sudo-busybox": {
@@ -1974,12 +1974,12 @@
         },
         "var-op-test": {
           "total": 26,
-          "passed": 8,
+          "passed": 11,
           "skipped": 0
         },
         "variables": {
           "total": 100,
-          "passed": 36,
+          "passed": 38,
           "skipped": 15
         },
         "wait": {
@@ -2318,8 +2318,8 @@
 {"id":"oils:var-op-test:33","corpus":"oils","category":"Parameter expansion","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:var-op-test:51","corpus":"oils","category":"Parameter expansion","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:var-op-test:72","corpus":"oils","category":"Parameter expansion","kind":"needs-commands","outcome":"skip"},
-{"id":"oils:var-op-test:89","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Cg==","stderr":""}},
-{"id":"oils:var-op-test:95","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Cg==","stderr":""}},
+{"id":"oils:var-op-test:89","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"pass"},
+{"id":"oils:var-op-test:95","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:var-op-test:100","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:var-op-test:106","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:var-op-test:111","corpus":"oils","category":"Parameter expansion","kind":"needs-commands","outcome":"skip"},
@@ -2336,10 +2336,10 @@
 {"id":"oils:var-op-test:450","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"oils:var-op-test:470","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"oils:var-op-test:484","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"LS0tCg==","stderr":""}},
-{"id":"oils:var-op-test:528","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c2hvdWxkIG5vdCBnZXQgaGVyZQo=","stderr":""}},
-{"id":"oils:var-op-test:536","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c2hvdWxkIG5vdCBnZXQgaGVyZQo=","stderr":""}},
+{"id":"oils:var-op-test:528","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"pass"},
+{"id":"oils:var-op-test:536","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:var-op-test:543","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"pass"},
-{"id":"oils:var-op-test:548","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"CmhlbGxvPQpoZWxsbz14Cg==","stderr":""}},
+{"id":"oils:var-op-test:548","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:var-op-test:562","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"oils:var-op-test:578","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"oils:var-op-test:594","corpus":"oils","category":"Parameter expansion","kind":"builtins-only","outcome":"pass"},
@@ -2441,9 +2441,9 @@
 {"id":"oils:brace-expansion:70","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"e19BLGJ9X3tjLGR9Cg==","stderr":""}},
 {"id":"oils:brace-expansion:76","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"oils:brace-expansion:81","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
-{"id":"oils:brace-expansion:86","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"LXskLFxbLFxdfS0K","stderr":""}},
+{"id":"oils:brace-expansion:86","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"LXskLFssXX0tCg==","stderr":""}},
 {"id":"oils:brace-expansion:91","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"e3thLGJ9Cg==","stderr":""}},
-{"id":"oils:brace-expansion:99","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"XHt7YSxifQo=","stderr":""}},
+{"id":"oils:brace-expansion:99","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"e3thLGJ9Cg==","stderr":""}},
 {"id":"oils:brace-expansion:103","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"YXtYLCxZfWIK","stderr":""}},
 {"id":"oils:brace-expansion:107","corpus":"oils","category":"Brace expansion","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:brace-expansion:115","corpus":"oils","category":"Brace expansion","kind":"needs-commands","outcome":"skip"},
@@ -2476,7 +2476,7 @@
 {"id":"oils:brace-expansion:429","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"LXthLF97MS4uM31fLGJ9LQo=","stderr":""}},
 {"id":"oils:brace-expansion:438","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"LXthLGIsMS4uM30tCg==","stderr":""}},
 {"id":"oils:brace-expansion:444","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"LXthLGJ9ezEuLi4zfS0KLXthLHsxLi4uM319LQp7YSxifXt9Cg==","stderr":""}},
-{"id":"oils:brace-expansion:461","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"LXthLGJ9XHsxLi4uM1x9LQote2EsXHsxLi4uM1x9fS0Ke2EsYn1ce1x9Cg==","stderr":""}},
+{"id":"oils:brace-expansion:461","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"LXthLGJ9ezEuLi4zfS0KLXthLHsxLi4uM319LQp7YSxifXt9Cg==","stderr":""}},
 {"id":"oils:brace-expansion:471","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"oils:brace-expansion:479","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:brace-expansion:489","corpus":"oils","category":"Brace expansion","kind":"builtins-only","outcome":"pass"},
@@ -2842,7 +2842,7 @@
 {"id":"oils:assign:38","corpus":"oils","category":"Assignment, scope and special vars","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"oils:assign:42","corpus":"oils","category":"Assignment, scope and special vars","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"oils:assign:49","corpus":"oils","category":"Assignment, scope and special vars","kind":"needs-commands","outcome":"skip"},
-{"id":"oils:assign:113","corpus":"oils","category":"Assignment, scope and special vars","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"","stderr":""}},
+{"id":"oils:assign:113","corpus":"oils","category":"Assignment, scope and special vars","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:assign:118","corpus":"oils","category":"Assignment, scope and special vars","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:assign:126","corpus":"oils","category":"Assignment, scope and special vars","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:assign:131","corpus":"oils","category":"Assignment, scope and special vars","kind":"needs-commands","outcome":"skip"},
@@ -3078,10 +3078,10 @@
 {"id":"oils:glob:69","corpus":"oils","category":"Globbing and extglob","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"fi8qLnB5Cg==","stderr":""}},
 {"id":"oils:glob:74","corpus":"oils","category":"Globbing and extglob","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"oils:glob:82","corpus":"oils","category":"Globbing and extglob","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
-{"id":"oils:glob:90","corpus":"oils","category":"Globbing and extglob","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"X3RtcC8qLltDLURdIF90bXAvKi5bQ1wtRF0K","stderr":""}},
+{"id":"oils:glob:90","corpus":"oils","category":"Globbing and extglob","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:glob:96","corpus":"oils","category":"Globbing and extglob","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:glob:103","corpus":"oils","category":"Globbing and extglob","kind":"builtins-only","outcome":"pass"},
-{"id":"oils:glob:109","corpus":"oils","category":"Globbing and extglob","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"X3RtcC9cWz8/P1xdIF90bXAvPwo=","stderr":""}},
+{"id":"oils:glob:109","corpus":"oils","category":"Globbing and extglob","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:glob:116","corpus":"oils","category":"Globbing and extglob","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:glob:133","corpus":"oils","category":"Globbing and extglob","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"oils:glob:139","corpus":"oils","category":"Globbing and extglob","kind":"builtins-only","outcome":"pass"},
@@ -3364,7 +3364,7 @@
 {"id":"oils:loop:77","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Cg==","stderr":""}},
 {"id":"oils:loop:93","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"oils:loop:110","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
-{"id":"oils:loop:123","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"crash","actual":{"stdout":{"base64":"Y29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQK","bytes":4194130,"sha256":"4d8c0edb8a39f52f0964436e3df2e96cbf9ffb1fb97b31fcdfcc6e312a7a1751","prefixBytes":240},"stderr":"","crash":"compatibility output limit exceeded"}},
+{"id":"oils:loop:123","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"timeout","actual":{"stdout":"","stderr":"","timeout":true}},
 {"id":"oils:loop:135","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c3RhdHVzPTEyNwo=","stderr":""}},
 {"id":"oils:loop:145","corpus":"oils","category":"Grammar, functions and control flow","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:loop:154","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
@@ -3567,7 +3567,7 @@
 {"id":"oils:toysh:93","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"e34sfnJvb3R9L3B3ZAp7fix+cm9vdH0vcHdkCnt+LH5yb290fS9wd2QK","stderr":""}},
 {"id":"oils:toysh:113","corpus":"oils","category":"Grammar, functions and control flow","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:toysh:123","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
-{"id":"oils:toysh-posix:4","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"YmxhaAo=","stderr":""}},
+{"id":"oils:toysh-posix:4","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:toysh-posix:12","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c3RhdHVzPTAK","stderr":""}},
 {"id":"oils:toysh-posix:26","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c3RhdHVzPTIKaGVsbG8K","stderr":""}},
 {"id":"oils:toysh-posix:46","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"pass"},
@@ -3858,7 +3858,7 @@
 {"id":"oils:sh-options:748","corpus":"oils","category":"errexit, options and traps","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:sh-options-bash:4","corpus":"oils","category":"errexit, options and traps","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:sh-options-bash:24","corpus":"oils","category":"errexit, options and traps","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c3RhdHVzPTAK","stderr":""}},
-{"id":"oils:sh-options-bash:34","corpus":"oils","category":"errexit, options and traps","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
+{"id":"oils:sh-options-bash:34","corpus":"oils","category":"errexit, options and traps","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"","stderr":"L3Vzci9iaW4vYmFzaDogbGluZSA5OiBTSEVMTE9QVFM6IHBhcmFtZXRlciBudWxsIG9yIG5vdCBzZXQK"}},
 {"id":"oils:sh-options-bash:58","corpus":"oils","category":"errexit, options and traps","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:sh-options-bash:66","corpus":"oils","category":"errexit, options and traps","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:sh-options-bash:83","corpus":"oils","category":"errexit, options and traps","kind":"needs-commands","outcome":"skip"},
@@ -3930,7 +3930,7 @@
 {"id":"oils:builtin-trap-bash:110","corpus":"oils","category":"errexit, options and traps","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c3RhdHVzPTEyNwpBCnN0YXR1cz0wCkIKc3RhdHVzPTAK","stderr":""}},
 {"id":"oils:builtin-trap-bash:146","corpus":"oils","category":"errexit, options and traps","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c3RhdHVzPTEyNwpBCnN0YXR1cz0wCkIKc3RhdHVzPTAK","stderr":""}},
 {"id":"oils:builtin-trap-bash:166","corpus":"oils","category":"errexit, options and traps","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"YQpiCmMKZAplCmYK","stderr":""}},
-{"id":"oils:builtin-trap-bash:206","corpus":"oils","category":"errexit, options and traps","kind":"builtins-only","outcome":"crash","actual":{"stdout":{"base64":"aGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8KaGVsbG8K","bytes":4194198,"sha256":"b879e24bb1b29811aa476e8d2ca6de5f156a3ce11db360c7ca897fd85314ea75","prefixBytes":240},"stderr":"","crash":"compatibility output limit exceeded"}},
+{"id":"oils:builtin-trap-bash:206","corpus":"oils","category":"errexit, options and traps","kind":"builtins-only","outcome":"timeout","actual":{"stdout":"","stderr":"","timeout":true}},
 {"id":"oils:builtin-trap-bash:231","corpus":"oils","category":"errexit, options and traps","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c3Vic2hlbGwKdHdvCmRvbmUK","stderr":""}},
 {"id":"oils:builtin-trap-bash:255","corpus":"oils","category":"errexit, options and traps","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:builtin-trap-bash:276","corpus":"oils","category":"errexit, options and traps","kind":"needs-commands","outcome":"skip"},
@@ -5077,7 +5077,7 @@
 {"id":"brush-suite:builtins/eval:7","corpus":"brush-suite","category":"builtins/eval","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"cmM9MTI3Cg==","stderr":""}},
 {"id":"brush-suite:builtins/eval:8","corpus":"brush-suite","category":"builtins/eval","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"YWZ0ZXIgZXZhbDogMTI3Cg==","stderr":""}},
 {"id":"brush-suite:builtins/exec:1","corpus":"brush-suite","category":"builtins/exec","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
-{"id":"brush-suite:builtins/exec:2","corpus":"brush-suite","category":"builtins/exec","kind":"builtins-only","outcome":"crash","actual":{"stdout":"","stderr":"CnRocmVhZCAnbWFpbicgKDEpIHBhbmlja2VkIGF0IGVuZ2luZS9zcmMvaW50ZXJwcmV0ZXIucnM6NzQ4OjIzOgpSZWZDZWxsIGFscmVhZHkgYm9ycm93ZWQKbm90ZTogcnVuIHdpdGggYFJVU1RfQkFDS1RSQUNFPTFgIGVudmlyb25tZW50IHZhcmlhYmxlIHRvIGRpc3BsYXkgYSBiYWNrdHJhY2UK","crash":"unreachable"}},
+{"id":"brush-suite:builtins/exec:2","corpus":"brush-suite","category":"builtins/exec","kind":"builtins-only","outcome":"crash","actual":{"stdout":"","stderr":"CnRocmVhZCAnbWFpbicgKDEpIHBhbmlja2VkIGF0IGVuZ2luZS9zcmMvaW50ZXJwcmV0ZXIucnM6ODA3OjIzOgpSZWZDZWxsIGFscmVhZHkgYm9ycm93ZWQKbm90ZTogcnVuIHdpdGggYFJVU1RfQkFDS1RSQUNFPTFgIGVudmlyb25tZW50IHZhcmlhYmxlIHRvIGRpc3BsYXkgYSBiYWNrdHJhY2UK","crash":"unreachable"}},
 {"id":"brush-suite:builtins/exec:3","corpus":"brush-suite","category":"builtins/exec","kind":"builtins-only","outcome":"pass"},
 {"id":"brush-suite:builtins/exec:4","corpus":"brush-suite","category":"builtins/exec","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"","stderr":""}},
 {"id":"brush-suite:builtins/exec:5","corpus":"brush-suite","category":"builtins/exec","outcome":"skip","excluded":"needs Brush harness arguments, files, environment, terminal or a skip marker"},
@@ -5997,7 +5997,7 @@
 {"id":"brush-suite:errors:31","corpus":"brush-suite","category":"errors","kind":"builtins-only","outcome":"pass"},
 {"id":"brush-suite:errors:32","corpus":"brush-suite","category":"errors","outcome":"skip","excluded":"needs Brush harness arguments, files, environment, terminal or a skip marker"},
 {"id":"brush-suite:errors:33","corpus":"brush-suite","category":"errors","outcome":"skip","excluded":"needs Brush harness arguments, files, environment, terminal or a skip marker"},
-{"id":"brush-suite:errors:34","corpus":"brush-suite","category":"errors","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"YmVmb3JlIGV4cGFuc2lvbgphZnRlciBleHBhbnNpb24K","stderr":""}},
+{"id":"brush-suite:errors:34","corpus":"brush-suite","category":"errors","kind":"builtins-only","outcome":"pass"},
 {"id":"brush-suite:errors:35","corpus":"brush-suite","category":"errors","outcome":"skip","excluded":"needs Brush harness arguments, files, environment, terminal or a skip marker"},
 {"id":"brush-suite:errors:36","corpus":"brush-suite","category":"errors","outcome":"skip","excluded":"needs Brush harness arguments, files, environment, terminal or a skip marker"},
 {"id":"brush-suite:errors:37","corpus":"brush-suite","category":"errors","kind":"builtins-only","outcome":"pass"},
@@ -6014,7 +6014,7 @@
 {"id":"brush-suite:errors:48","corpus":"brush-suite","category":"errors","outcome":"skip","excluded":"needs Brush harness arguments, files, environment, terminal or a skip marker"},
 {"id":"brush-suite:errors:49","corpus":"brush-suite","category":"errors","outcome":"skip","excluded":"needs Brush harness arguments, files, environment, terminal or a skip marker"},
 {"id":"brush-suite:errors:50","corpus":"brush-suite","category":"errors","outcome":"skip","excluded":"needs Brush harness arguments, files, environment, terminal or a skip marker"},
-{"id":"brush-suite:errors:51","corpus":"brush-suite","category":"errors","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"bm90IHJlYWNoZWQK","stderr":""}},
+{"id":"brush-suite:errors:51","corpus":"brush-suite","category":"errors","kind":"builtins-only","outcome":"pass"},
 {"id":"brush-suite:errors:52","corpus":"brush-suite","category":"errors","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"brush-suite:errors:53","corpus":"brush-suite","category":"errors","kind":"needs-commands","outcome":"skip"},
 {"id":"brush-suite:errors:54","corpus":"brush-suite","category":"errors","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"","stderr":""}},
@@ -6302,7 +6302,7 @@
 {"id":"brush-suite:ifs:93","corpus":"brush-suite","category":"ifs","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Q291bnQ6IDAKQ291bnQ6IDAKQ291bnQ6IDAK","stderr":""}},
 {"id":"brush-suite:ifs:94","corpus":"brush-suite","category":"ifs","outcome":"skip","excluded":"needs Brush harness arguments, files, environment, terminal or a skip marker"},
 {"id":"brush-suite:ifs:95","corpus":"brush-suite","category":"ifs","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"Q291bnQ6IDAKQ291bnQ6IDAKQ291bnQ6IDAK","stderr":""}},
-{"id":"brush-suite:ifs:96","corpus":"brush-suite","category":"ifs","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Q291bnQ6IDAKQ291bnQ6IDAKQ291bnQ6IDAKW10KQ291bnQ6IDAK","stderr":""}},
+{"id":"brush-suite:ifs:96","corpus":"brush-suite","category":"ifs","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Q291bnQ6IDAKQ291bnQ6IDAKQ291bnQ6IDAKW2M6ZF0KQ291bnQ6IDAK","stderr":""}},
 {"id":"brush-suite:ifs:97","corpus":"brush-suite","category":"ifs","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"","stderr":""}},
 {"id":"brush-suite:interactive:1","corpus":"brush-suite","category":"interactive","outcome":"skip","excluded":"needs Brush harness arguments, files, environment, terminal or a skip marker"},
 {"id":"brush-suite:interactive:2","corpus":"brush-suite","category":"interactive","outcome":"skip","excluded":"needs Brush harness arguments, files, environment, terminal or a skip marker"},
@@ -6429,7 +6429,7 @@
 {"id":"brush-suite:nameref:97","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"dGFyZ2V0IHdyaXRlIGV4aXQ6IDAK","stderr":""}},
 {"id":"brush-suite:nameref:98","corpus":"brush-suite","category":"nameref","kind":"needs-commands","outcome":"skip"},
 {"id":"brush-suite:nameref:99","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"pass"},
-{"id":"brush-suite:nameref:100","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"YmVmb3JlOiAnJwphZnRlcjogCg==","stderr":""}},
+{"id":"brush-suite:nameref:100","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"YmVmb3JlOiAnJwphc3NpZ246IGNyZWF0ZWQKYWZ0ZXI6IAo=","stderr":""}},
 {"id":"brush-suite:nameref:101","corpus":"brush-suite","category":"nameref","kind":"needs-commands","outcome":"skip"},
 {"id":"brush-suite:nameref:102","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"brush-suite:nameref:103","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
@@ -6524,8 +6524,8 @@
 {"id":"brush-suite:nameref:192","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"eDogeSs1Cng6IHkqMgo=","stderr":""}},
 {"id":"brush-suite:nameref:193","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"eDogCng6IAo=","stderr":""}},
 {"id":"brush-suite:nameref:194","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"bnVtOiAKbnVtOiAKbnVtOiAK","stderr":""}},
-{"id":"brush-suite:nameref:195","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"ZXhpdDogMgo=","stderr":""}},
-{"id":"brush-suite:nameref:196","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"ZXhpdDogMgo=","stderr":""}},
+{"id":"brush-suite:nameref:195","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"pass"},
+{"id":"brush-suite:nameref:196","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"pass"},
 {"id":"brush-suite:nameref:197","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"cmVmOiAKZXhpdDogMTI3CnJlZjogCg==","stderr":""}},
 {"id":"brush-suite:nameref:198","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"YTogCmEgYWZ0ZXI6ICcnCmRvbmUK","stderr":""}},
 {"id":"brush-suite:nameref:199","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"ZXhpdDogMTI3CnZhbDogJ3gnCg==","stderr":""}},
@@ -6552,8 +6552,8 @@
 {"id":"brush-suite:nameref:220","corpus":"brush-suite","category":"nameref","kind":"needs-commands","outcome":"skip"},
 {"id":"brush-suite:nameref:221","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"cmVmOiAK","stderr":""}},
 {"id":"brush-suite:nameref:222","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"CnNob3VsZCBub3QgcHJpbnQK","stderr":""}},
-{"id":"brush-suite:nameref:223","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"YmVmb3JlOiAnJwpyZXN1bHQ6IApuZXdfdmFyOiAK","stderr":""}},
-{"id":"brush-suite:nameref:224","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"cmVzdWx0OiAKdGFyZ2V0OiAK","stderr":""}},
+{"id":"brush-suite:nameref:223","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"YmVmb3JlOiAnJwpyZXN1bHQ6IGhlbGxvCm5ld192YXI6IAo=","stderr":""}},
+{"id":"brush-suite:nameref:224","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"cmVzdWx0OiBmYWxsYmFjawp0YXJnZXQ6IAo=","stderr":""}},
 {"id":"brush-suite:nameref:225","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"ZXhpdDogMgpkb25lCg==","stderr":""}},
 {"id":"brush-suite:nameref:226","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"pass"},
 {"id":"brush-suite:nameref:227","corpus":"brush-suite","category":"nameref","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"CnNob3VsZCBub3QgcHJpbnQK","stderr":""}},
@@ -7221,7 +7221,7 @@
 {"id":"brush-suite:word_expansion/arrays:6","corpus":"brush-suite","category":"word_expansion/arrays","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"brush-suite:word_expansion/arrays:7","corpus":"brush-suite","category":"word_expansion/arrays","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"RHVtcGluZyBbQF0KRHVtcGluZyBbKl0K","stderr":""}},
 {"id":"brush-suite:word_expansion/arrays:8","corpus":"brush-suite","category":"word_expansion/arrays","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"RHVtcGluZyBbQF0KRHVtcGluZyBbKl0K","stderr":""}},
-{"id":"brush-suite:word_expansion/braces:1","corpus":"brush-suite","category":"word_expansion/braces","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":{"base64":"e2EsYn0gPT4Ke2EsYn0KCnthfSA9Pgp7YX0KCnthfSA9Pgp7YX0KCmF7LH1iID0+CmF7LH1iCgp7fSA9Pgp7fQoKMXthLGJ9MiA9Pgoxe2EsYn0yCgoxe2EsYn0ye2MsZH0zID0+CjF7YSxifTJ7YyxkfTMKCnthLGJ9ezEsMn0gPT4Ke2EsYn17MSwyfQoKV1x7MSwyfVggPT4KV3sxLDJ9WAoKV3sxLDJcfVggPT4KV3sxLDJcfVgKCiJXezEsMn1YIiA9PgpXezEsMn1YCgp7JHZhciwkYmF9ciA9Pgp7LH1yCgpcJHthLGJ9ID0+","bytes":249,"sha256":"588f6f328c3c4f33f5dcf578270ec338f87a453c5f3c8e131445840e2c9a2715","prefixBytes":240},"stderr":""}},
+{"id":"brush-suite:word_expansion/braces:1","corpus":"brush-suite","category":"word_expansion/braces","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":{"base64":"e2EsYn0gPT4Ke2EsYn0KCnthfSA9Pgp7YX0KCnthfSA9Pgp7YX0KCmF7LH1iID0+CmF7LH1iCgp7fSA9Pgp7fQoKMXthLGJ9MiA9Pgoxe2EsYn0yCgoxe2EsYn0ye2MsZH0zID0+CjF7YSxifTJ7YyxkfTMKCnthLGJ9ezEsMn0gPT4Ke2EsYn17MSwyfQoKV1x7MSwyfVggPT4KV3sxLDJ9WAoKV3sxLDJcfVggPT4KV3sxLDJ9WAoKIld7MSwyfVgiID0+Cld7MSwyfVgKCnskdmFyLCRiYX1yID0+CnssfXIKClwke2EsYn0gPT4K","bytes":248,"sha256":"a9a32f26dbfc79f18718e946ac31d138f69dcc0c987c0249e6a80bc342154e9e","prefixBytes":240},"stderr":""}},
 {"id":"brush-suite:word_expansion/braces:2","corpus":"brush-suite","category":"word_expansion/braces","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"e2EuLmZ9ID0+CnthLi5mfQoKe2EuLmYuLjJ9ID0+CnthLi5mLi4yfQoKe2EuLmYuLjB9ID0+CnthLi5mLi4wfQoKe20uLmZ9ID0+CnttLi5mfQoK","stderr":""}},
 {"id":"brush-suite:word_expansion/braces:3","corpus":"brush-suite","category":"word_expansion/braces","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":{"base64":"ezIuLjl9ID0+CnsyLi45fQoKeysyLi4rOX0gPT4KeysyLi4rOX0KCnsyLi4yfSA9Pgp7Mi4uMn0KCnsyLi4xfSA9Pgp7Mi4uMX0KCnsxMC4uMi4uMH0gPT4KezEwLi4yLi4wfQoKezEwLi4yLi4yfSA9Pgp7MTAuLjIuLjJ9Cgp7MTAuLjIuLi0yfSA9Pgp7MTAuLjIuLi0yfQoKezIuLjkuLjJ9ID0+CnsyLi45Li4yfQoKezIuLjkuLjB9ID0+CnsyLi45Li4wfQoKey0xLi4tMTB9ID0+CnstMS4uLTEwfQoKey0xMC4uLTF9ID0+","bytes":282,"sha256":"1b2a6671446d20fcee893d5f13b31e5acba04e8fb6a63caff8ebf3c378be1bab","prefixBytes":240},"stderr":""}},
 {"id":"brush-suite:word_expansion/braces:4","corpus":"brush-suite","category":"word_expansion/braces","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"V3t7MS4uM30sYSx4fVkgPT4KV3t7MS4uM30sYSx4fVkKCg==","stderr":""}},
@@ -7318,16 +7318,16 @@
 {"id":"brush-suite:word_expansion/param_transformation:12","corpus":"brush-suite","category":"word_expansion/param_transformation","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"brush-suite:word_expansion/params:1","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"brush-suite:word_expansion/params:2","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"pass"},
-{"id":"brush-suite:word_expansion/params:3","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"","stderr":""}},
-{"id":"brush-suite:word_expansion/params:4","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"","stderr":""}},
-{"id":"brush-suite:word_expansion/params:5","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"","stderr":""}},
-{"id":"brush-suite:word_expansion/params:6","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"","stderr":""}},
+{"id":"brush-suite:word_expansion/params:3","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"JHt2YWx1ZT1kZWZhdWx0fSAgICAgICA6IHZhbHVlCiR7ZW1wdHk9ZGVmYXVsdH0gICAgICAgOiAKJHtkZWNsYXJlZD1kZWZhdWx0fSAgICA6IGRlZmF1bHQKJHt1bmRlY2xhcmVkPWRlZmF1bHR9ICA6IGRlZmF1bHQK","stderr":""}},
+{"id":"brush-suite:word_expansion/params:4","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"JHt2YWx1ZT19ICAgICAgICAgICAgICA6IHZhbHVlCiR7ZW1wdHk9fSAgICAgICAgICAgICAgOiAKJHtkZWNsYXJlZD19ICAgICAgICAgICA6IAoke3VuZGVjbGFyZWQ9fSAgICAgICAgIDogCg==","stderr":""}},
+{"id":"brush-suite:word_expansion/params:5","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"JHt2YWx1ZTo9ZGVmYXVsdH0gICAgICAgOiB2YWx1ZQoke2VtcHR5Oj1kZWZhdWx0fSAgICAgICA6IGRlZmF1bHQKJHtkZWNsYXJlZDo9ZGVmYXVsdH0gICAgOiBkZWZhdWx0CiR7dW5kZWNsYXJlZDo9ZGVmYXVsdH0gIDogZGVmYXVsdAo=","stderr":""}},
+{"id":"brush-suite:word_expansion/params:6","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"JHt2YWx1ZTo9fSAgICAgICAgICAgICAgOiB2YWx1ZQoke2VtcHR5Oj19ICAgICAgICAgICAgICA6IAoke2RlY2xhcmVkOj19ICAgICAgICAgICA6IAoke3VuZGVjbGFyZWQ6PX0gICAgICAgICA6IAo=","stderr":""}},
 {"id":"brush-suite:word_expansion/params:7","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"pass"},
 {"id":"brush-suite:word_expansion/params:8","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"eAp4Clx4Cid4Jwp4IHkKeiAneCcgJ3knIHcKeCd5J3gKeCB5CnhceHkKenhceHl6Cg==","stderr":""}},
 {"id":"brush-suite:word_expansion/params:9","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"brush-suite:word_expansion/params:10","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"brush-suite:word_expansion/params:11","corpus":"brush-suite","category":"word_expansion/params","outcome":"skip","excluded":"needs Brush harness arguments, files, environment, terminal or a skip marker"},
-{"id":"brush-suite:word_expansion/params:12","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"VGhpcyBzaG91bGQgbmV2ZXIgZXhlY3V0ZQo=","stderr":""}},
+{"id":"brush-suite:word_expansion/params:12","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"pass"},
 {"id":"brush-suite:word_expansion/params:13","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"RXhwcmVzc2lvbiAxOiAnJwpFeHByZXNzaW9uIDI6ICcnCkV4cHJlc3Npb24gMzogJycKRXhwcmVzc2lvbiA0OiAnJwpFeHByZXNzaW9uIDU6ICcnCkV4cHJlc3Npb24gNjogJycKRXhwcmVzc2lvbiA3OiAnJwpFeHByZXNzaW9uIDg6ICcnCg==","stderr":""}},
 {"id":"brush-suite:word_expansion/params:14","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"brush-suite:word_expansion/params:15","corpus":"brush-suite","category":"word_expansion/params","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
@@ -7398,8 +7398,8 @@
 {"id":"brush-suite:word_expansion/vars:4","corpus":"brush-suite","category":"word_expansion/vars","kind":"builtins-only","outcome":"pass"},
 {"id":"brush-suite:word_expansion/vars:5","corpus":"brush-suite","category":"word_expansion/vars","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"ZGlyZWN0OiAK","stderr":""}},
 {"id":"brush-suite:word_expansion/vars:6","corpus":"brush-suite","category":"word_expansion/vars","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
-{"id":"brush-suite:word_expansion/vars:7","corpus":"brush-suite","category":"word_expansion/vars","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"ZGVmYXVsdDogZGVmYXVsdF92YWx1ZQp1bnNldF92YXI6IAo=","stderr":""}},
-{"id":"brush-suite:word_expansion/vars:8","corpus":"brush-suite","category":"word_expansion/vars","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Y2F1Z2h0IGVycm9yCg==","stderr":""}},
+{"id":"brush-suite:word_expansion/vars:7","corpus":"brush-suite","category":"word_expansion/vars","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"ZGVmYXVsdDogZGVmYXVsdF92YWx1ZQphc3NpZ24gZGVmYXVsdDogYXNzaWduZWQKdW5zZXRfdmFyOiAK","stderr":""}},
+{"id":"brush-suite:word_expansion/vars:8","corpus":"brush-suite","category":"word_expansion/vars","kind":"builtins-only","outcome":"pass"},
 {"id":"brush-suite:word_expansion/vars:9","corpus":"brush-suite","category":"word_expansion/vars","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"CicnCg==","stderr":""}},
 {"id":"brush-suite:word_expansion/vars:10","corpus":"brush-suite","category":"word_expansion/vars","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:alias:5","corpus":"bashkit-suite","category":"alias","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"","stderr":""}},
@@ -8062,7 +8062,7 @@
 {"id":"bashkit-suite:bashbox-interpreter-core:672","corpus":"bashkit-suite","category":"bashbox-interpreter-core","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"JFRNUAo=","stderr":""}},
 {"id":"bashkit-suite:bashbox-interpreter-core:679","corpus":"bashkit-suite","category":"bashbox-interpreter-core","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"MTI3CjEyNwo=","stderr":""}},
 {"id":"bashkit-suite:bashbox-interpreter-core:689","corpus":"bashkit-suite","category":"bashbox-interpreter-core","kind":"needs-commands","outcome":"skip"},
-{"id":"bashkit-suite:bashbox-interpreter-core:696","corpus":"bashkit-suite","category":"bashbox-interpreter-core","kind":"builtins-only","outcome":"crash","actual":{"stdout":"","stderr":"CnRocmVhZCAnbWFpbicgKDEpIHBhbmlja2VkIGF0IGVuZ2luZS9zcmMvaW50ZXJwcmV0ZXIucnM6NzQ4OjIzOgpSZWZDZWxsIGFscmVhZHkgYm9ycm93ZWQKbm90ZTogcnVuIHdpdGggYFJVU1RfQkFDS1RSQUNFPTFgIGVudmlyb25tZW50IHZhcmlhYmxlIHRvIGRpc3BsYXkgYSBiYWNrdHJhY2UK","crash":"unreachable"}},
+{"id":"bashkit-suite:bashbox-interpreter-core:696","corpus":"bashkit-suite","category":"bashbox-interpreter-core","kind":"builtins-only","outcome":"crash","actual":{"stdout":"","stderr":"CnRocmVhZCAnbWFpbicgKDEpIHBhbmlja2VkIGF0IGVuZ2luZS9zcmMvaW50ZXJwcmV0ZXIucnM6ODA3OjIzOgpSZWZDZWxsIGFscmVhZHkgYm9ycm93ZWQKbm90ZTogcnVuIHdpdGggYFJVU1RfQkFDS1RSQUNFPTFgIGVudmlyb25tZW50IHZhcmlhYmxlIHRvIGRpc3BsYXkgYSBiYWNrdHJhY2UK","crash":"unreachable"}},
 {"id":"bashkit-suite:bashbox-interpreter-core:703","corpus":"bashkit-suite","category":"bashbox-interpreter-core","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"MTI3Cg==","stderr":""}},
 {"id":"bashkit-suite:bashbox-interpreter-core:713","corpus":"bashkit-suite","category":"bashbox-interpreter-core","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"MTI3Cg==","stderr":""}},
 {"id":"bashkit-suite:bashbox-interpreter-core:720","corpus":"bashkit-suite","category":"bashbox-interpreter-core","kind":"builtins-only","outcome":"fail","actual":{"status":127,"stdout":"","stderr":""}},
@@ -8631,9 +8631,9 @@
 {"id":"bashkit-suite:bashbox-word-expander:96","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:bashbox-word-expander:103","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:bashbox-word-expander:111","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
-{"id":"bashkit-suite:bashbox-word-expander:118","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
+{"id":"bashkit-suite:bashbox-word-expander:118","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:bashbox-word-expander:125","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
-{"id":"bashkit-suite:bashbox-word-expander:132","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
+{"id":"bashkit-suite:bashbox-word-expander:132","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:bashbox-word-expander:139","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:bashbox-word-expander:146","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:bashbox-word-expander:153","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
@@ -8655,7 +8655,7 @@
 {"id":"bashkit-suite:bashbox-word-expander:265","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:bashbox-word-expander:272","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"W2FdCg==","stderr":""}},
 {"id":"bashkit-suite:bashbox-word-expander:279","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
-{"id":"bashkit-suite:bashbox-word-expander:287","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"e2FcLGIsY30ge2F9YiB7YWJjfSB7MS4uY30K","stderr":""}},
+{"id":"bashkit-suite:bashbox-word-expander:287","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"e2EsYixjfSB7YX1iIHthYmN9IHsxLi5jfQo=","stderr":""}},
 {"id":"bashkit-suite:bashbox-word-expander:294","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"ezUuLjF9IHtjLi5hfQo=","stderr":""}},
 {"id":"bashkit-suite:bashbox-word-expander:301","corpus":"bashkit-suite","category":"bashbox-word-expander","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"ezEuLjkuLjN9IHthLi5lLi4yfSB7MS4uNS4uLTJ9Cg==","stderr":""}},
 {"id":"bashkit-suite:bashbox-xargs:5","corpus":"bashkit-suite","category":"bashbox-xargs","kind":"needs-commands","outcome":"skip"},
@@ -8863,8 +8863,8 @@
 {"id":"bashkit-suite:blackbox-exploration:391","corpus":"bashkit-suite","category":"blackbox-exploration","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:blackbox-exploration:398","corpus":"bashkit-suite","category":"blackbox-exploration","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:blackbox-exploration:405","corpus":"bashkit-suite","category":"blackbox-exploration","kind":"builtins-only","outcome":"pass"},
-{"id":"bashkit-suite:blackbox-exploration:412","corpus":"bashkit-suite","category":"blackbox-exploration","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Cg==","stderr":""}},
-{"id":"bashkit-suite:blackbox-exploration:420","corpus":"bashkit-suite","category":"blackbox-exploration","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
+{"id":"bashkit-suite:blackbox-exploration:412","corpus":"bashkit-suite","category":"blackbox-exploration","kind":"builtins-only","outcome":"pass"},
+{"id":"bashkit-suite:blackbox-exploration:420","corpus":"bashkit-suite","category":"blackbox-exploration","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:blackbox-exploration:427","corpus":"bashkit-suite","category":"blackbox-exploration","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:blackbox-exploration:434","corpus":"bashkit-suite","category":"blackbox-exploration","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:blackbox-exploration:441","corpus":"bashkit-suite","category":"blackbox-exploration","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"ezEuLjV9Cg==","stderr":""}},
@@ -9011,7 +9011,7 @@
 {"id":"bashkit-suite:brace-expansion-order:12","corpus":"bashkit-suite","category":"brace-expansion-order","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:brace-expansion-order:19","corpus":"bashkit-suite","category":"brace-expansion-order","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"ezAxLi4xMC4uM30KezA4Li4xMX0Key0wMS4uMX0KezEuLjAzfQo=","stderr":""}},
 {"id":"bashkit-suite:brace-expansion-order:31","corpus":"bashkit-suite","category":"brace-expansion-order","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"XHthXCxiXH14ezEsMn0KXHthXCxiXH17YyxkfQphe2IsY30Ke2EsYiBjfQp4e2EsYn15Cg==","stderr":""}},
-{"id":"bashkit-suite:brace-expansion-order:45","corpus":"bashkit-suite","category":"brace-expansion-order","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"e2EsXCx9CmF7YlwsYyxkfQp7YSxifQo=","stderr":""}},
+{"id":"bashkit-suite:brace-expansion-order:45","corpus":"bashkit-suite","category":"brace-expansion-order","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"e2EsLH0KYXtiLGMsZH0Ke2EsYn0K","stderr":""}},
 {"id":"bashkit-suite:brace-expansion-order:55","corpus":"bashkit-suite","category":"brace-expansion-order","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"e3h9e2EsYn0Ke2F7YixjfX0K","stderr":""}},
 {"id":"bashkit-suite:brace-expansion-order:63","corpus":"bashkit-suite","category":"brace-expansion-order","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"e2EsVn14IHByZXsxLDJ9Vgo=","stderr":""}},
 {"id":"bashkit-suite:brace-expansion:1","corpus":"bashkit-suite","category":"brace-expansion","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"e2EsYixjfQo=","stderr":""}},
@@ -9621,7 +9621,7 @@
 {"id":"bashkit-suite:exit-status:163","corpus":"bashkit-suite","category":"exit-status","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:exit-status:172","corpus":"bashkit-suite","category":"exit-status","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"U0hPVUxEX05PVF9SRUFDSAo=","stderr":""}},
 {"id":"bashkit-suite:exit-status:180","corpus":"bashkit-suite","category":"exit-status","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"U0hPVUxEX05PVF9SRUFDSAo=","stderr":""}},
-{"id":"bashkit-suite:exit-status:188","corpus":"bashkit-suite","category":"exit-status","kind":"builtins-only","outcome":"crash","actual":{"stdout":{"base64":"aXRlciAwCml0ZXIgMAppdGVyIDAKaXRlciAwCml0ZXIgMAppdGVyIDAKaXRlciAwCml0ZXIgMAppdGVyIDAKaXRlciAwCml0ZXIgMAppdGVyIDAKaXRlciAwCml0ZXIgMAppdGVyIDAKaXRlciAwCml0ZXIgMAppdGVyIDAKaXRlciAwCml0ZXIgMAppdGVyIDAKaXRlciAwCml0ZXIgMAppdGVyIDAKaXRlciAwCml0ZXIgMAppdGVyIDAKaXRlciAwCml0ZXIgMAppdGVyIDAKaXRlciAwCml0ZXIgMAppdGVyIDAKaXRlciAwCml0","bytes":4194176,"sha256":"1812d39eb7277dd154fdc6239555aa791321d08467bbdcad239648ddf26ccf52","prefixBytes":240},"stderr":"","crash":"compatibility output limit exceeded"}},
+{"id":"bashkit-suite:exit-status:188","corpus":"bashkit-suite","category":"exit-status","kind":"builtins-only","outcome":"timeout","actual":{"stdout":"","stderr":"","timeout":true}},
 {"id":"bashkit-suite:exit-status:202","corpus":"bashkit-suite","category":"exit-status","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"U0hPVUxEX05PVF9SRUFDSAo=","stderr":""}},
 {"id":"bashkit-suite:exit-status:215","corpus":"bashkit-suite","category":"exit-status","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"U0hPVUxEX05PVF9SRUFDSAo=","stderr":""}},
 {"id":"bashkit-suite:exit-status:225","corpus":"bashkit-suite","category":"exit-status","kind":"builtins-only","outcome":"pass"},
@@ -10108,7 +10108,7 @@
 {"id":"bashkit-suite:nounset:37","corpus":"bashkit-suite","category":"nounset","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:nounset:46","corpus":"bashkit-suite","category":"nounset","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:nounset:54","corpus":"bashkit-suite","category":"nounset","kind":"builtins-only","outcome":"pass"},
-{"id":"bashkit-suite:nounset:65","corpus":"bashkit-suite","category":"nounset","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"aW4KeApzdGF0dXMgMAppbgpnCmFmdGVyCg==","stderr":""}},
+{"id":"bashkit-suite:nounset:65","corpus":"bashkit-suite","category":"nounset","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:nounset:79","corpus":"bashkit-suite","category":"nounset","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"YWZ0ZXIK","stderr":""}},
 {"id":"bashkit-suite:nounset:90","corpus":"bashkit-suite","category":"nounset","kind":"needs-commands","outcome":"skip"},
 {"id":"bashkit-suite:numfmt:1","corpus":"bashkit-suite","category":"numfmt","kind":"needs-commands","outcome":"skip"},
@@ -10154,7 +10154,7 @@
 {"id":"bashkit-suite:param-operand-quotes:15","corpus":"bashkit-suite","category":"param-operand-quotes","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:param-operand-quotes:22","corpus":"bashkit-suite","category":"param-operand-quotes","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:param-operand-quotes:29","corpus":"bashkit-suite","category":"param-operand-quotes","kind":"builtins-only","outcome":"pass"},
-{"id":"bashkit-suite:param-operand-quotes:36","corpus":"bashkit-suite","category":"param-operand-quotes","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
+{"id":"bashkit-suite:param-operand-quotes:36","corpus":"bashkit-suite","category":"param-operand-quotes","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:param-operand-quotes:43","corpus":"bashkit-suite","category":"param-operand-quotes","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"PGFBYj4K","stderr":""}},
 {"id":"bashkit-suite:param-operand-quotes:50","corpus":"bashkit-suite","category":"param-operand-quotes","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:param-operand-quotes:57","corpus":"bashkit-suite","category":"param-operand-quotes","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
@@ -10737,7 +10737,7 @@
 {"id":"bashkit-suite:string-ops:8","corpus":"bashkit-suite","category":"string-ops","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:string-ops:15","corpus":"bashkit-suite","category":"string-ops","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:string-ops:21","corpus":"bashkit-suite","category":"string-ops","kind":"builtins-only","outcome":"pass"},
-{"id":"bashkit-suite:string-ops:28","corpus":"bashkit-suite","category":"string-ops","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
+{"id":"bashkit-suite:string-ops:28","corpus":"bashkit-suite","category":"string-ops","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:string-ops:35","corpus":"bashkit-suite","category":"string-ops","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:string-ops:42","corpus":"bashkit-suite","category":"string-ops","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:string-ops:50","corpus":"bashkit-suite","category":"string-ops","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
@@ -10775,7 +10775,7 @@
 {"id":"bashkit-suite:subshell:103","corpus":"bashkit-suite","category":"subshell","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c3RhdHVzPTIK","stderr":""}},
 {"id":"bashkit-suite:subshell:111","corpus":"bashkit-suite","category":"subshell","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:subshell:124","corpus":"bashkit-suite","category":"subshell","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Cgo=","stderr":""}},
-{"id":"bashkit-suite:subshell:134","corpus":"bashkit-suite","category":"subshell","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c3Vydml2ZWQ6IDIK","stderr":""}},
+{"id":"bashkit-suite:subshell:134","corpus":"bashkit-suite","category":"subshell","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:subshell:142","corpus":"bashkit-suite","category":"subshell","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:sudo-busybox:5","corpus":"bashkit-suite","category":"sudo-busybox","kind":"needs-commands","outcome":"skip"},
 {"id":"bashkit-suite:sudo-busybox:19","corpus":"bashkit-suite","category":"sudo-busybox","kind":"needs-commands","outcome":"skip"},
@@ -11016,8 +11016,8 @@
 {"id":"bashkit-suite:var-op-test:5","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"eAowCjAK","stderr":""}},
 {"id":"bashkit-suite:var-op-test:20","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:var-op-test:28","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"pass"},
-{"id":"bashkit-suite:var-op-test:35","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Cg==","stderr":""}},
-{"id":"bashkit-suite:var-op-test:44","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Cg==","stderr":""}},
+{"id":"bashkit-suite:var-op-test:35","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"pass"},
+{"id":"bashkit-suite:var-op-test:44","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:var-op-test:52","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:var-op-test:61","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:var-op-test:69","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"pass"},
@@ -11025,7 +11025,7 @@
 {"id":"bashkit-suite:var-op-test:93","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"dj12CnY9dgp2PXYKdj12Cg==","stderr":""}},
 {"id":"bashkit-suite:var-op-test:110","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:var-op-test:119","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"pass"},
-{"id":"bashkit-suite:var-op-test:128","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"CmhlbGxvPQo=","stderr":""}},
+{"id":"bashkit-suite:var-op-test:128","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:var-op-test:138","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:var-op-test:150","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:var-op-test:167","corpus":"bashkit-suite","category":"var-op-test","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
@@ -11048,7 +11048,7 @@
 {"id":"bashkit-suite:variables:43","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:variables:50","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:variables:57","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"pass"},
-{"id":"bashkit-suite:variables:64","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Cg==","stderr":""}},
+{"id":"bashkit-suite:variables:64","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:variables:72","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:variables:79","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:variables:86","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
@@ -11091,7 +11091,7 @@
 {"id":"bashkit-suite:variables:349","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:variables:356","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:variables:363","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"pass"},
-{"id":"bashkit-suite:variables:370","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
+{"id":"bashkit-suite:variables:370","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:variables:377","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:variables:384","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:variables:391","corpus":"bashkit-suite","category":"variables","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
@@ -11216,7 +11216,7 @@
 {"id":"bashkit-suite:word-split:562","corpus":"bashkit-suite","category":"word-split","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"bashkit-suite:word-split:568","corpus":"bashkit-suite","category":"word-split","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Cgo=","stderr":""}},
 {"id":"bashkit-suite:word-split:577","corpus":"bashkit-suite","category":"word-split","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"MAo=","stderr":""}},
-{"id":"bashkit-suite:word-split:584","corpus":"bashkit-suite","category":"word-split","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"W1tcXF1fXQpbW1xcXV9dCg==","stderr":""}},
+{"id":"bashkit-suite:word-split:584","corpus":"bashkit-suite","category":"word-split","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"W1tcXV9dCltbXF1fXQo=","stderr":""}},
 {"id":"bashkit-suite:xargs:1","corpus":"bashkit-suite","category":"xargs","kind":"needs-commands","outcome":"skip"},
 {"id":"bashkit-suite:xargs:8","corpus":"bashkit-suite","category":"xargs","kind":"needs-commands","outcome":"skip"},
 {"id":"bashkit-suite:xargs:15","corpus":"bashkit-suite","category":"xargs","kind":"needs-commands","outcome":"skip"},

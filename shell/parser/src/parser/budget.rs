@@ -386,6 +386,7 @@ mod tests {
         let mut commands = Vec::new();
         for _ in 0..50_001 {
             commands.push(Command::Simple(SimpleCommand {
+                expansion_line: Some(1),
                 name: Word::literal("true"),
                 args: vec![],
                 redirects: vec![],

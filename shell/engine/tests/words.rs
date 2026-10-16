@@ -15,6 +15,8 @@ struct Rig {
     host: InProcessHost,
     calls: Rc<RefCell<Vec<Vec<String>>>>,
     output: Capture,
+    errors: Capture,
+    fs: MemoryFs,
 }
 impl Rig {
     fn new(limits: Limits) -> Self {
@@ -30,17 +32,19 @@ impl Rig {
             }
             .boxed_local()
         });
+        let fs = MemoryFs::new(64 * 1024);
         let shell = Session::new(
             ex.clone(),
             Rc::new(host.clone()),
-            Rc::new(MemoryFs::new(1024)),
+            Rc::new(fs.clone()),
             limits,
         );
         let (out, output) = capture(64 * 1024);
+        let (err, errors) = capture(64 * 1024);
         let mut fds = FdTable::default();
         fds.insert(0, Endpoint::null());
         fds.insert(1, out);
-        fds.insert(2, Endpoint::null());
+        fds.insert(2, err);
         shell.set_descriptors(fds).unwrap();
         Self {
             ex,
@@ -48,6 +52,8 @@ impl Rig {
             host,
             calls,
             output,
+            errors,
+            fs,
         }
     }
     fn finish(&self, job: JoinHandle<i32>) -> i32 {
@@ -422,6 +428,19 @@ fn aggregate_expansion_bytes_include_all_fields_and_scalar_operands() {
 }
 
 #[test]
+fn initial_ifs_is_set_for_scalar_parameter_operators_and_local_restoration() {
+    // Clean GNU Bash 5.3.15 starts with nonexported IFS bytes 20 09 0a.
+    check(
+        r#"args "$IFS" "${IFS+x}" "${IFS-bad}" "${IFS=bad}" "${IFS:=bad}" "${IFS:?bad}"; f() { local IFS=:; args "$IFS"; }; f; args "$IFS""#,
+        &[
+            &[" \t\n", "x", " \t\n", " \t\n", " \t\n", " \t\n"],
+            &[":"],
+            &[" \t\n"],
+        ],
+    );
+}
+
+#[test]
 fn long_splitting_yields_and_cancellation_restores_frames() {
     let rig = Rig::new(Limits::default());
     rig.variable("IFS", ":");
@@ -623,9 +642,6 @@ fn selected_unsupported_operands_and_operator_targets_fail_without_dispatch() {
         "args ${u:-${v/p/q}}",
         "args ${a[0]-x}",
         "args ${1-x}",
-        "args ${u:=x}",
-        "v=set; args ${v:=x}",
-        "args ${u:?fail}",
         "args ${u:-~}",
         "args ${u:-*}",
         "args ${u:-{a,b}}",
@@ -891,4 +907,1292 @@ fn inner_quoted_backslashes_and_nested_apostrophe_spans_keep_context() {
         &[&["a\\}b", "a}b"]],
     );
     check(r#"u=; v=; args "${u:-'${v:-'a'}'}""#, &[&["''a''"]]);
+}
+
+// Assignment/error cases adapt the scalar Bashkit var-op-test, variables and
+// string-ops cases. Status and diagnostic expectations come from GNU Bash 5.3
+// and the unchanged frozen oracle, including its top-level status 127.
+#[test]
+fn scalar_assignment_preserves_unset_null_and_stores_unsplit_values() {
+    check(
+        r#"e=; v=value; args "${u=one}" "${u=bad}" "${e=bad}" "${e:=two}" "${v:=bad}"; args "$u" "$e" "$v"; args ${space:=a" b "c} "$space"; IFS=:; args p${split:=a:"b:c":d}s "$split""#,
+        &[
+            &["one", "one", "", "two", "value"],
+            &["one", "two", "value"],
+            &["a", "b", "c", "a b c"],
+            &["pa", "b", "c", "ds", "a:b:c:d"],
+        ],
+    );
+    check(
+        r#"args ${u=} "${u?bad}" "${u:=}"; args "${u+set}"; args ${nested:=${inner:=two words}} "$inner" "$nested""#,
+        &[
+            &["", ""],
+            &["set"],
+            &["two", "words", "two words", "two words"],
+        ],
+    );
+}
+
+#[test]
+fn assignment_quote_removal_keeps_surrounding_word_boundaries() {
+    check(
+        r#"args p${u:="a b"}s "${u}"; args p${other:-"${inner:=c d}"}s "$inner"; args ${last:=a\ b} "$last""#,
+        &[&["pa", "bs", "a b"], &["pc ds", "c d"], &["a", "b", "a b"]],
+    );
+}
+
+#[test]
+fn ifs_assignment_splits_the_entire_expanded_word_with_the_new_value() {
+    // Independent GNU Bash observations, including text emitted before the write.
+    for (source, expected) in [
+        (r#"IFS=; args ${IFS:=:}a:b"#, vec!["", "a:b"]),
+        (r#"IFS=; args a:b${IFS:=:}"#, vec!["a", "b"]),
+        (r#"IFS=; args a:b"${IFS:=:}""#, vec!["a:b:"]),
+        (r#"IFS=; args a:b"${IFS:=:}"${empty}"#, vec!["a", "b:"]),
+        (r#"IFS=; args a:b${u:-""}"${IFS:=:}""#, vec!["a", "b:"]),
+        (
+            r#"IFS=; args a:b${u:-"a:b"}"${IFS:=:}""#,
+            vec!["a", "ba:b:"],
+        ),
+        (r#"IFS=; args a:b${u:=${IFS:=:}}a:b"#, vec!["a", "b", "a:b"]),
+        (r#"IFS=; args 'a:b'${IFS:=:}"#, vec!["a:b"]),
+        (r#"IFS=; args a\:b${IFS:=:}"#, vec!["a:b"]),
+        (r#"IFS=; x=a:b; args ${x}${IFS:=:}"#, vec!["a", "b"]),
+        (r#"IFS=; x=a:b; args "${x}"${IFS:=:}"#, vec!["a:b"]),
+        (r#"IFS=; x=a:b; args ${x}"${IFS:=:}""#, vec!["a", "b:"]),
+        (r#"IFS=; x=a:b; args ${x}${IFS:=:}"""#, vec!["a", "b", ""]),
+        (r#"IFS=; args ${u:-a:b}${IFS:=:}"#, vec!["a", "b"]),
+        (r#"IFS=; args ${u:-"a:b"}${IFS:=:}"#, vec!["a:b"]),
+        (
+            r#"IFS=; x=a:b; args ${x}${u:=${IFS:=:}} "$u""#,
+            vec!["a", "b", ":"],
+        ),
+        (
+            r#"IFS=; x=a:b; out=${x}${IFS:=:}; args "$out" "$IFS""#,
+            vec!["a:b:", ":"],
+        ),
+    ] {
+        check(source, &[&expected]);
+    }
+}
+
+#[test]
+fn ifs_assignment_preserves_quote_and_list_boundaries() {
+    for (source, expected) in [
+        (
+            r#"f() { IFS=; args ${IFS:=:}"$@"; }; f a:b '' c:d"#,
+            vec!["", "a:b", "", "c:d"],
+        ),
+        (
+            r#"f() { IFS=; args ${IFS:=:}$@; }; f a:b '' c:d"#,
+            vec!["", "a", "b", "", "c", "d"],
+        ),
+        (
+            r#"f() { IFS=; args ${IFS:=:}"$*"; }; f a:b '' c:d"#,
+            vec!["", "a:b::c:d"],
+        ),
+        (
+            r#"f() { IFS=; args ${IFS:=:}$*; }; f a:b '' c:d"#,
+            vec!["", "a", "b", "", "c", "d"],
+        ),
+        (
+            r#"f() { IFS=; x=a:b; args ${x}${IFS:=:}"$@"; }; f one '' two"#,
+            vec!["a", "b", "one", "", "two"],
+        ),
+        (r#"f() { IFS=; args ${IFS:=:}"$@"; }; f"#, vec![""]),
+    ] {
+        check(source, &[&expected]);
+    }
+}
+
+#[test]
+fn later_ifs_assignment_resolves_list_separators_without_unquoting_elements() {
+    // Independent GNU Bash observations. Generated separators and element
+    // spaces have different protection, even within the same list expansion.
+    check(
+        r#"f() { IFS=; args "$@"${IFS:=:}; }; f one two"#,
+        &[&["one two"]],
+    );
+    check(
+        r#"f() { IFS=; args a:b"${IFS:=:}""$@"; }; f"#,
+        &[&["a", "b:"]],
+    );
+    check(r#"f() { IFS=; args a:b"${IFS:=:}""$*"; }; f"#, &[&["a:b:"]]);
+    for (word, expected) in [
+        (r#""$@"${IFS:=:}"#, vec!["a:b  c:d"]),
+        (r#""$@""${IFS:=:}""#, vec!["a:b  c:d:"]),
+        (r#"$@${IFS:=:}"#, vec!["a", "b  c", "d"]),
+        (r#"$*${IFS:=:}"#, vec!["a:b", "c:d:"]),
+        (r#""$*"${IFS:=:}"#, vec!["a:bc:d"]),
+        (r#""${@}"${IFS:=:}"#, vec!["a:b  c:d"]),
+        (r#"${@}${IFS:=:}"#, vec!["a", "b  c", "d"]),
+        (r#"${*}${IFS:=:}"#, vec!["a:b", "c:d:"]),
+        (r#""${*}"${IFS:=:}"#, vec!["a:bc:d"]),
+        (r#""$@"${IFS:=}"#, vec!["a:b", "", "c:d"]),
+        (r#""$@"${empty}"#, vec!["a:b", "", "c:d"]),
+        (r#"$@${IFS:=}"#, vec!["a:b", "c:d"]),
+        (r#"$*${IFS:=}"#, vec!["a:b", "c:d"]),
+        (r#""$@"${IFS:= }"#, vec!["a:b", "", "c:d"]),
+        (r#"$@${IFS:= :}"#, vec!["a", "b", "c", "d"]),
+        (r#""$@"${IFS:=x }"#, vec!["a:b", "", "c:d"]),
+        (r#""$@"${IFS:=ç}"#, vec!["a:b  c:d"]),
+        (r#""$@"${IFS:=:}"$@""#, vec!["a:b  c:d", "a:b", "", "c:d"]),
+        (
+            r#"$@${IFS:=:}$@"#,
+            vec!["a", "b  c", "d", "a", "b", "", "c", "d"],
+        ),
+        (r#"$*${IFS:=:}"$@""#, vec!["a:b", "c:d:a:b::c:d"]),
+        (r#"p:"$@"${IFS:=:}":s""#, vec!["p", "a:b  c:d", ":s"]),
+        (r#""p:""$@"${IFS:=:}":s""#, vec!["p:a:b  c:d", ":s"]),
+        (r#"p:"$@""${IFS:=:}""#, vec!["p", "a:b  c:d:"]),
+    ] {
+        check(
+            &format!("f() {{ IFS=; args {word}; }}; f a:b '' c:d"),
+            &[&expected],
+        );
+    }
+}
+
+#[test]
+fn ifs_assignment_handles_zero_and_empty_list_elements_in_both_orders() {
+    let cases: &[(&str, &[&[&str]])] = &[
+        (
+            r#""$@"${IFS:=:}"#,
+            &[&[""], &[""], &[" "], &["a:b"], &[" a:b "]],
+        ),
+        (
+            r#"$@${IFS:=:}"#,
+            &[&[""], &[""], &[" "], &["a", "b"], &[" a", "b "]],
+        ),
+        (
+            r#"$*${IFS:=:}"#,
+            &[&[":"], &[":"], &[":"], &["a:b:"], &["a:b", ":"]],
+        ),
+        (
+            r#""$*"${IFS:=:}"#,
+            &[&[""], &[""], &[""], &["a:b"], &["a:b"]],
+        ),
+        (
+            r#"${IFS:=:}"$@""#,
+            &[
+                &[""],
+                &["", ""],
+                &["", "", ""],
+                &["", "a:b"],
+                &["", "", "a:b", ""],
+            ],
+        ),
+        (
+            r#"${IFS:=:}$@"#,
+            &[
+                &[""],
+                &[""],
+                &["", ""],
+                &["", "a", "b"],
+                &["", "", "a", "b"],
+            ],
+        ),
+        (
+            r#"${IFS:=:}$*"#,
+            &[
+                &[""],
+                &[""],
+                &["", ""],
+                &["", "a", "b"],
+                &["", "", "a", "b"],
+            ],
+        ),
+        (
+            r#"${IFS:=:}"$*""#,
+            &[
+                &["", ""],
+                &["", ""],
+                &["", ":"],
+                &["", "a:b"],
+                &["", ":a:b:"],
+            ],
+        ),
+        (
+            r#""$@"${IFS:=}"#,
+            &[&[], &[""], &["", ""], &["a:b"], &["", "a:b", ""]],
+        ),
+        (
+            r#""$@"${empty}"#,
+            &[&[], &[""], &["", ""], &["a:b"], &["", "a:b", ""]],
+        ),
+        (r#"$@${IFS:=}"#, &[&[], &[], &[], &["a:b"], &["a:b"]]),
+        (r#"$*${IFS:=}"#, &[&[], &[], &[], &["a:b"], &["a:b"]]),
+    ];
+    for (word, expected) in cases {
+        check(
+            &format!("f() {{ IFS=; args {word}; }}; f; f ''; f '' ''; f a:b; f '' a:b ''"),
+            expected,
+        );
+    }
+}
+
+#[test]
+fn deferred_list_splitting_distinguishes_element_spaces_and_word_split_mode() {
+    for (word, expected) in [
+        (r#""$@"${IFS:=: }"#, vec!["a:b x", "", "y c:d"]),
+        (r#"$@${IFS:=: }"#, vec!["a", "b x", "y c", "d"]),
+        (r#"$*${IFS:=: }"#, vec!["a:b x", "y c:d:"]),
+        (r#"$*$v${IFS:=:}"#, vec!["a:b x", "y c:dp:q r:"]),
+        (r#"$*${IFS:=:}$v"#, vec!["a:b x", "y c:d:p:q", "r"]),
+        (r#""$@"${IFS:=:}$v"#, vec!["a:b x  y c:d", "p", "q r"]),
+    ] {
+        check(
+            &format!("f() {{ IFS=; v='p:q r'; args {word}; }}; f 'a:b x' '' 'y c:d'"),
+            &[&expected],
+        );
+    }
+    for (word, expected) in [
+        ("$v${IFS:= \t\n:}", vec!["a b", "c", "d", "e"]),
+        ("${u:-$v}${IFS:= \t\n:}", vec!["a b", "c", "d", "e"]),
+        ("${u:=$v}${IFS:= \t\n:}", vec!["a b", "c", "d", "e"]),
+    ] {
+        check(&format!("IFS=; v='a b\tc\nd:e'; args {word}"), &[&expected]);
+    }
+    // These observations use native `unset IFS`, not Bash's startup value.
+    for (source, expected) in [
+        (
+            r#"f() { args "$@"${IFS:=:}; }; f a:b '' c:d"#,
+            vec!["a:b  c:d"],
+        ),
+        (
+            r#"f() { args $*${IFS:=:}; }; f a:b '' c:d"#,
+            vec!["a", "b  c", "d"],
+        ),
+        (
+            r#"f() { v='a b'; args $v"$@"${IFS:=}; }; f"#,
+            vec!["a", "b"],
+        ),
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(
+            rig.shell.state().borrow_mut().variables.remove("IFS"),
+            Some(" \t\n".to_owned()),
+            "explicitly unset the startup IFS before this observation"
+        );
+        assert_eq!(rig.run(source), 0, "{source}");
+        assert_eq!(*rig.calls.borrow(), &[expected], "{source}");
+    }
+    check(
+        r#"f() { args "$@"${IFS:=:}; }; f a:b '' c:d"#,
+        &[&["a:b", "", "c:d"]],
+    );
+    check(
+        r#"f() { args $*${IFS:=:}; }; f a:b '' c:d"#,
+        &[&["a:b", "c:d"]],
+    );
+}
+
+#[test]
+fn lexical_escapes_keep_only_the_escaped_character_protected_after_ifs_writes() {
+    for (source, expected) in [
+        (r#"IFS=; args a:\:b${IFS:=:}"#, vec!["a", ":b"]),
+        // Keep neighboring letters splittable, not just neighboring colons.
+        (r#"IFS=; args a\:b${IFS:=ab}"#, vec!["", ":", "", ""]),
+        (r#"IFS=; args a\:b${IFS:=a}"#, vec!["", ":b"]),
+        (r#"IFS=; args a\:b${IFS:=b}"#, vec!["a:", ""]),
+        (r#"IFS=; args a\:b${IFS:=:ab}"#, vec!["", ":", "", "", ""]),
+        (r#"IFS=; args a"x"b${IFS:=axb}"#, vec!["", "x", "", "", ""]),
+        (r#"IFS=; args a\ b${IFS:=ab}"#, vec!["", " ", "", ""]),
+        (r#"IFS=; args a\:b:c${IFS:=:}"#, vec!["a:b", "c"]),
+        (r#"IFS=; args a""\:b:c${IFS:=:}"#, vec!["a:b", "c"]),
+        (r#"IFS=; args "a"\:b:c${IFS:=:}"#, vec!["a:b", "c"]),
+        (r#"IFS=; x=ok; xy=wrong; args $x\y${IFS:=y}"#, vec!["oky"]),
+        (r#"IFS=; args \$x${IFS:='$'}"#, vec!["$x"]),
+        (r#"IFS=; args \${x}${IFS:='$'}"#, vec!["${x}"]),
+        (r#"IFS=; args a\"b${IFS:='"'}"#, vec!["a\"b"]),
+        (r#"IFS=; args a\'b${IFS:="'"}"#, vec!["a'b"]),
+        (r#"IFS=; args a\`b${IFS:='`'}"#, vec!["a`b"]),
+        (r#"IFS=; args \~${IFS:='~'}"#, vec!["~"]),
+        (r#"IFS=; args a\\b${IFS:='\'}"#, vec!["a\\b"]),
+        (r#"IFS=; args a\éb:c${IFS:=é}"#, vec!["aéb:c"]),
+        (r#"IFS=; args a\ b${IFS:= }"#, vec!["a b"]),
+        (r#"IFS=; args a\*b${IFS:='*'}"#, vec!["a*b"]),
+        (r#"IFS=; args "a"\*b${IFS:='*'}"#, vec!["a*b"]),
+        (r#"IFS=; args ]a\:b${IFS:=:}"#, vec!["]a:b"]),
+        (r#"IFS=; args }a\:b${IFS:=:}"#, vec!["}a:b"]),
+        ("IFS=; args a\\\nb${IFS:=a}", vec!["", "b"]),
+        ("IFS=; args \"a\\\nb\"${IFS:=a}", vec!["ab"]),
+        ("IFS=; args a\\\x1eb${IFS:=:}", vec!["a\x1eb"]),
+        ("IFS=; args a\\\x1fb${IFS:=:}", vec!["a\x1fb"]),
+        (r#"IFS=; out=a\:b${IFS:=:}; args "$out""#, vec!["a:b:"]),
+        (r#"out=\"a:b\"; args "$out""#, vec!["\"a:b\""]),
+        (r#"out=\'a:b\'; args "$out""#, vec!["'a:b'"]),
+        (
+            r#"f() { local IFS=; args a\:b:c${IFS:=:}; }; f"#,
+            vec!["a:b", "c"],
+        ),
+    ] {
+        check(source, &[&expected]);
+    }
+}
+
+#[test]
+fn ifs_assignment_keeps_list_word_leading_mixed_delimiter_rules() {
+    for word in [
+        r#""$@"${IFS:=' :'}"#,
+        r#"$@${IFS:=' :'}"#,
+        r#"${IFS:=' :'}"$@""#,
+        r#"${IFS:=' :'}$@"#,
+        r#"${IFS:=' :'}$*"#,
+    ] {
+        check(&format!("f() {{ IFS=; args {word}; }}; f"), &[&[]]);
+    }
+    check(r#"IFS=; args ${IFS:=' :'}"#, &[&[""]]);
+    check(r#"f() { IFS=; args $*${IFS:=' :'}; }; f"#, &[&[":"]]);
+}
+
+#[test]
+fn later_ifs_assignment_resolves_pipestatus_list_separators() {
+    for (word, expected) in [
+        (r#""${PIPESTATUS[@]}"${IFS:=:}"#, vec!["1 0"]),
+        (r#"${PIPESTATUS[@]}${IFS:=:}"#, vec!["1 0"]),
+        (r#"${PIPESTATUS[*]}${IFS:=:}"#, vec!["1 0"]),
+        (r#""${PIPESTATUS[*]}"${IFS:=:}"#, vec!["10"]),
+        (r#"${IFS:=:}"${PIPESTATUS[@]}""#, vec!["", "1", "0"]),
+        (r#"${IFS:=:}${PIPESTATUS[@]}"#, vec!["", "1", "0"]),
+        (r#"${IFS:=:}${PIPESTATUS[*]}"#, vec!["", "1", "0"]),
+        (r#"${IFS:=:}"${PIPESTATUS[*]}""#, vec!["", "1:0"]),
+    ] {
+        check(&format!("IFS=; false | true; args {word}"), &[&expected]);
+    }
+}
+
+#[test]
+fn deferred_list_separators_keep_raw_output_and_field_bounds() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 8,
+        ..Limits::default()
+    });
+    // Nine generated separators exceed raw bytes even though splitting drops them.
+    assert_eq!(
+        rig.run(r#"f() { IFS=; args "$@"${IFS:= }; }; f '' '' '' '' '' '' '' '' '' ''"#),
+        2
+    );
+    assert!(rig.calls.borrow().is_empty());
+
+    for (bytes, status) in [(8, 2), (9, 0)] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: bytes,
+            ..Limits::default()
+        });
+        assert_eq!(
+            rig.run(r#"f() { IFS=; args "$@"${IFS:=:}; }; f aa bb"#),
+            status
+        );
+        if status == 0 {
+            assert_eq!(*rig.calls.borrow(), &[vec!["aa bb"]]);
+        } else {
+            assert!(rig.calls.borrow().is_empty());
+        }
+    }
+    let rig = Rig::new(Limits {
+        arguments: 3,
+        ..Limits::default()
+    });
+    assert_eq!(rig.run(r#"f() { IFS=; args $@${IFS:=:}; }; f a:b c:d"#), 2);
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn deferred_list_separator_replay_yields_and_cancels_after_the_ifs_write() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("IFS", "|");
+    let source = format!(
+        r#"f() {{ local IFS=; args "$@"${{IFS:=:}}; }}; f {}"#,
+        "'' ".repeat(2048)
+    );
+    let job = rig.shell.start(&source).unwrap();
+    for _ in 0..1000 {
+        rig.ex.drive(1);
+        if rig
+            .shell
+            .state()
+            .borrow()
+            .variables
+            .get("IFS")
+            .map(String::as_str)
+            == Some(":")
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.shell.state().borrow().variables.get("IFS").unwrap(),
+        ":"
+    );
+    let peer = rig.ex.spawn(async { 42 });
+    rig.ex.drive(4);
+    assert!(peer.is_finished());
+    assert!(
+        !job.is_finished(),
+        "separator replay must yield before dispatch"
+    );
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(
+        rig.shell.state().borrow().variables.get("IFS").unwrap(),
+        "|"
+    );
+    assert_eq!(rig.run(r#"args "$#""#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["0"]]);
+}
+
+#[test]
+fn deferred_ifs_splitting_keeps_field_byte_and_shared_work_bounds() {
+    let rig = Rig::new(Limits {
+        arguments: 3,
+        ..Limits::default()
+    });
+    rig.variable("v", "a:b:c");
+    assert_eq!(rig.run("IFS=; args ${v}${IFS:=:}"), 2);
+    assert!(rig.calls.borrow().is_empty());
+
+    let rig = Rig::new(Limits {
+        expansion_bytes: 32,
+        ..Limits::default()
+    });
+    rig.variable("v", &" ".repeat(33));
+    assert_eq!(rig.run("IFS=; args ${v}${IFS:= }"), 2);
+    assert!(rig.calls.borrow().is_empty());
+
+    let rig = Rig::new(Limits {
+        expansion_bytes: 8,
+        ..Limits::default()
+    });
+    rig.variable("v", "abc:def");
+    assert_eq!(rig.run("IFS=; args ${v}${IFS:=:}"), 2);
+    assert!(rig.calls.borrow().is_empty());
+
+    let rig = Rig::new(Limits {
+        source_bytes: 128,
+        expansion_bytes: 128,
+        arguments: 4,
+        ..Limits::default()
+    });
+    rig.variable("v", &" ".repeat(110));
+    assert_eq!(rig.run("IFS=; args ${v}${IFS:= } $v"), 2);
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn deferred_ifs_splitting_yields_and_cancels_after_the_parameter_write() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("IFS", ":");
+    rig.variable("v", &" ".repeat(8192));
+    let job = rig
+        .shell
+        .start("f() { local IFS=; args ${v}${IFS:= }; }; f")
+        .unwrap();
+    for _ in 0..1000 {
+        rig.ex.drive(1);
+        if rig
+            .shell
+            .state()
+            .borrow()
+            .variables
+            .get("IFS")
+            .map(String::as_str)
+            == Some(" ")
+        {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.shell.state().borrow().variables.get("IFS").unwrap(),
+        " "
+    );
+    let peer = rig.ex.spawn(async { 42 });
+    rig.ex.drive(4);
+    assert!(peer.is_finished());
+    assert!(
+        !job.is_finished(),
+        "the deferred split must remain interruptible"
+    );
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(
+        rig.shell.state().borrow().variables.get("IFS").unwrap(),
+        ":"
+    );
+}
+
+#[test]
+fn assignment_effects_reach_rhs_argv_declarations_and_redirects() {
+    check(
+        r#"a=${b:=B} c=${a:=bad}; args "$a" "$b" "$c"; ${cmd:=args} "${arg:=A}" >"${path:=file}"; args "$cmd" "$arg" "$path"; export x=${y:=Y}; f() { local z=${nested:=N}; args "$z"; }; f; args "$x" "$y" "$nested""#,
+        &[
+            &["B", "B", "B"],
+            &["A"],
+            &["args", "A", "file"],
+            &["N"],
+            &["Y", "Y", "N"],
+        ],
+    );
+    check(
+        r#"a=outer; a= b=${a:=inner} args "${arg:=A}"; args "$a" "$b" "$arg"; x=${y:=rhs} args "${y:=argv}"; args "$x" "$y""#,
+        &[&["A"], &["inner", "", "A"], &["argv"], &["", "argv"]],
+    );
+    check(
+        r#"a=one >"${path:=$a}"; args "$a" "$path"; f() { local v=; args "${v:=inside}" "${global:=outside}"; }; v=before; f; args "$v" "$global""#,
+        &[
+            &["one", "one"],
+            &["inside", "outside"],
+            &["before", "outside"],
+        ],
+    );
+}
+
+#[test]
+fn assignment_and_error_operands_are_lazy_including_unsupported_syntax() {
+    check(
+        r#"v=set; e=; args ${v:=$(args forbidden)} ${v=${bad:?fail}} "${e=$(args forbidden)}" ${v?$(args forbidden)} "${e?$(args forbidden)}" ${v:?${bad:=bad}}; args "$bad"; args ${u+${bad:?fail}} ${v:-${bad:=bad}}"#,
+        &[&["set", "set", "", "set", "", "set"], &[""], &["set"]],
+    );
+    for source in [
+        "args ${u:=$(args forbidden)}",
+        "args ${u:?$((1+2))}",
+        "args ${u:=$@}",
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 2, "{source}");
+        assert!(rig.calls.borrow().is_empty());
+        assert!(!rig.shell.state().borrow().variables.contains_key("u"));
+    }
+}
+
+#[test]
+fn fatal_parameter_errors_stop_sequences_functions_and_conditions() {
+    for (source, line, message) in [
+        (
+            "echo before; args ${u?}; args after",
+            1,
+            "u: parameter not set",
+        ),
+        (
+            "u=;\nargs ${u:?}; args after",
+            2,
+            "u: parameter null or not set",
+        ),
+        ("args ${u?two words}; args after", 1, "u: two words"),
+        ("args ${u:?\"\"}; args after", 1, "u: "),
+        ("args ${u?${missing}}; args after", 1, "u: "),
+        (
+            "f() {\n local v=inside; args ${u:?bad}; args bad;\n}; f; args after",
+            2,
+            "u: bad",
+        ),
+        ("args ${u:?bad} || args after", 1, "u: bad"),
+        (
+            "while args ${u:?bad}; do args after; done; args after",
+            1,
+            "u: bad",
+        ),
+        ("a=${u:?bad}; args after", 1, "u: bad"),
+        ("args >${u:?bad}; args after", 1, "u: bad"),
+    ] {
+        let rig = Rig::new(Limits::default());
+        rig.variable("v", "outside");
+        assert_eq!(rig.run(source), 127, "{source}");
+        assert!(rig.calls.borrow().is_empty(), "{source}");
+        assert_eq!(
+            rig.errors.bytes(),
+            format!("/usr/bin/bash: line {line}: {message}\n").as_bytes(),
+            "{source}"
+        );
+        assert_eq!(
+            rig.shell.state().borrow().variables.get("v").unwrap(),
+            "outside"
+        );
+        assert_eq!(rig.run(r#"args "$#" "$v""#), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["0", "outside"]]);
+    }
+}
+
+#[test]
+fn fatal_errors_keep_completed_effects_and_route_diagnostics() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run(r#"echo before; a=${saved:=yes} b=${u:?${detail:=two words}}; args after"#),
+        127
+    );
+    assert_eq!(rig.output.bytes(), b"before\n");
+    assert_eq!(rig.run(r#"args "$saved" "$detail""#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["yes", "two words"]]);
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("a=${u:?bad} 2>errors; args after"), 127);
+    assert_eq!(rig.errors.bytes(), b"/usr/bin/bash: line 1: u: bad\n");
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("a=${u:?bad} args 2>errors; args after"), 127);
+    assert_eq!(rig.errors.bytes(), b"/usr/bin/bash: line 1: u: bad\n");
+    assert!(rig.fs.read_file("/home/guest/errors").unwrap().is_empty());
+}
+
+#[test]
+fn fatal_errors_and_writes_are_contained_in_isolated_environments() {
+    check(
+        r#"(args ${u:?bad}; args bad); args "$?"; args "${u-unset}"; args ${u:?bad} | args stage; args "${PIPESTATUS[@]}"; { args ${u:?bad}; args bad; } | args group; args "${PIPESTATUS[@]}"; args ${u:?bad} & wait 1; args "$?"; (args "${side:=child}"); args "${side-unset}""#,
+        &[
+            &["1"],
+            &["unset"],
+            &["stage"],
+            &["127", "0"],
+            &["group"],
+            &["1", "0"],
+            &["127"],
+            &["child"],
+            &["unset"],
+        ],
+    );
+    check(
+        r#"(args) >${path:?bad}; args "$?"; args "${path-unset}"; echo "${side:=parent}" | args sink; args "${side-unset}""#,
+        &[&["127"], &["unset"], &["sink"], &["unset"]],
+    );
+}
+
+#[test]
+fn assignment_storage_and_error_diagnostics_are_bounded() {
+    for source in [
+        "args ${u:=$large}",
+        "args ${u:?$large}",
+        "args ${u:=${v:=$large}}",
+    ] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: 32,
+            ..Limits::default()
+        });
+        rig.variable("large", &"x".repeat(33));
+        assert_eq!(rig.run(source), 2, "{source}");
+        assert!(rig.calls.borrow().is_empty());
+        assert!(rig.errors.bytes().is_empty());
+        assert!(!rig.shell.state().borrow().variables.contains_key("u"));
+    }
+}
+
+#[test]
+fn parameter_writes_share_storage_admission_even_when_fields_fit() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 32,
+        ..Limits::default()
+    });
+    assert_eq!(
+        rig.run("args ${aa:=123456789} ${bb:=123456789} ${cc:=123456789}"),
+        2
+    );
+    assert!(rig.calls.borrow().is_empty());
+    let state = rig.shell.state();
+    let state = state.borrow();
+    assert_eq!(
+        state.variables.get("aa").map(String::as_str),
+        Some("123456789")
+    );
+    assert_eq!(
+        state.variables.get("bb").map(String::as_str),
+        Some("123456789")
+    );
+    assert!(!state.variables.contains_key("cc"));
+}
+
+#[test]
+fn cancellation_keeps_completed_rhs_effects_and_restores_local_prefix_frames() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("v", "outer");
+    let source = format!(
+        "f() {{ local v=; a=${{saved:=yes}} b=${{v:=inner}} c=${{long:={}}} args; }}; f arg",
+        "x".repeat(100_000)
+    );
+    let job = rig.shell.start(&source).unwrap();
+    for _ in 0..500 {
+        rig.ex.drive(1);
+        if rig.shell.state().borrow().variables.contains_key("saved") {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.shell
+            .state()
+            .borrow()
+            .variables
+            .get("saved")
+            .map(String::as_str),
+        Some("yes")
+    );
+    rig.ex.drive(4);
+    assert!(!job.is_finished());
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.run(r#"args "$saved" "$v" "$a" "$b" "$long" "$#""#), 0);
+    assert_eq!(
+        *rig.calls.borrow(),
+        &[vec!["yes", "outer", "", "", "", "0"]]
+    );
+}
+
+#[test]
+fn frozen_scalar_error_observations_keep_exact_status_and_output() {
+    // Verbatim scripts and observations from the committed oracle. No fixture
+    // membership, classifications, identities or expected statuses are changed.
+    for (source, error) in [
+        (
+            "empty=''\necho ${empty:?'is em'pty}  # test eval of error\necho should not get here\n\n",
+            "/usr/bin/bash: line 2: empty: is empty\n",
+        ),
+        (
+            "echo ${unset?is empty}\necho should not get here\n\n",
+            "/usr/bin/bash: line 1: unset: is empty\n",
+        ),
+        (
+            "echo \"${non_existent_var?error message}\"\necho \"This should never execute\"\n",
+            "/usr/bin/bash: line 1: non_existent_var: error message\n",
+        ),
+        (
+            "${UNSET_VAR:?\"variable not set\"}\n",
+            "/usr/bin/bash: line 1: UNSET_VAR: variable not set\n",
+        ),
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 127, "{source}");
+        assert!(rig.output.bytes().is_empty(), "{source}");
+        assert_eq!(rig.errors.bytes(), error.as_bytes(), "{source}");
+    }
+}
+
+#[test]
+fn cancellation_during_error_operand_keeps_effects_without_partial_diagnostic() {
+    let rig = Rig::new(Limits::default());
+    let source = format!(
+        "f() {{ local v=inside; args ${{u:?${{saved:=yes}}{}}}; }}; f arg",
+        "x".repeat(100_000)
+    );
+    let job = rig.shell.start(&source).unwrap();
+    for _ in 0..500 {
+        rig.ex.drive(1);
+        if rig.shell.state().borrow().variables.contains_key("saved") {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.shell
+            .state()
+            .borrow()
+            .variables
+            .get("saved")
+            .map(String::as_str),
+        Some("yes")
+    );
+    assert!(!job.is_finished());
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert!(rig.errors.bytes().is_empty());
+    assert_eq!(rig.run(r#"args "$saved" "$v" "$#""#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["yes", "", "0"]]);
+}
+
+#[test]
+fn review_assignment_uses_post_expansion_ifs() {
+    check(r#"IFS=; args ${IFS:=:}a:b"#, &[&["", "a:b"]]);
+}
+
+#[test]
+fn review_redirect_error_keeps_completed_stderr_redirect() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("echo ok 2>&1 >${u:?bad}; args after"), 127);
+    assert_eq!(rig.output.bytes(), b"/usr/bin/bash: line 1: u: bad\n");
+    assert!(rig.errors.bytes().is_empty());
+    assert!(rig.calls.borrow().is_empty());
+}
+
+#[test]
+fn review_compound_redirect_errors_keep_pre_body_child_status() {
+    check(
+        r#"{ args body; } >${u:?bad} | args sink; args "${PIPESTATUS[@]}"; { args body; } >${u:?bad} & wait 1; args "$?""#,
+        &[&["sink"], &["127", "0"], &["127"]],
+    );
+}
+
+#[test]
+fn review_multiline_compound_redirect_errors_keep_source_line() {
+    for source in [
+        "\n\n{ args body; } >${u:?bad}",
+        "\n\n(args body) >${u:?bad}",
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_ne!(rig.run(source), 0, "{source}");
+        assert_eq!(
+            rig.errors.bytes(),
+            b"/usr/bin/bash: line 3: u: bad\n",
+            "{source}"
+        );
+        assert!(rig.calls.borrow().is_empty());
+    }
+}
+
+#[test]
+fn multiline_parameter_errors_use_bash_parse_time_diagnostic_lines() {
+    // Exact expectations from bounded GNU Bash probes, independent of the
+    // evaluator's location metadata. These native regressions await CI.
+    for (case, source, status, stdout, stderr) in [
+        (
+            "simple continued target",
+            "echo >\\\n${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+        ),
+        (
+            "simple multiline first word",
+            "\"cmd\n\" >${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "simple multiline prefix",
+            "a=\"one\ntwo\" echo >${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "simple prefix redirect",
+            ">\\\n${u:?bad} echo",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "simple later multiline word",
+            "echo \"one\ntwo\" >${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+        ),
+        (
+            "simple later multiline operand",
+            "echo >\"${u:?first\nsecond}\"",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: first\nsecond\n",
+        ),
+        (
+            "simple first multiline operand",
+            "\"${u:?first\nsecond}\"",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: first\nsecond\n",
+        ),
+        (
+            "assignment multiline operand",
+            "a=\"${u:?first\nsecond}\"",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: first\nsecond\n",
+        ),
+        (
+            "bare continued redirect",
+            "\n>\\\n${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 3: u: bad\n",
+        ),
+        (
+            "brace redirect",
+            "{\n :\n} >${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 3: u: bad\n",
+        ),
+        (
+            "brace continued target",
+            "{\n :\n} >\\\n${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 4: u: bad\n",
+        ),
+        (
+            "brace multiline operand",
+            "{\n :\n} >\"${u:?first\nsecond}\"",
+            127,
+            "",
+            "/usr/bin/bash: line 4: u: first\nsecond\n",
+        ),
+        (
+            "brace nested multiline operand",
+            "{ :; } >${x:-${u:?one\ntwo}}",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: one\ntwo\n",
+        ),
+        (
+            "brace last redirect anchors earlier error",
+            "{ :; } >${u:?bad} >\"later\nword\"",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "subshell redirect",
+            "(\n :\n) >${u:?bad}; echo status=$?",
+            0,
+            "status=127\n",
+            "/usr/bin/bash: line 3: u: bad\n",
+        ),
+        (
+            "subshell multiline redirect",
+            "(\n :\n) >\"${u:?one\ntwo}\"; echo status=$?",
+            0,
+            "status=127\n",
+            "/usr/bin/bash: line 3: u: one\ntwo\n",
+        ),
+        (
+            "subshell continued target",
+            "(\n :\n) >\\\n${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 3: u: bad\n",
+        ),
+        (
+            "function body simple redirect",
+            "f() {\n : >${u:?bad};\n}\nf",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "function brace redirect",
+            "\nf() {\n :\n} >${u:?bad}\nf",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "function brace on next line",
+            "f()\n{\n :\n} >${u:?bad}\nf",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "function keyword brace redirect",
+            "\nfunction f {\n :\n} >${u:?bad}\nf",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "function multiline brace redirect",
+            "\nf() {\n :\n} >\"${u:?one\ntwo}\"\nf",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: one\ntwo\n",
+        ),
+        (
+            "function invocation redirect",
+            "f() { :; }\nf >\\\n${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 2: u: bad\n",
+        ),
+        (
+            "function subshell redirect",
+            "f() (\n :\n) >${u:?bad}\nf",
+            127,
+            "",
+            "/usr/bin/bash: line 3: u: bad\n",
+        ),
+        (
+            "while redirect",
+            "while false; do\n :\ndone >${u:?bad}",
+            127,
+            "",
+            "/usr/bin/bash: line 3: u: bad\n",
+        ),
+        (
+            "while multiline redirect",
+            "while false; do\n :\ndone >\"${u:?one\ntwo}\"",
+            127,
+            "",
+            "/usr/bin/bash: line 4: u: one\ntwo\n",
+        ),
+        (
+            "while condition redirect",
+            "while : >\\\n${u:?bad}; do :; done",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+        ),
+        (
+            "function while redirect",
+            "\nf() while false; do\n :\ndone >${u:?bad}\nf",
+            127,
+            "",
+            "/usr/bin/bash: u: bad\n",
+        ),
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), status, "{case}: {source}");
+        assert_eq!(rig.output.bytes(), stdout.as_bytes(), "{case}: {source}");
+        assert_eq!(rig.errors.bytes(), stderr.as_bytes(), "{case}: {source}");
+        assert!(rig.calls.borrow().is_empty(), "{case}: {source}");
+    }
+}
+
+#[test]
+fn redirect_errors_preserve_applied_stderr_and_child_phase_status() {
+    // Exact GNU Bash observations. The fixture's wait operand is job ID 1;
+    // the Bash probe uses wait $! for the corresponding background process.
+    for (case, source, status, stdout, stderr, file) in [
+        (
+            "simple redirected stdout",
+            "echo ok 2>&1 >${u:?bad}; echo after",
+            127,
+            "/usr/bin/bash: line 1: u: bad\n",
+            "",
+            None,
+        ),
+        (
+            "simple redirected file",
+            "echo ok 2>errors >${u:?bad}; echo after",
+            127,
+            "",
+            "",
+            Some("/usr/bin/bash: line 1: u: bad\n"),
+        ),
+        (
+            "simple closed stderr",
+            "echo ok 2>&- >${u:?bad}; echo after",
+            127,
+            "",
+            "",
+            None,
+        ),
+        (
+            "simple restored stderr",
+            "echo ok 3>&2 2>&1 2>&3 >${u:?bad}; echo after",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "prefix RHS original stderr",
+            "a=${u:?bad} echo ok 2>&1; echo after",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "prefix RHS original stderr with file",
+            "a=${u:?bad} echo ok 2>errors; echo after",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "assignment-only RHS original stderr",
+            "a=${u:?bad} 2>&1; echo after",
+            127,
+            "",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "brace redirected stdout",
+            "\n{ echo body; } 2>&1 >${u:?bad}; echo after",
+            127,
+            "/usr/bin/bash: line 2: u: bad\n",
+            "",
+            None,
+        ),
+        (
+            "brace redirected file",
+            "{ echo body; } 2>errors >${u:?bad}; echo after",
+            127,
+            "",
+            "",
+            Some("/usr/bin/bash: line 1: u: bad\n"),
+        ),
+        (
+            "subshell redirected stdout",
+            "(echo body) 2>&1 >${u:?bad}; echo status=$?",
+            0,
+            "/usr/bin/bash: line 1: u: bad\nstatus=127\n",
+            "",
+            None,
+        ),
+        (
+            "pipeline compound redirect",
+            "{ echo body; } >${u:?bad} | cat; echo \"${PIPESTATUS[@]}\"",
+            0,
+            "127 0\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "pipeline compound body",
+            "{ echo ${u:?bad}; } | cat; echo \"${PIPESTATUS[@]}\"",
+            0,
+            "1 0\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "pipeline compound redirected diagnostic",
+            "\n{\n echo body;\n} 2>&1 >${u:?bad} | cat; echo \"${PIPESTATUS[@]}\"",
+            0,
+            "/usr/bin/bash: line 4: u: bad\n127 0\n",
+            "",
+            None,
+        ),
+        (
+            "pipeline while redirect",
+            "while false; do :; done >${u:?bad} | cat; echo \"${PIPESTATUS[@]}\"",
+            0,
+            "127 0\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "pipeline while body",
+            "while true; do echo ${u:?bad}; done | cat; echo \"${PIPESTATUS[@]}\"",
+            0,
+            "1 0\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "background compound redirect",
+            "{ echo body; } >${u:?bad} & wait 1; echo status=$?",
+            0,
+            "status=127\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "background compound body",
+            "{ echo ${u:?bad}; } & wait 1; echo status=$?",
+            0,
+            "status=1\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "background compound redirected diagnostic",
+            "{ echo body; } 2>&1 >${u:?bad} & wait 1; echo status=$?",
+            0,
+            "/usr/bin/bash: line 1: u: bad\nstatus=127\n",
+            "",
+            None,
+        ),
+        (
+            "subshell compound redirect",
+            "( { echo body; } >${u:?bad}; echo after ); echo status=$?",
+            0,
+            "status=1\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "subshell pipeline redirect",
+            "( { echo body; } >${u:?bad} | cat; echo \"${PIPESTATUS[@]}\" )",
+            0,
+            "1 0\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "background AND-OR redirect",
+            "{ echo body; } >${u:?bad} && : & wait 1; echo status=$?",
+            0,
+            "status=1\n",
+            "/usr/bin/bash: line 1: u: bad\n",
+            None,
+        ),
+        (
+            "function partial redirect restores locals",
+            "f() { local v=inner; echo body 2>&1 >${u:?${saved:=bad}}; echo after; }; v=outer; f; echo after",
+            127,
+            "/usr/bin/bash: line 1: u: bad\n",
+            "",
+            None,
+        ),
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), status, "{case}: {source}");
+        assert_eq!(rig.output.bytes(), stdout.as_bytes(), "{case}: {source}");
+        assert_eq!(rig.errors.bytes(), stderr.as_bytes(), "{case}: {source}");
+        assert!(rig.calls.borrow().is_empty(), "{case}: {source}");
+        if let Some(file) = file {
+            assert_eq!(
+                rig.fs.read_file("/home/guest/errors").unwrap(),
+                file.as_bytes(),
+                "{case}: {source}"
+            );
+        }
+    }
+}
+
+#[test]
+fn partial_redirect_failure_restores_function_state_and_session_descriptors() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run("f() { local v=inner; echo body 2>&1 >${u:?${saved:=bad}}; }; v=outer; f"),
+        127
+    );
+    assert_eq!(rig.output.bytes(), b"/usr/bin/bash: line 1: u: bad\n");
+    assert!(rig.errors.bytes().is_empty());
+    assert_eq!(
+        rig.run(r#"args "$v" "$saved" "$#"; echo recovered; echo diagnostic >&2"#),
+        0
+    );
+    assert_eq!(*rig.calls.borrow(), &[vec!["outer", "bad", "0"]]);
+    assert_eq!(
+        rig.output.bytes(),
+        b"/usr/bin/bash: line 1: u: bad\nrecovered\n"
+    );
+    assert_eq!(rig.errors.bytes(), b"diagnostic\n");
+}
+
+#[test]
+fn cancellation_during_redirect_target_keeps_effects_and_restores_frames() {
+    let rig = Rig::new(Limits::default());
+    rig.variable("v", "outer");
+    let source = format!(
+        "f() {{ local v=inner; echo body 2>&1 >${{u:?${{saved:=yes}}{}}}; }}; f arg",
+        "x".repeat(100_000)
+    );
+    let job = rig.shell.start(&source).unwrap();
+    for _ in 0..500 {
+        rig.ex.drive(1);
+        if rig.shell.state().borrow().variables.contains_key("saved") {
+            break;
+        }
+    }
+    assert_eq!(
+        rig.shell
+            .state()
+            .borrow()
+            .variables
+            .get("saved")
+            .map(String::as_str),
+        Some("yes")
+    );
+    assert!(!job.is_finished());
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.output.bytes().is_empty());
+    assert!(rig.errors.bytes().is_empty());
+    assert_eq!(rig.run(r#"args "$v" "$saved" "$#"; echo recovered"#), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["outer", "yes", "0"]]);
+    assert_eq!(rig.output.bytes(), b"recovered\n");
 }

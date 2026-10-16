@@ -58,7 +58,7 @@ jobs:
           workspaces: shell -> ../.build/shell
       - run: node scripts/check-shell-parser.mjs
       - run: cargo fmt --manifest-path shell/Cargo.toml --all --check
-      - run: cargo test --locked --manifest-path shell/Cargo.toml --workspace -j2
+      - run: cargo test --locked --manifest-path shell/Cargo.toml --workspace -j2 --no-fail-fast
       - run: npm run test:shell:wasi
 
   own-shell-compatibility:

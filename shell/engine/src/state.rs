@@ -21,11 +21,12 @@ pub struct State {
     pub pipefail: bool,
     pub(crate) positional: Vec<String>,
     pub(crate) locals: Vec<BTreeMap<String, (Option<String>, bool)>>,
+    prefixes: Vec<BTreeMap<String, Option<String>>>,
 }
 impl Default for State {
     fn default() -> Self {
         Self {
-            variables: BTreeMap::new(),
+            variables: BTreeMap::from([("IFS".into(), " \t\n".into())]),
             exported: BTreeSet::new(),
             cwd: "/home/guest".into(),
             functions: BTreeMap::new(),
@@ -34,6 +35,7 @@ impl Default for State {
             pipefail: false,
             positional: Vec::new(),
             locals: Vec::new(),
+            prefixes: Vec::new(),
         }
     }
 }
@@ -62,6 +64,21 @@ impl State {
         }
         self.variables.get(name).map(String::as_str)
     }
+    pub(crate) fn prefix_saved(&self, name: &str) -> bool {
+        self.prefixes
+            .last()
+            .is_some_and(|saved| saved.contains_key(name))
+    }
+    pub(crate) fn assign_parameter(&mut self, name: String, value: String) {
+        if let Some(saved) = self
+            .prefixes
+            .last_mut()
+            .and_then(|frame| frame.get_mut(&name))
+        {
+            *saved = Some(value.clone());
+        }
+        self.variables.insert(name, value);
+    }
     pub(crate) fn environment(&self) -> BTreeMap<String, String> {
         self.exported
             .iter()
@@ -80,6 +97,55 @@ impl State {
             .or_insert(previous);
         self.variables.insert(name, value);
         Ok(())
+    }
+}
+
+/// Prefix values are visible to later RHS expansions. Parameter assignments
+/// update the saved caller value too, so completed effects survive cancellation
+/// or removal of the temporary environment. No borrow crosses an await.
+pub(crate) struct PrefixFrame {
+    state: SharedState,
+    active: bool,
+}
+impl PrefixFrame {
+    pub(crate) fn enter(state: SharedState) -> Self {
+        state.borrow_mut().prefixes.push(BTreeMap::new());
+        Self {
+            state,
+            active: true,
+        }
+    }
+    pub(crate) fn set(&self, name: String, value: String) {
+        let mut state = self.state.borrow_mut();
+        let previous = state.variables.insert(name.clone(), value);
+        state
+            .prefixes
+            .last_mut()
+            .unwrap()
+            .entry(name)
+            .or_insert(previous);
+    }
+    pub(crate) fn commit(mut self) {
+        self.state.borrow_mut().prefixes.pop();
+        self.active = false;
+    }
+}
+impl Drop for PrefixFrame {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+        let mut state = self.state.borrow_mut();
+        let saved = state.prefixes.pop().unwrap();
+        // At most the admitted command argument count. Destructors finish
+        // restoration synchronously even after cancellation, like FunctionFrame.
+        for (name, value) in saved {
+            if let Some(value) = value {
+                state.variables.insert(name, value);
+            } else {
+                state.variables.remove(&name);
+            }
+        }
     }
 }
 
@@ -141,4 +207,48 @@ pub(crate) fn absolute(cwd: &str, path: &str) -> String {
         }
     }
     format!("/{}", components.join("/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn initial_ifs_is_set_to_bash_default_without_export() {
+        // GNU Bash 5.3.15: env -i /usr/bin/bash --noprofile --norc -c
+        // 'printf "%s" "$IFS" | /usr/bin/od -An -tx1; declare -p IFS;
+        //  printf "<%s>\n" "${IFS+x}"; /usr/bin/printenv IFS'
+        // prints 20 09 0a, declare -- IFS=$' \t\n', <x>; printenv exits 1.
+        let state = State::default();
+        assert_eq!(
+            state.variables.get("IFS").map(String::as_str),
+            Some(" \t\n")
+        );
+        assert_eq!(state.parameter("IFS"), " \t\n");
+        assert_eq!(state.scalar_parameter("IFS"), Some(" \t\n"));
+        assert!(!state.exported.contains("IFS"));
+        assert!(!state.environment().contains_key("IFS"));
+    }
+
+    #[test]
+    fn subsequent_ifs_empty_change_and_removal_do_not_reinitialize_it() {
+        let mut state = State::default();
+
+        state.variables.insert("IFS".into(), String::new());
+        assert_eq!(state.parameter("IFS"), "");
+        assert_eq!(state.scalar_parameter("IFS"), Some(""));
+        assert!(!state.environment().contains_key("IFS"));
+
+        state.variables.insert("IFS".into(), ":".into());
+        assert_eq!(state.parameter("IFS"), ":");
+        assert_eq!(state.scalar_parameter("IFS"), Some(":"));
+        assert!(!state.environment().contains_key("IFS"));
+
+        state.variables.remove("IFS");
+        assert!(!state.variables.contains_key("IFS"));
+        assert_eq!(state.parameter("IFS"), "");
+        assert_eq!(state.scalar_parameter("IFS"), None);
+        assert_eq!(state.clone().scalar_parameter("IFS"), None);
+        assert!(!state.environment().contains_key("IFS"));
+    }
 }
