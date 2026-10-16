@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceHash": "99956f04c603326dcdabac89723bfda33f04f0b73739b6894b69e38f21e72da5",
+  "sourceHash": "c07e673b2d0ccc6c4d84a3e74c2f5009f4ff6a73ed01098a033934f1508ef89b",
   "seed": 314,
   "count": 3000,
   "timeoutMs": 2000,
@@ -4148,6 +4148,1714 @@
         "timedOut": false,
         "stdoutBase64": "MQo=",
         "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "quoted-unused-boundary-0",
+        "context": "boundary",
+        "script": "v=abcdef; u=2; printf '<%s>\\n' \"${v:0:${u:-'<(bad'}}\"; echo after"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGFiPgphZnRlcgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "quoted-unused-boundary-1",
+        "context": "boundary",
+        "script": "v=abcdef; unset u; printf '<%s>\\n' \"${v:0:${u:-'<(bad'}}\"; echo after"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB2OiAnPChiYWQnOiBhcml0aG1ldGljIHN5bnRheCBlcnJvcjogb3BlcmFuZCBleHBlY3RlZCAoZXJyb3IgdG9rZW4gaXMgIic8KGJhZCciKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-0-same",
+        "context": "boundary",
+        "script": "printf \"%s\\n\" \"$((1/0))\"; echo skipped;printf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-0-next",
+        "context": "boundary",
+        "script": "printf \"%s\\n\" \"$((1/0))\"; echo skipped\nprintf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGFmdGVyPTE+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-1-same",
+        "context": "boundary",
+        "script": "result=$((1/0)); echo skipped;printf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-1-next",
+        "context": "boundary",
+        "script": "result=$((1/0)); echo skipped\nprintf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGFmdGVyPTE+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-2-same",
+        "context": "boundary",
+        "script": "printf \"%s\\n\" \"$((echo unexpected [))\"; echo skipped;printf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBlY2hvIHVuZXhwZWN0ZWQgWzogYXJpdGhtZXRpYyBzeW50YXggZXJyb3I6IGludmFsaWQgYXJpdGhtZXRpYyBvcGVyYXRvciAoZXJyb3IgdG9rZW4gaXMgIlsiKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-2-next",
+        "context": "boundary",
+        "script": "printf \"%s\\n\" \"$((echo unexpected [))\"; echo skipped\nprintf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGFmdGVyPTE+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBlY2hvIHVuZXhwZWN0ZWQgWzogYXJpdGhtZXRpYyBzeW50YXggZXJyb3I6IGludmFsaWQgYXJpdGhtZXRpYyBvcGVyYXRvciAoZXJyb3IgdG9rZW4gaXMgIlsiKQo="
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-3-same",
+        "context": "boundary",
+        "script": "v=abc; printf \"%s\\n\" \"${v:1/0}\"; echo skipped;printf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB2OiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-3-next",
+        "context": "boundary",
+        "script": "v=abc; printf \"%s\\n\" \"${v:1/0}\"; echo skipped\nprintf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGFmdGVyPTE+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB2OiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-4-same",
+        "context": "boundary",
+        "script": "v=abcdef; printf \"%s\\n\" \"${v:1>>(+(2))}\"; echo skipped;printf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgMicgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGArKDIpKX0iJwo="
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-4-next",
+        "context": "boundary",
+        "script": "v=abcdef; printf \"%s\\n\" \"${v:1>>(+(2))}\"; echo skipped\nprintf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGFmdGVyPTE+Cg==",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgMicgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGArKDIpKX0iJwo="
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-5-same",
+        "context": "boundary",
+        "script": "present=ok; printf \"%s\\n\" \"${present:-${v:1>>(+(2))}}\"; echo skipped;printf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgMicgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGArKDIpKX19IicK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-5-next",
+        "context": "boundary",
+        "script": "present=ok; printf \"%s\\n\" \"${present:-${v:1>>(+(2))}}\"; echo skipped\nprintf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGFmdGVyPTE+Cg==",
+        "stderrBase64": "YmFzaDogY29tbWFuZCBzdWJzdGl0dXRpb246IGxpbmUgMzogc3ludGF4IGVycm9yIG5lYXIgdW5leHBlY3RlZCB0b2tlbiBgMicgd2hpbGUgbG9va2luZyBmb3IgbWF0Y2hpbmcgYCknCmJhc2g6IGNvbW1hbmQgc3Vic3RpdHV0aW9uOiBsaW5lIDM6IGArKDIpKX19IicK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-6-same",
+        "context": "boundary",
+        "script": "{ printf \"%s\\n\" \"$((1/0))\"; echo inner; }; echo skipped;printf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-6-next",
+        "context": "boundary",
+        "script": "{ printf \"%s\\n\" \"$((1/0))\"; echo inner; }; echo skipped\nprintf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGFmdGVyPTE+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-7-same",
+        "context": "boundary",
+        "script": "f() { printf \"%s\\n\" \"$((1/0))\"; echo inner; }; f; echo skipped;printf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-7-next",
+        "context": "boundary",
+        "script": "f() { printf \"%s\\n\" \"$((1/0))\"; echo inner; }; f; echo skipped\nprintf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGFmdGVyPTE+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-8-same",
+        "context": "boundary",
+        "script": "printf \"%s\\n\" \"$((1/0))\" && echo inner; echo skipped;printf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-8-next",
+        "context": "boundary",
+        "script": "printf \"%s\\n\" \"$((1/0))\" && echo inner; echo skipped\nprintf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGFmdGVyPTE+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-9-same",
+        "context": "boundary",
+        "script": "printf \"%s\\n\" \"$((1/0))\" || echo inner; echo skipped;printf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "read-unit-9-next",
+        "context": "boundary",
+        "script": "printf \"%s\\n\" \"$((1/0))\" || echo inner; echo skipped\nprintf '<%s>\\n' after=$?"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGFmdGVyPTE+Cg==",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-0-null-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJhc2g+CjxhIGI+Cjw+CjxjPgo8dGFpbD4KeD0xCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-0-null-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJhc2g+CjxhPgo8Yj4KPGM+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-0-0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:0:0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-0-0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:0:0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-0-2-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:0:2}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJhc2g+CjxhIGI+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-0-2-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:0:2} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJhc2g+CjxhPgo8Yj4KPHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-0--1-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:0:-1}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-0--1-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:0:-1} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-0-1/0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:0:1/0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-0-1/0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:0:1/0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1-null-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:1}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGEgYj4KPD4KPGM+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1-null-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:1} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGE+CjxiPgo8Yz4KPHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1-0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:1:0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1-0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:1:0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1-2-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:1:2}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGEgYj4KPD4KPHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1-2-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:1:2} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGE+CjxiPgo8dGFpbD4KeD0xCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1--1-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:1:-1}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1--1-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:1:-1} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1-1/0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:1:1/0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1-1/0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:1:1/0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-2-null-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:2}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KPGM+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-2-null-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:2} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGM+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-2-0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:2:0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-2-0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:2:0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-2-2-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:2:2}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PD4KPGM+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-2-2-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:2:2} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGM+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-2--1-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:2:-1}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-2--1-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:2:-1} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-2-1/0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:2:1/0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-2-1/0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:2:1/0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-4-null-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:4}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-4-null-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:4} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-4-0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:4:0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-4-0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:4:0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-4-2-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:4:2}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-4-2-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:4:2} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-4--1-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:4:-1}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-4--1-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:4:-1} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-4-1/0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:4:1/0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-4-1/0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:4:1/0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-5-null-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:5}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-5-null-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:5} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-5-0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:5:0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-5-0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:5:0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-5-2-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:5:2}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-5-2-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:5:2} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-5--1-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:5:-1}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-5--1-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:5:-1} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-5-1/0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:5:1/0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-5-1/0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:5:1/0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -1-null-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -1}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGM+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -1-null-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -1} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGM+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -1-0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -1:0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -1-0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -1:0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -1-2-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -1:2}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGM+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -1-2-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -1:2} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGM+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -1--1-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -1:-1}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -1--1-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -1:-1} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -1-1/0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -1:1/0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -1-1/0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -1:1/0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -4-null-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -4}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJhc2g+CjxhIGI+Cjw+CjxjPgo8dGFpbD4KeD0xCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -4-null-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -4} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJhc2g+CjxhPgo8Yj4KPGM+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -4-0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -4:0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -4-0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -4:0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -4-2-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -4:2}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJhc2g+CjxhIGI+Cjx0YWlsPgp4PTEK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -4-2-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -4:2} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGJhc2g+CjxhPgo8Yj4KPHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -4--1-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -4:-1}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -4--1-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -4:-1} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -4-1/0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -4:1/0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -4-1/0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -4:1/0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -5-null-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -5}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -5-null-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -5} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -5-0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -5:0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -5-0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -5:0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -5-2-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -5:2}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -5-2-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -5:2} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -5--1-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -5:-1}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -5--1-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -5:-1} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -5-1/0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@: -5:1/0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice- -5-1/0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@: -5:1/0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9MQo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-x++-null-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:x++}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGEgYj4KPD4KPGM+Cjx0YWlsPgp4PTIK",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-x++-null-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:x++} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGE+CjxiPgo8Yz4KPHRhaWw+Cng9Mgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-x++-0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:x++:0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9Mgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-x++-0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:x++:0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHRhaWw+Cng9Mgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-x++-2-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:x++:2}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGEgYj4KPD4KPHRhaWw+Cng9Mgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-x++-2-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:x++:2} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PGE+CjxiPgo8dGFpbD4KeD0yCg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-x++--1-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:x++:-1}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-x++--1-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:x++:-1} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiAtMTogc3Vic3RyaW5nIGV4cHJlc3Npb24gPCAwCg=="
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-x++-1/0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:x++:1/0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-x++-1/0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:x++:1/0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1/0-null-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:1/0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1/0-null-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:1/0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1/0-0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:1/0:0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1/0-0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:1/0:0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1/0-2-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:1/0:2}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1/0-2-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:1/0:2} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1/0--1-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:1/0:-1}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1/0--1-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:1/0:-1} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1/0-1/0-true",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' \"${@:1/0:1/0}\" tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
+      }
+    },
+    {
+      "case": {
+        "id": "positional-slice-1/0-1/0-false",
+        "context": "substring",
+        "script": "x=1; f() { printf '<%s>\\n' ${@:1/0:1/0} tail; echo x=$x; }; f 'a b' '' c"
+      },
+      "bash": {
+        "status": 1,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "",
+        "stderrBase64": "YmFzaDogbGluZSAyOiBAOiAxLzA6IGRpdmlzaW9uIGJ5IDAgKGVycm9yIHRva2VuIGlzICIwIikK"
       }
     },
     {

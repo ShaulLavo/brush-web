@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceHash": "8a4f43211fa544b288b44c66e9636c4d5e347893057efbe3b43822d61a73878b",
+  "sourceHash": "548dd4215253aba386ba613e814020109ba4c38f2d6b49f669dd0db388caebbc",
   "seed": 17,
   "count": 256,
   "timeoutMs": 2000,
@@ -108,6 +108,45 @@
         "timedOut": false,
         "stdoutBase64": "PHN0YXR1cz0xPgo8eT0+Cg==",
         "stderrBase64": "YmFzaDogbGluZSAyOiBsb2NhbDogeTogcmVhZG9ubHkgdmFyaWFibGUK"
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-8",
+        "script": "readonly x=1; echo \"$((x=2))\"; echo skipped\nprintf \"%s\\n\" after=$? x=$x"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXI9MQp4PTEK",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-9",
+        "script": "readonly x=1; x=2; echo skipped\nprintf \"%s\\n\" after=$? x=$x"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXI9MQp4PTEK",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
+      }
+    },
+    {
+      "case": {
+        "id": "fixed-10",
+        "script": "readonly x; echo \"${x:=2}\"; echo skipped\nprintf \"%s\\n\" after=$? \"${x-unset}\""
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "YWZ0ZXI9MQp1bnNldAo=",
+        "stderrBase64": "YmFzaDogbGluZSAyOiB4OiByZWFkb25seSB2YXJpYWJsZQo="
       }
     },
     {

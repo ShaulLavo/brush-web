@@ -300,3 +300,27 @@ process, byte difference or status difference is a mismatch; unsupported results
 are not accepted for this scalar grammar. Replay verifies the generator hash,
 seed-generated case identity, case count, oracle version and timeout before
 running. The separate recorded shell-word gate remains unchanged.
+
+
+## Scalar arithmetic and substring offsets
+
+PR #28 adds scalar arithmetic expansion, arithmetic commands, `let`, recursive
+scalar expressions, substring offsets and lengths, and positional slices.
+Readonly declarations protect scalar writes and preserve local scope.
+Arithmetic expansion errors discard the current read unit and resume at the
+next top-level newline. Completed assignments survive errors and cancellation.
+
+| Corpus | Previous passes | Arithmetic passes | Gained | Lost |
+| --- | ---: | ---: | ---: | ---: |
+| Oils | 380 | 481 | 101 | 0 |
+| Brush suite | 340 | 384 | 44 | 0 |
+| Bashkit suite | 595 | 754 | 159 | 0 |
+
+The fixed oracle, case sets and environment are unchanged. The combined local
+WASI scoreboard supplies these counts; CI verifies them before the committed
+baseline is refreshed from its artifact. All 504 native and 287 WASI tests pass.
+The release is 237,825 bytes with brotli-11, below the 1,000,000-byte ceiling.
+Arithmetic seeds 7, 314 and 981 each match 3,674 Bash 5.3.15 cases. Seeds 7 and
+314 are recorded for CI. Readonly seeds 17 and 314 each match 267 cases, and
+27 parser compatibility cases match. Regenerated word fixtures for seeds 1
+and 42 remain byte-identical, with 3,014 cases each.
