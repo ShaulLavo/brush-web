@@ -185,3 +185,19 @@ reinitialization. Original state and scalar-operator regressions check startup,
 export exclusion, lookup and local restoration. The existing seeded-IFS
 cancellation regression remains unchanged. This adapter copies no additional
 upstream implementation.
+
+The escape-boundary follow-on uses original typed lexical metadata in
+`shell/parser/src/parser/lexical.rs`, carried by the Bashkit-derived lexer and
+parser in `shell/parser/src/parser/{lexer.rs,mod.rs}` at the same pinned revision.
+It preserves escaped characters as protected literal parts, including expansion
+name boundaries, while retaining existing token spellings. Quote and glob
+transformations carry the metadata; assignment values retain sliced protection.
+Backslash-newline remains a continuation. Indexed spellings are restored from
+escape events, and grammar classification respects protected syntax. Metadata
+work uses the existing parser and shared request budgets. No new in-band
+protection marker or context-specific raw-source reparse is added. Original parser API and engine
+regressions cover partial protection, syntax characters, quote continuations,
+UTF-8, assignments and stored functions; upstream assertions remain intact.
+`shellParser.changeLog` records the local paths and reason. The engine fixtures
+explicitly remove startup IFS only for observations made with native `unset IFS`.
+Separate controls retain Bash startup behavior and all 136 prior observations.

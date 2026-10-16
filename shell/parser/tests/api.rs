@@ -4,8 +4,181 @@ use std::time::Duration;
 
 use shell_parser::limits::{ExecutionBudget, ExecutionLimits, LimitExceeded};
 use shell_parser::{
-    Command, Error, ParseOptions, Parser, Script, WordPart, parse, parse_with_budget,
+    AssignmentValue, Command, Error, ParseOptions, Parser, Script, Word, WordPart, parse,
+    parse_with_budget,
 };
+
+fn argument(source: &str) -> Word {
+    let script = Parser::new(source).parse().unwrap();
+    let Command::Simple(command) = script.commands.into_iter().next().unwrap() else {
+        panic!("expected a simple command: {source}");
+    };
+    command.args.into_iter().next().unwrap()
+}
+
+fn literal_characters(word: &Word) -> Vec<(char, bool)> {
+    word.parts
+        .iter()
+        .enumerate()
+        .flat_map(|(index, part)| {
+            let quoted = word.part_quoted.get(index).copied().unwrap_or(word.quoted);
+            let text = match part {
+                WordPart::Literal(text) => text.as_str(),
+                _ => "",
+            };
+            text.chars().map(move |ch| (ch, quoted))
+        })
+        .collect()
+}
+
+#[test]
+fn literal_escape_protection_survives_lexing_and_quote_continuations() {
+    for (source, expected) in [
+        (r#"echo a\:b${IFS:=:}"#, ":"),
+        (r#"echo a\éb${IFS:=é}"#, "é"),
+        (r#"echo a\ b${IFS:= }"#, " "),
+        (r#"echo a\"b${IFS:=:}"#, "\""),
+        (r#"echo a\'b${IFS:=:}"#, "'"),
+        (r#"echo a\`b${IFS:=:}"#, "`"),
+        (r#"echo a\\b${IFS:=:}"#, "\\"),
+        (r#"echo a\~b${IFS:=:}"#, "~"),
+        (r#"echo a\*b${IFS:=:}"#, "*"),
+        (r#"echo "a"\*b${IFS:=:}"#, "a*"),
+        (r#"echo "a"\:b${IFS:=:}"#, "a:"),
+        (r#"echo ]a\:b${IFS:=:}"#, ":"),
+        (r#"echo }a\:b${IFS:=:}"#, ":"),
+    ] {
+        let word = argument(source);
+        let protected: String = literal_characters(&word)
+            .into_iter()
+            .filter_map(|(ch, quoted)| quoted.then_some(ch))
+            .collect();
+        assert_eq!(protected, expected, "lost lexical protection: {source}");
+        assert!(
+            word.parts.iter().any(
+                |part| matches!(part, WordPart::ParameterExpansion { name, .. } if name == "IFS")
+            ),
+            "the later expansion must remain active: {source}"
+        );
+        assert!(
+            !literal_characters(&word).contains(&('b', true)),
+            "escape protection must end after one character: {source}"
+        );
+    }
+    assert_eq!(
+        literal_characters(&argument(r#"echo a\:b${IFS:=:}"#)),
+        [('a', false), (':', true), ('b', false)]
+    );
+}
+
+#[test]
+fn escaped_syntax_is_literal_and_ends_parameter_names() {
+    let word = argument(r#"echo $x\y${IFS:=:}"#);
+    assert!(matches!(&word.parts[0], WordPart::Variable(name) if name == "x"));
+    assert_eq!(literal_characters(&word), [('y', true)]);
+    for source in [r#"echo \$x"#, r#"echo $\{x}"#, r#"echo "a"\$x"#] {
+        let word = argument(source);
+        assert!(
+            word.parts
+                .iter()
+                .all(|part| matches!(part, WordPart::Literal(_))),
+            "escaped syntax became an expansion: {source}"
+        );
+    }
+    for marker in ['\u{1e}', '\u{1f}'] {
+        let word = argument(&format!("echo a\\{marker}b${{IFS:=:}}"));
+        assert_eq!(
+            literal_characters(&word),
+            [('a', false), (marker, true), ('b', false)]
+        );
+        let word = argument(&format!("echo a\\{marker}{{b,c}}\\*d*${{IFS:=:}}"));
+        assert_eq!(
+            literal_characters(&word),
+            [
+                ('a', false),
+                (marker, true),
+                ('{', false),
+                ('b', false),
+                (',', false),
+                ('c', false),
+                ('}', false),
+                ('*', true),
+                ('d', false),
+                ('*', false),
+            ]
+        );
+    }
+}
+
+#[test]
+fn lexical_escape_metadata_survives_assignment_slicing_and_token_lookahead() {
+    for (source, expected) in [
+        (r#"out=\"a:b\""#, "\"a:b\""),
+        (r#"out=\'a:b\'"#, "'a:b'"),
+        (r#"out=a\:b${IFS:=:}"#, "a:b${IFS:=:}"),
+        (r#"out=\(word\)"#, "(word)"),
+    ] {
+        let script = Parser::new(source).parse().unwrap();
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected assignment: {source}");
+        };
+        let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+            panic!("escaped parentheses cannot begin an array: {source}");
+        };
+        assert_eq!(word.to_string(), expected, "{source}");
+        assert!(word.part_quoted.contains(&true), "{source}");
+    }
+    for source in [
+        r#"a\bc=v"#,
+        r#"a\=v"#,
+        r#"a\+=v"#,
+        r#"\if"#,
+        r#"\then"#,
+        r#"\fi"#,
+        r#"\!"#,
+    ] {
+        let script = Parser::new(source).parse().unwrap();
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("escaped spelling must be a command word: {source}");
+        };
+        assert!(command.assignments.is_empty(), "{source}");
+    }
+    // Parsing a leading plain command looks ahead for `(` before consuming its
+    // escaped argument. That lookahead must retain the lexical metadata.
+    assert_eq!(
+        literal_characters(&argument(r#"cmd a\:b${IFS:=:}"#)),
+        [('a', false), (':', true), ('b', false)]
+    );
+    for (source, expected) in [(r#"a[1\+1]=value"#, r#"1\+1"#), (r#"a[\1]=value"#, r#"\1"#)] {
+        let script = Parser::new(source).parse().unwrap();
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected an indexed assignment");
+        };
+        assert_eq!(command.assignments[0].index.as_deref(), Some(expected));
+    }
+}
+
+#[test]
+fn line_continuations_do_not_create_literal_protection() {
+    let joined = argument("echo a\\\nb${IFS:=:}");
+    assert_eq!(literal_characters(&joined), [('a', false), ('b', false)]);
+    let variable = argument("echo $x\\\ny${IFS:=:}");
+    assert!(matches!(&variable.parts[0], WordPart::Variable(name) if name == "xy"));
+}
+
+#[test]
+fn lexical_escape_work_uses_parser_and_shared_request_limits() {
+    let source = format!("echo {}", "\\x".repeat(128));
+    assert!(Parser::with_limits(&source, 100, 64).parse().is_err());
+    let limits = ExecutionLimits {
+        max_work_units: 64,
+        ..ExecutionLimits::default()
+    };
+    assert!(matches!(
+        parse(&source, &limits),
+        Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
+    ));
+}
 
 #[test]
 fn public_ast_is_available_without_an_interpreter() {

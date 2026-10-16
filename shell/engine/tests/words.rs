@@ -1153,19 +1153,75 @@ fn deferred_list_splitting_distinguishes_element_spaces_and_word_split_mode() {
     ] {
         check(&format!("IFS=; v='a b\tc\nd:e'; args {word}"), &[&expected]);
     }
-    // An initially unset IFS joins with spaces, but does not protect data spaces.
+    // These observations use native `unset IFS`, not Bash's startup value.
+    for (source, expected) in [
+        (
+            r#"f() { args "$@"${IFS:=:}; }; f a:b '' c:d"#,
+            vec!["a:b  c:d"],
+        ),
+        (
+            r#"f() { args $*${IFS:=:}; }; f a:b '' c:d"#,
+            vec!["a", "b  c", "d"],
+        ),
+        (
+            r#"f() { v='a b'; args $v"$@"${IFS:=}; }; f"#,
+            vec!["a", "b"],
+        ),
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(
+            rig.shell.state().borrow_mut().variables.remove("IFS"),
+            Some(" \t\n".to_owned()),
+            "explicitly unset the startup IFS before this observation"
+        );
+        assert_eq!(rig.run(source), 0, "{source}");
+        assert_eq!(*rig.calls.borrow(), &[expected], "{source}");
+    }
     check(
         r#"f() { args "$@"${IFS:=:}; }; f a:b '' c:d"#,
-        &[&["a:b  c:d"]],
+        &[&["a:b", "", "c:d"]],
     );
     check(
         r#"f() { args $*${IFS:=:}; }; f a:b '' c:d"#,
-        &[&["a", "b  c", "d"]],
+        &[&["a:b", "c:d"]],
     );
-    check(
-        r#"f() { v='a b'; args $v"$@"${IFS:=}; }; f"#,
-        &[&["a", "b"]],
-    );
+}
+
+#[test]
+fn lexical_escapes_keep_only_the_escaped_character_protected_after_ifs_writes() {
+    for (source, expected) in [
+        (r#"IFS=; args a:\:b${IFS:=:}"#, vec!["a", ":b"]),
+        (r#"IFS=; args a\:b:c${IFS:=:}"#, vec!["a:b", "c"]),
+        (r#"IFS=; args a""\:b:c${IFS:=:}"#, vec!["a:b", "c"]),
+        (r#"IFS=; args "a"\:b:c${IFS:=:}"#, vec!["a:b", "c"]),
+        (r#"IFS=; x=ok; xy=wrong; args $x\y${IFS:=y}"#, vec!["oky"]),
+        (r#"IFS=; args \$x${IFS:='$'}"#, vec!["$x"]),
+        (r#"IFS=; args \${x}${IFS:='$'}"#, vec!["${x}"]),
+        (r#"IFS=; args a\"b${IFS:='"'}"#, vec!["a\"b"]),
+        (r#"IFS=; args a\'b${IFS:="'"}"#, vec!["a'b"]),
+        (r#"IFS=; args a\`b${IFS:='`'}"#, vec!["a`b"]),
+        (r#"IFS=; args \~${IFS:='~'}"#, vec!["~"]),
+        (r#"IFS=; args a\\b${IFS:='\'}"#, vec!["a\\b"]),
+        (r#"IFS=; args a\éb:c${IFS:=é}"#, vec!["aéb:c"]),
+        (r#"IFS=; args a\ b${IFS:= }"#, vec!["a b"]),
+        (r#"IFS=; args a\*b${IFS:='*'}"#, vec!["a*b"]),
+        (r#"IFS=; args "a"\*b${IFS:='*'}"#, vec!["a*b"]),
+        (r#"IFS=; args ]a\:b${IFS:=:}"#, vec!["]a:b"]),
+        (r#"IFS=; args }a\:b${IFS:=:}"#, vec!["}a:b"]),
+        ("IFS=; args a\\\nb${IFS:=a}", vec!["", "b"]),
+        ("IFS=; args \"a\\\nb\"${IFS:=a}", vec!["ab"]),
+        ("IFS=; args a\\\x1eb${IFS:=:}", vec!["a\x1eb"]),
+        ("IFS=; args a\\\x1fb${IFS:=:}", vec!["a\x1fb"]),
+        (r#"IFS=; out=a\:b${IFS:=:}; args "$out""#, vec!["a:b:"]),
+        (r#"out=\"a:b\"; args "$out""#, vec!["\"a:b\""]),
+        (r#"out=\'a:b\'; args "$out""#, vec!["'a:b'"]),
+        (
+            r#"f() { local IFS=; args a\:b:c${IFS:=:}; }; f"#,
+            vec!["a:b", "c"],
+        ),
+    ] {
+        check(source, &[&expected]);
+    }
 }
 
 #[test]

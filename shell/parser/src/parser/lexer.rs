@@ -4,6 +4,7 @@
 
 use std::collections::VecDeque;
 
+use super::lexical::{EscapeMap, LiteralEscape};
 use super::span::{Position, Span};
 use super::tokens::Token;
 
@@ -21,6 +22,7 @@ pub struct SpannedToken {
     /// The word follows an alias whose value ends in a blank, so it is
     /// checked for alias expansion too (bash `alias e='echo '`).
     pub after_blank_alias: bool,
+    pub(crate) literal_escapes: Vec<LiteralEscape>,
 }
 
 /// Maximum nesting depth for command substitution in the lexer.
@@ -114,6 +116,7 @@ pub struct Lexer<'a> {
     /// position walks that line again (spans and `$LINENO` stay on the
     /// source text); this is where the input resumes after the body.
     heredoc_resume: Option<Position>,
+    literal_escapes: Vec<LiteralEscape>,
 }
 
 impl<'a> Lexer<'a> {
@@ -140,6 +143,7 @@ impl<'a> Lexer<'a> {
             blank_alias_pending: false,
             extglob_bang: true,
             heredoc_resume: None,
+            literal_escapes: Vec::new(),
         }
     }
 
@@ -155,6 +159,7 @@ impl<'a> Lexer<'a> {
 
     /// Get the next token from the input (without span info).
     pub fn next_token(&mut self) -> Option<Token> {
+        self.literal_escapes.clear();
         self.skip_whitespace();
         self.next_token_inner()
     }
@@ -298,12 +303,12 @@ impl<'a> Lexer<'a> {
 
     /// After `w`, is the next word still in assignment position? Yes after
     /// a reserved word or an assignment word (`a=1 b[1 + 2]=x`).
-    fn keeps_assignment_position(w: &str) -> bool {
+    fn keeps_assignment_position(&self, w: &str) -> bool {
         if matches!(
             w,
             "if" | "then" | "else" | "elif" | "do" | "while" | "until" | "!" | "{" | "time"
         ) {
-            return true;
+            return self.literal_escapes.is_empty();
         }
         let Some(eq) = w.find('=') else {
             return false;
@@ -314,6 +319,11 @@ impl<'a> Lexer<'a> {
             Some(_) => return false,
             None => lhs,
         };
+        if self.literal_escapes.iter().any(|escape| {
+            escape.start <= name.len() || (escape.start >= lhs.len() && escape.start <= eq)
+        }) {
+            return false;
+        }
         let mut chars = name.chars();
         chars
             .next()
@@ -402,6 +412,7 @@ impl<'a> Lexer<'a> {
 
     /// Get the next token with its source span.
     pub fn next_spanned_token(&mut self) -> Option<SpannedToken> {
+        self.literal_escapes.clear();
         self.skip_whitespace();
         let start = self.position;
         self.raw_buf.clear();
@@ -413,7 +424,7 @@ impl<'a> Lexer<'a> {
             Token::Word(w)
             | Token::LiteralWord(w)
             | Token::QuotedWord(w)
-            | Token::QuotedGlobWord(w) => Self::keeps_assignment_position(w),
+            | Token::QuotedGlobWord(w) => self.keeps_assignment_position(w),
             _ => true,
         };
         let end = self.position;
@@ -433,6 +444,7 @@ impl<'a> Lexer<'a> {
             raw,
             plain,
             after_blank_alias,
+            literal_escapes: std::mem::take(&mut self.literal_escapes),
         })
     }
 
@@ -863,170 +875,7 @@ impl<'a> Lexer<'a> {
     }
 
     fn read_word_starting_with(&mut self, prefix: &str) -> Option<Token> {
-        let mut word = prefix.to_string();
-        let mut has_quoted_expansion = false;
-        // Use the same logic as read_word but with pre-seeded content
-        while let Some(ch) = self.peek_char() {
-            if ch == '"' || ch == '\'' {
-                // Word already has content (the prefix) — concatenate the quoted segment
-                let quote_char = ch;
-                self.advance();
-                let mut closed = false;
-                if quote_char == '"' {
-                    word.push('\u{1e}');
-                }
-                while let Some(c) = self.peek_char() {
-                    if c == quote_char {
-                        self.advance();
-                        closed = true;
-                        break;
-                    }
-                    if c == '\\' && quote_char == '"' {
-                        self.advance();
-                        if let Some(next) = self.peek_char() {
-                            match next {
-                                '\n' => {
-                                    self.advance();
-                                }
-                                '$' => {
-                                    // Use NUL sentinel so parse_word() treats this
-                                    // as a literal '$' rather than a variable expansion.
-                                    word.push('\x00');
-                                    word.push('$');
-                                    self.advance();
-                                }
-                                '"' | '\\' | '`' => {
-                                    word.push(next);
-                                    self.advance();
-                                }
-                                _ => {
-                                    word.push('\\');
-                                    word.push(next);
-                                    self.advance();
-                                }
-                            }
-                            continue;
-                        }
-                    }
-                    // Track quoted expansions for IFS-split suppression
-                    if c == '$' && quote_char == '"' {
-                        self.advance();
-                        if self.take_dquote_dollar(&mut word) {
-                            has_quoted_expansion = true;
-                            continue;
-                        }
-                        if self.peek_char().is_some_and(|nc| {
-                            nc.is_ascii_alphanumeric()
-                                || nc == '_'
-                                || matches!(nc, '{' | '(' | '?' | '#' | '@' | '*' | '!' | '$' | '-')
-                        }) {
-                            has_quoted_expansion = true;
-                        }
-                        // Read `$(...)`/`${...}` whole so quotes inside them
-                        // keep their own meaning.
-                        if self.peek_char() == Some('(') {
-                            word.push('(');
-                            self.advance();
-                            self.read_command_subst_into(&mut word);
-                        } else if self.peek_char() == Some('{') {
-                            word.push('{');
-                            self.advance();
-                            if let Err(msg) = self.read_param_expansion_into(&mut word) {
-                                return Some(Token::Error(msg));
-                            }
-                        }
-                        continue;
-                    }
-                    if quote_char == '\'' && matches!(c, '$' | '\u{1e}' | '\u{1f}') {
-                        // Preserve literal '$' semantics from single-quoted
-                        // segments when concatenated into an existing word
-                        // (e.g. foo'$(id)' or VAR='${HOME}').
-                        word.push('\x00');
-                    }
-                    word.push(c);
-                    self.advance();
-                }
-                if !closed {
-                    return Some(Token::Error(format!(
-                        "unterminated {} quote",
-                        if quote_char == '\'' {
-                            "single"
-                        } else {
-                            "double"
-                        }
-                    )));
-                }
-                if quote_char == '"' {
-                    word.push('\u{1f}');
-                }
-                continue;
-            } else if ch == '$' {
-                word.push(ch);
-                self.advance();
-                // Read variable/expansion following $
-                if let Some(nc) = self.peek_char() {
-                    if nc == '{' {
-                        word.push(nc);
-                        self.advance();
-                        if let Err(e) = self.read_unquoted_param_body(&mut word) {
-                            return Some(Token::Error(e));
-                        }
-                    } else if nc == '(' {
-                        word.push(nc);
-                        self.advance();
-                        let (open, close) = ('(', ')');
-                        let mut depth = 1;
-                        while let Some(bc) = self.peek_char() {
-                            word.push(bc);
-                            self.advance();
-                            if bc == open {
-                                depth += 1;
-                            } else if bc == close {
-                                depth -= 1;
-                                if depth == 0 {
-                                    break;
-                                }
-                            }
-                        }
-                    } else if nc.is_ascii_alphanumeric()
-                        || nc == '_'
-                        || matches!(nc, '?' | '#' | '@' | '*' | '!' | '$' | '-')
-                    {
-                        word.push(nc);
-                        self.advance();
-                        if nc.is_ascii_alphabetic() || nc == '_' {
-                            while let Some(vc) = self.peek_char() {
-                                if vc.is_ascii_alphanumeric() || vc == '_' {
-                                    word.push(vc);
-                                    self.advance();
-                                } else {
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                continue;
-            } else if ch == '`' {
-                if let Err(e) = self.read_backtick_into(&mut word) {
-                    return Some(Token::Error(e));
-                }
-            } else if self.is_word_char(ch) || matches!(ch, ']' | '{' | '}') {
-                // `}` included for the same reason as in `read_word`: it is a
-                // reserved word, not a metacharacter, so it stays inside the
-                // word unless it stands alone (`echo }}` prints `}}`). `{`
-                // keeps a brace tail in the word (`[k]="v"{1,2}`).
-                word.push(ch);
-                self.advance();
-            } else {
-                break;
-            }
-        }
-        if has_quoted_expansion {
-            Some(Token::QuotedWord(word))
-        } else {
-            Some(Token::Word(word))
-        }
+        self.read_word_from(prefix.to_string())
     }
 
     fn read_word(&mut self) -> Option<Token> {
@@ -1390,6 +1239,7 @@ impl<'a> Lexer<'a> {
                         // `\$` and `\`` must stay literal through parse_word, so
                         // they carry the NUL sentinel like quoted `\$` does.
                         // `\~` likewise must not tilde-expand.
+                        let escape_start = word.len();
                         if matches!(next, '$' | '`' | '~') {
                             word.push('\x00');
                         }
@@ -1397,6 +1247,11 @@ impl<'a> Lexer<'a> {
                             quoted_ranges.push((word.len(), word.len() + next.len_utf8()));
                         }
                         word.push(next);
+                        self.literal_escapes.push(LiteralEscape {
+                            start: escape_start,
+                            end: word.len(),
+                            literal: next,
+                        });
                         self.advance();
                     }
                 } else {
@@ -1521,15 +1376,19 @@ impl<'a> Lexer<'a> {
         let quoted_dash =
             has_unquoted_glob && quoted_ranges.iter().any(|&(s, e)| word[s..e].contains('-'));
         if (quoted_glob || quoted_dash) && has_unquoted_glob {
-            return Some(Token::QuotedGlobWord(
-                Self::escape_glob_metas_in_quoted_ranges(&word, &quoted_ranges),
-            ));
+            return Some(Token::QuotedGlobWord(Self::escape_glob_metas_with_escapes(
+                &word,
+                &quoted_ranges,
+                &mut self.literal_escapes,
+            )));
         }
         if extglob_escaped && !has_unquoted_expansion && !has_quoted_expansion {
             // `@(a|'*')` with no match prints `@(a|*)` (quote removal).
-            return Some(Token::QuotedGlobWord(
-                Self::escape_glob_metas_in_quoted_ranges(&word, &quoted_ranges),
-            ));
+            return Some(Token::QuotedGlobWord(Self::escape_glob_metas_with_escapes(
+                &word,
+                &quoted_ranges,
+                &mut self.literal_escapes,
+            )));
         }
         if quoted_glob && !has_unquoted_expansion {
             return Some(Token::QuotedWord(word));
@@ -1606,11 +1465,13 @@ impl<'a> Lexer<'a> {
                 // Preserve quoted glob text as well as IFS boundaries; an
                 // empty unquoted substitution must not activate quoted `*`.
                 ranges.sort_unstable_by_key(|&(start, _)| start);
-                return Some(Token::QuotedGlobWord(
-                    Self::escape_glob_metas_in_quoted_ranges(&content, &ranges),
-                ));
+                return Some(Token::QuotedGlobWord(Self::escape_glob_metas_with_escapes(
+                    &content,
+                    &ranges,
+                    &mut self.literal_escapes,
+                )));
             }
-            Self::apply_quote_markers(&mut content, ranges);
+            Self::apply_quote_markers(&mut content, ranges, &mut self.literal_escapes);
             if !flags.has_unquoted_expansion && !flags.has_unquoted_glob && !has_empty_quoted {
                 // Nothing in it splits or globs: a quoted word whose
                 // markers only end names at quote boundaries.
@@ -1622,14 +1483,17 @@ impl<'a> Lexer<'a> {
             let mut ranges = flags.quoted_ranges;
             ranges.push((0, quoted_prefix_len));
             ranges.sort_unstable_by_key(|&(s, _)| s);
-            return Some(Token::QuotedGlobWord(
-                Self::escape_glob_metas_in_quoted_ranges(&content, &ranges),
-            ));
+            return Some(Token::QuotedGlobWord(Self::escape_glob_metas_with_escapes(
+                &content,
+                &ranges,
+                &mut self.literal_escapes,
+            )));
         }
 
         // Single-quoted strings are literal - no variable expansion. Quote-boundary
         // markers are only for parsed mixed words; LiteralWord keeps contents raw.
         // Also decode any NUL escape sentinels from continued double-quoted segments.
+        self.literal_escapes.clear();
         Some(Token::LiteralWord(Self::strip_markers_decode_sentinels(
             &content,
         )))
@@ -1732,6 +1596,11 @@ impl<'a> Lexer<'a> {
                                 content.push('\x00');
                             }
                             content.push(next);
+                            self.literal_escapes.push(LiteralEscape {
+                                start,
+                                end: content.len(),
+                                literal: next,
+                            });
                             self.advance();
                             flags.quoted_ranges.push((start, content.len()));
                         }
@@ -1821,7 +1690,11 @@ impl<'a> Lexer<'a> {
     /// Add quote markers in one rebuild pass. Adjacent quoted ranges are
     /// equivalent to one quoted span. An empty range (`""$x`) keeps its
     /// marker pair: an empty quoted part still makes a field.
-    fn apply_quote_markers(content: &mut String, mut ranges: Vec<(usize, usize)>) {
+    fn apply_quote_markers(
+        content: &mut String,
+        mut ranges: Vec<(usize, usize)>,
+        escapes: &mut Vec<LiteralEscape>,
+    ) {
         if ranges.is_empty() {
             return;
         }
@@ -1846,15 +1719,23 @@ impl<'a> Lexer<'a> {
         }
 
         let mut marked = String::with_capacity(content.len() + merged.len() * 2);
+        let mut mapping = EscapeMap::new(escapes);
         let mut cursor = 0;
         for (start, end) in merged {
+            let output_start = marked.len();
             marked.push_str(&content[cursor..start]);
+            mapping.copied(cursor, start, output_start, marked.len());
             marked.push(QUOTED_SEGMENT_START);
+            let output_start = marked.len();
             marked.push_str(&content[start..end]);
+            mapping.copied(start, end, output_start, marked.len());
             marked.push(QUOTED_SEGMENT_END);
             cursor = end;
         }
+        let output_start = marked.len();
         marked.push_str(&content[cursor..]);
+        mapping.copied(cursor, content.len(), output_start, marked.len());
+        *escapes = mapping.finish();
         *content = marked;
     }
 
@@ -2461,13 +2342,15 @@ impl<'a> Lexer<'a> {
                     })
                 {
                     ranges.sort_unstable_by_key(|&(start, _)| start);
-                    return Some(Token::QuotedGlobWord(
-                        Self::escape_glob_metas_in_quoted_ranges(&content, &ranges),
-                    ));
+                    return Some(Token::QuotedGlobWord(Self::escape_glob_metas_with_escapes(
+                        &content,
+                        &ranges,
+                        &mut self.literal_escapes,
+                    )));
                 }
                 // Build marker-delimited quoted spans in one pass so hostile
                 // many-continuation words cannot trigger quadratic insertion work.
-                Self::apply_quote_markers(&mut content, ranges);
+                Self::apply_quote_markers(&mut content, ranges, &mut self.literal_escapes);
                 if !flags.has_unquoted_expansion
                     && !flags.has_unquoted_glob
                     && !empty_quoted_beside_expansion
@@ -2485,9 +2368,11 @@ impl<'a> Lexer<'a> {
                     ranges.push((0, quoted_prefix_len));
                 }
                 ranges.sort_unstable_by_key(|&(s, _)| s);
-                return Some(Token::QuotedGlobWord(
-                    Self::escape_glob_metas_in_quoted_ranges(&content, &ranges),
-                ));
+                return Some(Token::QuotedGlobWord(Self::escape_glob_metas_with_escapes(
+                    &content,
+                    &ranges,
+                    &mut self.literal_escapes,
+                )));
             }
             return Some(Token::QuotedWord(content));
         }
@@ -2501,15 +2386,27 @@ impl<'a> Lexer<'a> {
     /// ends a variable name at the closing quote (`"$x"zz*` reads `$x`, not
     /// `$xzz`) and records which parts were quoted for field splitting.
     /// Ranges must be sorted and non-overlapping.
+    #[cfg(test)]
     fn escape_glob_metas_in_quoted_ranges(s: &str, quoted_ranges: &[(usize, usize)]) -> String {
+        Self::escape_glob_metas_with_escapes(s, quoted_ranges, &mut Vec::new())
+    }
+
+    fn escape_glob_metas_with_escapes(
+        s: &str,
+        quoted_ranges: &[(usize, usize)],
+        escapes: &mut Vec<LiteralEscape>,
+    ) -> String {
         if quoted_ranges.is_empty() {
             return s.to_string();
         }
         // Reuse the one-pass marker builder: adjacent spans still end variable
         // names, and empty quoted spans retain a field without quadratic work.
         let mut marked = s.to_string();
-        Self::apply_quote_markers(&mut marked, quoted_ranges.to_vec());
+        Self::apply_quote_markers(&mut marked, quoted_ranges.to_vec(), escapes);
         let char_vec: Vec<char> = marked.chars().collect();
+        let mut mapping = EscapeMap::new(escapes);
+        let mut input_offset = 0;
+        let mut literal_cursor = 0;
         let mut result = String::with_capacity(marked.len() + 8);
         // Stack of opening delimiters ('{'  or  '(') for active ${ } / $( ) constructs.
         // While non-empty we are inside an expansion and must NOT escape anything,
@@ -2522,12 +2419,42 @@ impl<'a> Lexer<'a> {
 
         while i < n {
             let ch = char_vec[i];
+            let input_start = input_offset;
+            let output_start = result.len();
+            macro_rules! copied {
+                ($count:expr) => {{
+                    let count = $count;
+                    input_offset += char_vec[i..i + count]
+                        .iter()
+                        .map(|ch| ch.len_utf8())
+                        .sum::<usize>();
+                    mapping.copied(input_start, input_offset, output_start, result.len());
+                    i += count;
+                }};
+            }
+            if let Some(escape) = escapes.get(literal_cursor)
+                && escape.start == input_start
+            {
+                let mut count = 1;
+                let mut bytes = ch.len_utf8();
+                while input_start + bytes < escape.end {
+                    bytes += char_vec[i + count].len_utf8();
+                    count += 1;
+                }
+                if Self::is_glob_escape_char(escape.literal) {
+                    result.push('\\');
+                }
+                result.extend(char_vec[i..i + count].iter().copied());
+                literal_cursor += 1;
+                copied!(count);
+                continue;
+            }
             // Parameter operands retain raw escapes and lexer protection.
             // Neither escaped braces nor escaped dollars change nesting.
             if !expansion_stack.is_empty() && matches!(ch, '\\' | '\x00') && i + 1 < n {
                 result.push(ch);
                 result.push(char_vec[i + 1]);
-                i += 2;
+                copied!(2);
                 continue;
             }
             // Sentinel pairs are indivisible; escaped NUL/marker bytes stay data.
@@ -2540,14 +2467,14 @@ impl<'a> Lexer<'a> {
             {
                 result.push(ch);
                 result.push(next);
-                i += 2;
+                copied!(2);
                 continue;
             }
 
             if matches!(ch, QUOTED_SEGMENT_START | QUOTED_SEGMENT_END) {
                 marked_quoted = ch == QUOTED_SEGMENT_START;
                 result.push(ch);
-                i += 1;
+                copied!(1);
                 continue;
             }
             let in_quoted = marked_quoted;
@@ -2560,7 +2487,7 @@ impl<'a> Lexer<'a> {
                         expansion_stack.push(next);
                         result.push(ch);
                         result.push(next);
-                        i += 2;
+                        copied!(2);
                         continue;
                     }
                     // `"$*"*`, `"$@"x*`, `"$?"`: a special parameter's
@@ -2570,7 +2497,7 @@ impl<'a> Lexer<'a> {
                     {
                         result.push(ch);
                         result.push(next);
-                        i += 2;
+                        copied!(2);
                         continue;
                     }
                 } else if !expansion_stack.is_empty() {
@@ -2584,7 +2511,7 @@ impl<'a> Lexer<'a> {
                         _ => {}
                     }
                     result.push(ch);
-                    i += 1;
+                    copied!(1);
                     continue;
                 }
 
@@ -2615,8 +2542,9 @@ impl<'a> Lexer<'a> {
             }
 
             result.push(ch);
-            i += 1;
+            copied!(1);
         }
+        *escapes = mapping.finish();
         result
     }
 
@@ -2825,7 +2753,7 @@ impl<'a> Lexer<'a> {
             if matches!(ch, ' ' | '\t' | '\n' | ';' | '&' | '|' | '<' | '>') {
                 break;
             }
-            if matches!(ch, '"' | '\'' | '$' | '`') {
+            if matches!(ch, '"' | '\'' | '$' | '`' | '\\') {
                 // `[hello"]"`, `[$(echo abc)]`: quotes and expansions are
                 // read as in any word (a quoted `]` closes nothing).
                 return self.read_word_starting_with(&word);
@@ -2861,7 +2789,7 @@ impl<'a> Lexer<'a> {
 
         // Continue reading any remaining word characters (e.g., [abc]def)
         while let Some(ch) = self.peek_char() {
-            if matches!(ch, '"' | '\'' | '$' | '`') {
+            if matches!(ch, '"' | '\'' | '$' | '`' | '\\') {
                 // A quoted or expanded tail stays in the same word:
                 // `[k]="v w"` or `[k]=`cmd arg`` in a compound array is one
                 // element.

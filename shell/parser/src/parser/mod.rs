@@ -25,6 +25,7 @@
 mod ast;
 pub mod budget;
 mod lexer;
+mod lexical;
 mod print_cmd;
 mod raw;
 mod span;
@@ -41,6 +42,7 @@ pub use span::{Position, Span};
 use crate::error::{Error, Result};
 use crate::limits::LimitExceeded;
 use crate::time_compat::Instant;
+use lexical::{LiteralEscape, WordChars};
 use raw::{heredoc_eof_from_raw, single_quote, split_raw_words};
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -86,6 +88,7 @@ pub struct Parser<'a> {
     peeked_token: Option<SpannedToken>,
     /// Source text of the current word token (only inside function bodies).
     current_raw: Option<String>,
+    current_escapes: Vec<LiteralEscape>,
     /// Nesting depth of function definitions being parsed; word source text
     /// is captured while it is non-zero.
     function_depth: usize,
@@ -168,21 +171,22 @@ impl<'a> Parser<'a> {
     ) -> Self {
         let mut lexer = Lexer::with_max_subst_depth(input, max_depth.min(HARD_MAX_AST_DEPTH));
         let spanned = lexer.next_spanned_token();
-        let (current_token, current_span) = match spanned {
-            Some(st) => (Some(st.token), st.span),
-            None => (None, Span::new()),
+        let (current_token, current_span, current_escapes) = match spanned {
+            Some(st) => (Some(st.token), st.span, st.literal_escapes),
+            None => (None, Span::new(), Vec::new()),
         };
         // The first token was lexed before any alias table was attached:
         // it is plain when it reads exactly as its source text.
         let current_plain = matches!(&current_token, Some(tokens::Token::Word(w))
             if input.get(current_span.start.offset..current_span.end.offset) == Some(w.as_str()));
-        Self {
+        let mut parser = Self {
             input,
             lexer,
             current_token,
             current_span,
             peeked_token: None,
             current_raw: None,
+            current_escapes,
             function_depth: 0,
             max_depth: max_depth.min(HARD_MAX_AST_DEPTH),
             current_depth: 0,
@@ -206,7 +210,9 @@ impl<'a> Parser<'a> {
             top_level_list: false,
             top_starts: Vec::new(),
             failed_command_start: (0, 1),
-        }
+        };
+        parser.charge_literal_escapes();
+        parser
     }
 
     /// Parse with the shell's alias table and `extglob` setting.
@@ -270,6 +276,13 @@ impl<'a> Parser<'a> {
 
     /// Attach the non-resettable aggregate budget for this request.
     pub fn with_execution_budget(mut self, budget: crate::limits::ExecutionBudget) -> Self {
+        if !self.current_escapes.is_empty()
+            && let Err(err) =
+                budget.consume_work(u64::try_from(self.current_escapes.len()).unwrap_or(u64::MAX))
+        {
+            let first = self.deferred_error.take();
+            self.deferred_error.set(first.or(Some(err.into())));
+        }
         self.execution_budget = Some(budget);
         self
     }
@@ -640,16 +653,29 @@ impl<'a> Parser<'a> {
                 self.current_token = Some(st.token);
                 self.current_span = st.span;
                 self.current_raw = st.raw;
+                self.current_escapes = st.literal_escapes;
                 self.current_plain = st.plain;
                 self.current_after_blank = st.after_blank_alias;
             }
             None => {
                 self.current_token = None;
                 self.current_raw = None;
+                self.current_escapes.clear();
                 self.current_plain = false;
                 self.current_after_blank = false;
                 // Keep the last span for error reporting
             }
+        }
+        self.charge_literal_escapes();
+    }
+
+    fn charge_literal_escapes(&mut self) {
+        if self.current_escapes.is_empty() {
+            return;
+        }
+        if let Err(err) = self.tick_units(self.current_escapes.len()) {
+            let first = self.deferred_error.take();
+            self.deferred_error.set(first.or(Some(err)));
         }
     }
 
@@ -760,7 +786,7 @@ impl<'a> Parser<'a> {
 
         // Check for pipeline negation: `! command`
         let negated = match &self.current_token {
-            Some(tokens::Token::Word(w)) if w == "!" => {
+            Some(tokens::Token::Word(w)) if w == "!" && self.current_escapes.is_empty() => {
                 self.advance();
                 true
             }
@@ -1169,7 +1195,9 @@ impl<'a> Parser<'a> {
         self.expand_command_alias();
 
         // Check for compound commands and function keyword
-        if let Some(tokens::Token::Word(w)) = &self.current_token {
+        if let Some(tokens::Token::Word(w)) = &self.current_token
+            && self.current_escapes.is_empty()
+        {
             let word = w.clone();
             match word.as_str() {
                 "if" => return self.parse_compound_with_redirects(|s| s.parse_if()),
@@ -1357,7 +1385,7 @@ impl<'a> Parser<'a> {
                             Some(tokens::Token::QuotedWord(_))
                                 | Some(tokens::Token::QuotedGlobWord(_))
                         );
-                        let mut word = self.parse_word(w.clone());
+                        let mut word = self.parse_current_word(w.clone());
                         if is_quoted {
                             word.quoted = true;
                         }
@@ -1472,7 +1500,7 @@ impl<'a> Parser<'a> {
                         &self.current_token,
                         Some(tokens::Token::QuotedWord(_)) | Some(tokens::Token::QuotedGlobWord(_))
                     );
-                    let mut word = self.parse_word(w.clone());
+                    let mut word = self.parse_current_word(w.clone());
                     if is_quoted {
                         word.quoted = true;
                     }
@@ -1799,7 +1827,7 @@ impl<'a> Parser<'a> {
                     | Some(tokens::Token::QuotedGlobWord(w)) => {
                         // Keep the quoting flags: quoted pattern text matches
                         // literally (`"$x")`, `a\*)`).
-                        let mut word = self.parse_word(w.clone());
+                        let mut word = self.parse_current_word(w.clone());
                         match &self.current_token {
                             Some(tokens::Token::QuotedWord(_)) => word.quoted = true,
                             Some(tokens::Token::QuotedGlobWord(_)) => {
@@ -2126,6 +2154,7 @@ impl<'a> Parser<'a> {
                     // Only a bare unquoted word can be an operator (`'!'` and
                     // `$op` are operands).
                     let op_text = (matches!(self.current_token, Some(tokens::Token::Word(_)))
+                        && self.current_escapes.is_empty()
                         && !w_clone.contains(['$', '`', '\\', '\x00', '\u{1e}', '\u{1f}']))
                     .then(|| w_clone.clone());
 
@@ -2136,7 +2165,7 @@ impl<'a> Parser<'a> {
                     if saw_regex_op {
                         if w_clone.contains('$') && !is_quoted && !is_literal {
                             // Variable reference — parse normally for expansion
-                            let parsed = self.parse_word(w_clone);
+                            let parsed = self.parse_current_word(w_clone);
                             words.push(self.with_raw(parsed));
                             self.advance();
                         } else {
@@ -2148,7 +2177,7 @@ impl<'a> Parser<'a> {
                         continue;
                     }
 
-                    if w_clone == "=~" && !is_quoted && !is_literal && self.peeked_token.is_none() {
+                    if op_text.as_deref() == Some("=~") && self.peeked_token.is_none() {
                         // Read the operand from source: bash lexes it as one
                         // regex word, where `#`, `|` and spaces in groups are
                         // pattern text, not comments or operators.
@@ -2179,7 +2208,7 @@ impl<'a> Parser<'a> {
                         self.advance();
                         continue;
                     }
-                    if w_clone == "=~" {
+                    if op_text.as_deref() == Some("=~") {
                         saw_regex_op = true;
                     }
 
@@ -2192,7 +2221,7 @@ impl<'a> Parser<'a> {
                             raw: self.current_raw.clone(),
                         }
                     } else {
-                        let mut parsed = self.parse_word(w_clone);
+                        let mut parsed = self.parse_current_word(w_clone);
                         if is_quoted {
                             parsed.quoted = true;
                         }
@@ -2673,6 +2702,7 @@ impl<'a> Parser<'a> {
 
             // Check for terminators
             if let Some(tokens::Token::Word(w)) = &self.current_token
+                && self.current_escapes.is_empty()
                 && terminators.contains(&w.as_str())
             {
                 break;
@@ -2704,7 +2734,8 @@ impl<'a> Parser<'a> {
 
     /// Check if current token is a specific keyword
     fn is_keyword(&self, keyword: &str) -> bool {
-        matches!(&self.current_token, Some(tokens::Token::Word(w)) if w == keyword)
+        self.current_escapes.is_empty()
+            && matches!(&self.current_token, Some(tokens::Token::Word(w)) if w == keyword)
     }
 
     /// Expect a specific keyword
@@ -2903,14 +2934,14 @@ impl<'a> Parser<'a> {
                     ) {
                         let glob_quoted =
                             matches!(&self.current_token, Some(tokens::Token::QuotedGlobWord(_)));
-                        let mut w = self.parse_word(elem_clone);
+                        let mut w = self.parse_current_word(elem_clone);
                         w.quoted = true;
                         // Mixed words like `"x"{1,2}` or `"a"*` keep their unquoted
                         // brace/glob text active, as for command arguments.
                         w.has_unquoted_glob = glob_quoted;
                         w
                     } else {
-                        self.parse_word(elem_clone)
+                        self.parse_current_word(elem_clone)
                     };
                     elements.push(self.with_raw(word));
                     self.advance();
@@ -2954,6 +2985,15 @@ impl<'a> Parser<'a> {
     /// must drop again so `x="a*"b*` stores `a*b*`.
     fn try_parse_assignment(&mut self, w: &str, glob_escaped: bool) -> Option<(Assignment, bool)> {
         let (name, index, value, is_append) = Self::is_assignment(w)?;
+        let value_start = w.len() - value.len();
+        let operator_start = value_start - if is_append { 2 } else { 1 };
+        if self.current_escapes.iter().any(|escape| {
+            escape.start <= name.len()
+                || (escape.start >= operator_start && escape.start < value_start)
+        }) {
+            return None;
+        }
+        let value_escapes = LiteralEscape::slice(&self.current_escapes, value_start, w.len());
         // Source text of the value (after `=`), for function printing.
         let value_raw = self.current_raw.as_deref().map(|raw| {
             let start = match index {
@@ -2976,12 +3016,21 @@ impl<'a> Parser<'a> {
                     .and_then(|raw| Self::raw_subscript(&raw, &name))
                     .unwrap_or_else(|| ix.to_string()),
             ),
-            ix => ix.map(|s| s.to_string()),
+            ix => ix.map(|s| {
+                let start = name.len() + 1;
+                let escapes = LiteralEscape::slice(&self.current_escapes, start, start + s.len());
+                LiteralEscape::restore(s, &escapes)
+            }),
         };
         let value_str = value.to_string();
 
         // Array literal in the token itself: arr=(a b c)
-        if value_str.starts_with('(') && value_str.ends_with(')') {
+        if value_str.starts_with('(')
+            && value_str.ends_with(')')
+            && !value_escapes
+                .iter()
+                .any(|escape| escape.start == 0 || escape.end == value_str.len())
+        {
             let inner = &value_str[1..value_str.len() - 1];
             let mut elements: Vec<Word> = Self::split_array_elements(inner)
                 .into_iter()
@@ -3058,32 +3107,16 @@ impl<'a> Parser<'a> {
             ));
         }
 
-        // Quoted or plain scalar value
-        let mut value_word = if value_str.starts_with('"') && value_str.ends_with('"') {
-            let inner = Self::strip_quotes(&value_str);
-            let mut w = self.parse_word(inner.to_string());
-            w.quoted = true;
-            w
-        } else if value_str.starts_with('\'') && value_str.ends_with('\'') {
-            let inner = Self::strip_quotes(&value_str);
-            Word {
-                parts: vec![WordPart::Literal(inner.to_string())],
-                quoted: true,
-                has_unquoted_glob: false,
-                part_quoted: Vec::new(),
-                raw: None,
-            }
-        } else {
-            let mut w = self.parse_word(value_str);
-            if glob_escaped {
-                for part in &mut w.parts {
-                    if let WordPart::Literal(s) = part {
-                        *s = unescape_glob_literal(s);
-                    }
+        // The lexer has already removed source quotes. Quote bytes in this
+        // spelling are data, and only the lexical metadata can protect them.
+        let mut value_word = self.parse_word_with_escapes(value_str, &value_escapes);
+        if glob_escaped {
+            for part in &mut value_word.parts {
+                if let WordPart::Literal(s) = part {
+                    *s = unescape_glob_literal(s);
                 }
             }
-            w
-        };
+        }
         value_word.raw = value_raw;
         Some((
             Assignment {
@@ -3530,7 +3563,12 @@ impl<'a> Parser<'a> {
             _ => return false,
         };
         // Stop if this word cannot start a command (like 'then', 'fi', etc.)
-        if words.is_empty() && Self::is_non_command_word(&w) {
+        if words.is_empty()
+            && !is_literal
+            && !is_quoted
+            && self.current_escapes.is_empty()
+            && Self::is_non_command_word(&w)
+        {
             return false;
         }
 
@@ -3569,7 +3607,7 @@ impl<'a> Parser<'a> {
                 raw: self.current_raw.clone(),
             }
         } else {
-            let mut word = self.parse_word(w);
+            let mut word = self.parse_current_word(w);
             if is_quoted {
                 word.quoted = true;
             }
@@ -3593,6 +3631,7 @@ impl<'a> Parser<'a> {
         is_glob_quoted: bool,
     ) -> bool {
         let saved_raw = self.current_raw.clone();
+        let saved_escapes = self.current_escapes.clone();
         self.advance();
         if let Some(word) = self.try_parse_compound_array_arg(w.clone(), saved_raw.clone()) {
             words.push(word);
@@ -3608,7 +3647,7 @@ impl<'a> Parser<'a> {
                 raw: saved_raw.clone(),
             }
         } else {
-            let mut word = self.parse_word(w);
+            let mut word = self.parse_word_with_escapes(w, &saved_escapes);
             if is_quoted {
                 word.quoted = true;
             }
@@ -3869,7 +3908,7 @@ impl<'a> Parser<'a> {
     fn expect_word(&mut self) -> Result<Word> {
         match &self.current_token {
             Some(tokens::Token::Word(w)) => {
-                let word = self.with_raw(self.parse_word(w.clone()));
+                let word = self.with_raw(self.parse_current_word(w.clone()));
                 self.advance();
                 Ok(word)
             }
@@ -3890,7 +3929,7 @@ impl<'a> Parser<'a> {
                 // as command words are, so a redirect target such as
                 // `> one-\*` or `> "$f"` is neither split nor globbed.
                 let glob = matches!(&self.current_token, Some(tokens::Token::QuotedGlobWord(_)));
-                let mut word = self.parse_word(w.clone());
+                let mut word = self.parse_current_word(w.clone());
                 word.quoted = true;
                 word.has_unquoted_glob |= glob;
                 let word = self.with_raw(word);
@@ -4040,7 +4079,7 @@ impl<'a> Parser<'a> {
         match &self.current_token {
             Some(tokens::Token::Word(w))
             | Some(tokens::Token::QuotedWord(w))
-            | Some(tokens::Token::QuotedGlobWord(w)) => Some(self.parse_word(w.clone())),
+            | Some(tokens::Token::QuotedGlobWord(w)) => Some(self.parse_current_word(w.clone())),
             Some(tokens::Token::LiteralWord(w)) => Some(Word {
                 parts: vec![WordPart::Literal(w.clone())],
                 quoted: true,
@@ -4116,7 +4155,7 @@ impl<'a> Parser<'a> {
     #[inline(never)]
     fn parse_braced_parameter(
         &self,
-        chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
+        chars: &mut WordChars<'_>,
         parts: &mut Vec<WordPart>,
         part_quoted: &mut Vec<bool>,
         in_quoted_segment: bool,
@@ -4802,9 +4841,17 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_word(&self, s: String) -> Word {
+        self.parse_word_with_escapes(s, &[])
+    }
+
+    fn parse_current_word(&self, s: String) -> Word {
+        self.parse_word_with_escapes(s, &self.current_escapes)
+    }
+
+    fn parse_word_with_escapes(&self, s: String, escapes: &[LiteralEscape]) -> Word {
         let mut parts = Vec::new();
         let mut part_quoted = Vec::new();
-        let mut chars = s.chars().peekable();
+        let mut chars = WordChars::new(&s, escapes);
         let mut current = String::new();
         let mut in_quoted_segment = false;
         // Parts count when the current quoted segment opened, to spot `""`.
@@ -4819,7 +4866,14 @@ impl<'a> Parser<'a> {
         }
 
         while let Some(ch) = chars.next() {
-            if ch == '\x00' {
+            if chars.literal() {
+                if !current.is_empty() {
+                    push_part!(WordPart::Literal(std::mem::take(&mut current)));
+                }
+                parts.push(WordPart::Literal(ch.to_string()));
+                part_quoted.push(true);
+                saw_quote_marker = true;
+            } else if ch == '\x00' {
                 // NUL sentinel from lexer: next char is a literal (escaped in source).
                 if let Some(literal_ch) = chars.next() {
                     if literal_ch == '~'
@@ -5003,7 +5057,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Read operand for brace expansion (everything until closing brace)
-    fn read_brace_operand(&self, chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+    fn read_brace_operand(&self, chars: &mut WordChars<'_>) -> String {
         let mut operand = String::new();
         let mut depth = 1; // Track nested braces
         while let Some(&c) = chars.peek() {
@@ -5232,7 +5286,7 @@ fn empty_background(span: Span) -> (ListOperator, Command) {
 /// an optional subscript) must be followed by `}` or an operator. `${!...}`
 /// forms and anything involving quote/escape markers are left to the
 /// regular parser, so this only ever rejects words bash rejects too.
-fn bad_brace_parameter(chars: &std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+fn bad_brace_parameter(chars: &WordChars<'_>) -> Option<String> {
     const MARKERS: [char; 3] = ['\x00', '\u{1e}', '\u{1f}'];
     let mut it = chars.clone();
     let length_prefix = match it.peek() {
@@ -5358,10 +5412,7 @@ fn push_indirect_transformation(
 /// One field of `${v:offset:length}`: up to a top-level `:` (when
 /// `stop_colon`) or `}`. Nested `$((..))`, `${..}` and a ternary's own `:`
 /// (`${s: 0 < 1 ? 2 : 0 : 1}`) stay inside the field.
-fn read_slice_field(
-    chars: &mut std::iter::Peekable<std::str::Chars<'_>>,
-    stop_colon: bool,
-) -> String {
+fn read_slice_field(chars: &mut WordChars<'_>, stop_colon: bool) -> String {
     let mut field = String::new();
     let mut depth = 0usize;
     let mut ternary = 0usize;
@@ -5384,7 +5435,7 @@ fn read_slice_field(
 
 /// `${##pat}` / `${###}`: `$#` followed by a pattern-removal
 /// operator, not the length of a parameter (`${##}` alone is `${#'#'}`).
-fn hash_param_with_op(chars: &std::iter::Peekable<std::str::Chars<'_>>) -> bool {
+fn hash_param_with_op(chars: &WordChars<'_>) -> bool {
     let mut it = chars.clone();
     it.next(); // '#'
     it.next() == Some('#') && !matches!(it.next(), Some('}') | None)
