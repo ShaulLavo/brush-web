@@ -88,5 +88,26 @@
       "rust": "nightly-2026-09-15",
       "binaryen": "133"
     }
+  },
+  "shellParser": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "upstreamDirectory": "crates/bashkit/src/parser",
+    "directory": "shell/parser",
+    "vendoredDirectory": "shell/parser/src/parser",
+    "license": "MIT",
+    "strategy": "Byte-identical parser files and upstream unit tests; original parser-only error, limits and WASI clock adapters live outside the vendored directory.",
+    "filesSha256": {
+      "ast.rs": "ec92b2d8f810f03de4f4a096619f6335ce8a560224db16a1520b836e589fcfdd",
+      "budget.rs": "791d43612d1537f4a9a2cafd25d7fe3b64720e8a1a7f41e2339acc95b9e8439e",
+      "lexer.rs": "f8968a40b9add73dfaf68f7c4544dce8ba9730030b72998bae33083519cf25e5",
+      "mod.rs": "cf9be1320820e238051f684ff6d904351861afc7a8bd5d189cf956a8479be4c1",
+      "print_cmd.rs": "45ee78fdc6de9ab83c3b081d6b4d9cbea23ac3f18946afe6f4de806e8579a570",
+      "raw.rs": "2ac87cc6930eaf0f7229714263f602625a5c203b299ea2f63262bcff48f2910c",
+      "span.rs": "09c8ae13791167ae4ba7f9b85b9ced7266562ecb4e1331d8eb0671fcf91f307a",
+      "subst_scan.rs": "054afc19f017891d80ea134deb8f975a83536ef581d67a830935c9bd96f29723",
+      "tokens.rs": "14d7c19d7cda696bca22e723c891de9d4bec5922ebd33894b43748ace3797d37"
+    },
+    "licenseSha256": "b3e3b2f3fd15c45106e08434a52c5ad9ca97f15a1cc9894ab5b01078124cf613"
   }
 }
