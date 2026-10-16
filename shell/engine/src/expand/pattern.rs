@@ -1,0 +1,268 @@
+//! Scalar trim rules adapted from Bashkit expansion.rs::remove_pattern{,_glob}
+//! and glob.rs::glob_match_steps at the pinned revision in sources.lock.json.
+//! This matcher advances all basic-glob states over borrowed character slices.
+//! It allocates no candidate strings and never treats exhausted work as a miss.
+use super::{Error, Protection, Work};
+use crate::executor::Cancel;
+use std::mem::size_of;
+
+#[derive(Clone, Copy)]
+struct Character {
+    value: char,
+    protected: bool,
+    escaped_protected: bool,
+}
+
+#[derive(Default)]
+pub(super) struct Pattern {
+    chars: Vec<Character>,
+}
+impl Pattern {
+    pub(super) fn push(
+        &mut self,
+        value: char,
+        protection: Protection,
+        work: &mut Work,
+    ) -> Result<(), Error> {
+        work.admit_storage(size_of::<Character>())?;
+        self.chars.push(Character {
+            value,
+            protected: protection.protects(value),
+            escaped_protected: false,
+        });
+        Ok(())
+    }
+    fn active(&self, index: usize, value: char) -> bool {
+        self.chars
+            .get(index)
+            .is_some_and(|ch| ch.value == value && !ch.protected)
+    }
+    async fn normalize(&mut self, work: &mut Work, cancel: &Cancel) -> Result<(), Error> {
+        // Backslashes introduced by an unquoted variable are pattern escapes.
+        // Source escapes have already been removed and structurally protected.
+        let mut read = 0;
+        let mut write = 0;
+        while read < self.chars.len() {
+            work.checkpoint(cancel).await?;
+            let escape = self.active(read, '\\') && read + 1 < self.chars.len();
+            read += usize::from(escape);
+            let mut ch = self.chars[read];
+            ch.escaped_protected = escape && ch.protected;
+            ch.protected |= escape;
+            self.chars[write] = ch;
+            read += 1;
+            write += 1;
+        }
+        self.chars.truncate(write);
+        Ok(())
+    }
+    async fn bracket(
+        &self,
+        start: usize,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<Option<(Atom, usize)>, Error> {
+        let negated = self.active(start, '!') || self.active(start, '^');
+        let start = start + usize::from(negated);
+        let mut end = start;
+        // A leading ']' belongs to the class, including after negation.
+        if self.active(end, ']') {
+            end += 1;
+        }
+        while end < self.chars.len() {
+            work.checkpoint(cancel).await?;
+            if self.active(end, ']') {
+                return Ok(Some((
+                    Atom::Class {
+                        start,
+                        end,
+                        negated,
+                    },
+                    end + 1,
+                )));
+            }
+            if self.active(end, '[') && [':', '.', '='].iter().any(|&ch| self.active(end + 1, ch)) {
+                return Err(2.into());
+            }
+            end += 1;
+        }
+        Ok(None)
+    }
+    async fn compile(&mut self, work: &mut Work, cancel: &Cancel) -> Result<Vec<Atom>, Error> {
+        self.normalize(work, cancel).await?;
+        let mut atoms = Vec::new();
+        let mut index = 0;
+        while index < self.chars.len() {
+            work.checkpoint(cancel).await?;
+            let (atom, next) = self.atom(index, work, cancel).await?;
+            work.admit_storage(size_of::<Atom>())?;
+            atoms.push(atom);
+            index = next;
+        }
+        Ok(atoms)
+    }
+    async fn atom(
+        &self,
+        index: usize,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<(Atom, usize), Error> {
+        let ch = self.chars[index];
+        // GNU Bash cannot match an expansion-provided escape followed by an
+        // already quoted character outside a bracket. Keep that distinction
+        // typed; inside a bracket it remains an ordinary literal member.
+        if ch.escaped_protected {
+            return Ok((Atom::Never, index + 1));
+        }
+        if ch.protected {
+            return Ok((Atom::Literal(ch.value), index + 1));
+        }
+        if matches!(ch.value, '@' | '?' | '*' | '+' | '!') && self.active(index + 1, '(') {
+            return Err(2.into());
+        }
+        if ch.value == '[' {
+            if let Some(class) = self.bracket(index + 1, work, cancel).await? {
+                return Ok(class);
+            }
+            return Ok((Atom::Literal('['), index + 1));
+        }
+        let atom = match ch.value {
+            '*' => Atom::Star,
+            '?' => Atom::Any,
+            value => Atom::Literal(value),
+        };
+        Ok((atom, index + 1))
+    }
+    async fn matches(
+        &self,
+        atom: &Atom,
+        value: char,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<bool, Error> {
+        match *atom {
+            Atom::Literal(ch) => Ok(ch == value),
+            Atom::Any => Ok(true),
+            Atom::Never => Ok(false),
+            Atom::Star => Err(2.into()),
+            Atom::Class {
+                start,
+                end,
+                negated,
+            } => {
+                self.class_matches(start, end, negated, value, work, cancel)
+                    .await
+            }
+        }
+    }
+    async fn class_matches(
+        &self,
+        mut index: usize,
+        end: usize,
+        negated: bool,
+        value: char,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<bool, Error> {
+        let mut matched = false;
+        while index < end {
+            work.checkpoint(cancel).await?;
+            let first = self.chars[index].value;
+            if index + 2 < end && self.active(index + 1, '-') {
+                matched |= first <= value && value <= self.chars[index + 2].value;
+                index += 3;
+                continue;
+            }
+            matched |= first == value;
+            index += 1;
+        }
+        Ok(matched != negated)
+    }
+    pub(super) async fn remove<'a>(
+        &mut self,
+        value: &'a str,
+        prefix: bool,
+        longest: bool,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<&'a str, Error> {
+        let mut atoms = self.compile(work, cancel).await?;
+        // Reverse atoms, never the contents of bracket expressions.
+        if !prefix {
+            let count = atoms.len();
+            for index in 0..count / 2 {
+                work.checkpoint(cancel).await?;
+                atoms.swap(index, count - index - 1);
+            }
+        }
+        let mut states = Vec::new();
+        work.admit_storage(atoms.len().saturating_add(1))?;
+        states.push(true);
+        for atom in &atoms {
+            work.checkpoint(cancel).await?;
+            states.push(matches!(atom, Atom::Star) && *states.last().ok_or(2)?);
+        }
+        let mut matched = states[atoms.len()].then_some(if prefix { 0 } else { value.len() });
+        if matched.is_some() && !longest {
+            return Ok(value);
+        }
+        let mut characters = value.char_indices();
+        loop {
+            work.checkpoint(cancel).await?;
+            let next = if prefix {
+                characters.next()
+            } else {
+                characters.next_back()
+            };
+            let Some((index, ch)) = next else { break };
+            self.advance(&atoms, &mut states, ch, work, cancel).await?;
+            if !states[atoms.len()] {
+                continue;
+            }
+            matched = Some(if prefix { index + ch.len_utf8() } else { index });
+            if !longest {
+                break;
+            }
+        }
+        let boundary = matched.unwrap_or(if prefix { 0 } else { value.len() });
+        Ok(if prefix {
+            &value[boundary..]
+        } else {
+            &value[..boundary]
+        })
+    }
+    async fn advance(
+        &self,
+        atoms: &[Atom],
+        states: &mut [bool],
+        value: char,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<(), Error> {
+        let mut previous = states[0];
+        states[0] = false;
+        for (index, atom) in atoms.iter().enumerate() {
+            work.checkpoint(cancel).await?;
+            let old = states[index + 1];
+            states[index + 1] = if matches!(atom, Atom::Star) {
+                states[index] || old
+            } else {
+                previous && self.matches(atom, value, work, cancel).await?
+            };
+            previous = old;
+        }
+        Ok(())
+    }
+}
+
+enum Atom {
+    Literal(char),
+    Never,
+    Any,
+    Star,
+    Class {
+        start: usize,
+        end: usize,
+        negated: bool,
+    },
+}

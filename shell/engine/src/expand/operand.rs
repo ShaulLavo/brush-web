@@ -44,14 +44,16 @@ pub(super) struct Scanner<'a> {
     cursor: usize,
     quote: Quote,
     outer_quoted: bool,
+    pattern: bool,
 }
 impl<'a> Scanner<'a> {
-    pub(super) fn new(source: &'a str, outer_quoted: bool) -> Self {
+    pub(super) fn new(source: &'a str, outer_quoted: bool, pattern: bool) -> Self {
         Self {
             source,
             cursor: 0,
             quote: Quote::None,
             outer_quoted,
+            pattern,
         }
     }
     fn protected(&self) -> bool {
@@ -139,7 +141,7 @@ impl<'a> Scanner<'a> {
         }
         if !self.protected()
             && !self.outer_quoted
-            && matches!(ch, '*' | '?' | '[' | '{' | '}' | '~')
+            && (ch == '~' || !self.pattern && matches!(ch, '*' | '?' | '[' | '{' | '}'))
         {
             return Err(2.into());
         }
@@ -326,7 +328,8 @@ fn validate_token(token: &str) -> Result<(), Error> {
     let name = &body[..name_end];
     let suffix = &body[name_end..];
     let operator = suffix.strip_prefix(':').unwrap_or(suffix);
-    if !scalar_name(name) || !operator.starts_with(['-', '+', '=', '?']) {
+    let trim = suffix.starts_with(['#', '%']);
+    if !scalar_name(name) || !(trim || operator.starts_with(['-', '+', '=', '?'])) {
         return Err(2.into());
     }
     Ok(())
@@ -343,6 +346,10 @@ fn supported(part: &WordPart) -> bool {
                         | ParameterOp::UseReplacement
                         | ParameterOp::AssignDefault
                         | ParameterOp::Error
+                        | ParameterOp::RemovePrefixShort
+                        | ParameterOp::RemovePrefixLong
+                        | ParameterOp::RemoveSuffixShort
+                        | ParameterOp::RemoveSuffixLong
                 )
         }
         _ => false,

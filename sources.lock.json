@@ -393,5 +393,50 @@
       "shell/engine/tests/words.rs"
     ],
     "strategy": "Adapt scalar ${#name}, positive positional, ? and # lengths through the existing state lookup and quote-aware segment path. Admit only exact scalar length tokens in selected lazy operands, preserving token/parse/depth admission and leaving scalar operator targets unchanged. Bound transient input snapshots by intermediate expansion capacity and remaining shared command work before copying, check cancellation before snapshotting, release state borrows before awaits, and checkpoint every input byte. Count UTF-8 leading bytes as Unicode scalar values, including separate combining marks; C/POSIX count bytes. Consult current LC_ALL, LC_CTYPE and LANG in order, skipping empty values. Recognize case-insensitive .UTF-8 and .UTF8 codeset suffixes. All-empty and unrecognized locales use C byte counting, deliberately replacing Bashkit's UTF-8 default; arbitrary locale emulation is deferred. Decimal output uses existing raw/field/byte/work limits and IFS handling. Tests cover locale changes and dynamic scope/restoration, selected and skipped operands, scalar/argv/redirect contexts, quote and IFS boundaries, fail-closed unsupported targets, snapshot/output/field/token/depth/shared-work bounds, cooperative yield and cancellation. Parser files and upstream parser tests are unchanged. No arrays, lists, patterns, nounset, command substitution or arithmetic are ported. Local review correction validates positive decimal target syntax independently of machine index width, including leading zeros, while retaining zero exclusion and the existing selected-token admission cap. Ordinary scalar assignment target validation and state lookup are unchanged; absent out-of-range positional values expand to empty and therefore have length zero."
+  },
+  "shellParameterTrim": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "classification": "Adapted Bashkit scalar trim dispatch, operand quote rules, glob semantics and focused tests; original bounded async matcher and engine integration.",
+    "implementationSources": [
+      {
+        "path": "crates/bashkit/src/interpreter/expansion.rs",
+        "items": [
+          "apply_parameter_op RemovePrefixShort/Long and RemoveSuffixShort/Long arms:3200-3219",
+          "expand_pattern_operand:3286-3291",
+          "remove_pattern:3694-3824",
+          "remove_pattern_glob:3830-3891"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/interpreter/glob.rs",
+        "items": [
+          "glob_match_steps:260-458 (literal, wildcard, bracket and invalid-bracket rules only)",
+          "match_bracket_expr:613-686 (basic literals/ranges/negation only)"
+        ]
+      },
+      {
+        "path": "crates/bashkit/src/parser/mod.rs",
+        "items": [
+          "Existing owned parser ParameterOp trim arms and read_brace_operand, used unchanged after selected-token admission."
+        ]
+      }
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/expand/operand.rs",
+      "shell/engine/src/expand/pattern.rs"
+    ],
+    "testSources": [
+      "crates/bashkit/tests/spec_cases/bash/remove-pattern-glob.test.sh:1-29",
+      "crates/bashkit/tests/spec_cases/bash/param-operand-quotes.test.sh:99-104",
+      "crates/bashkit/tests/spec_cases/bash/variables.test.sh:79-105"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words.rs"
+    ],
+    "strategy": "Adapt only ordinary identifier scalar ${v#pat}, ${v##pat}, ${v%pat}, ${v%%pat}. Resolve the value before pattern side effects; empty and unset values skip the pattern as verified with GNU Bash. Expand selected patterns through the existing recursive scalar machinery with a separate structured character-protection sink: outer quotes protect the returned value; inner quotes and escapes protect pattern characters only. Pattern mode admits literal/*/?/basic bracket syntax, basic variable patterns, supported nested scalar operators and their side effects, without field splitting the pattern. Single quotes in a trim pattern quote text even inside outer double quotes; nested default/assignment/error operands retain their own ordinary quote rules. Unquoted variable backslashes are pattern escapes. Preserve lazy skipped operands and fail closed on selected unsupported syntax and targets. Snapshots are admitted before copying against raw/work/storage bounds, counting checkpoints follow snapshots, and no state borrow crosses an await. Pattern character, atom and state storage share command-wide storage accounting, including vanished results. The original iterative matcher propagates basic-glob states across borrowed UTF-8 character boundaries; suffixes reverse atoms and input traversal, not bracket contents. Every normalization, compilation, bracket, reversal, state, input and matching loop checkpoints shared Work and cancellation. It allocates no candidate strings, has no 10000-call cutoff and propagates exhaustion explicitly rather than returning a false or partial match. Pattern bytes, returned bytes, selected-token reparsing, depth, fields, redirects and argv retain the existing shared admission limits. IFS writes invalidate the parent cache and returned text splits against final IFS. Tests add adapted examples and original GNU Bash C.UTF-8 observations, scalar/RHS/declaration/redirect contexts, dynamic scope, valid external prefix frames, shared bounds, no partial dispatch, cooperative yield and cancellation130. Parser files/license/upstream tests and the fixed scorer/corpus/oracle/classifications/exclusions/baseline are unchanged. No score gain or browser/runtime success is claimed before coordinator CI.",
+    "localDivergence": "Unicode scalar matching and codepoint ranges are the supported pattern model, verified against focused GNU Bash probes under LC_ALL=C.UTF-8. Byte-oriented matching in C/POSIX or other non-UTF-8 locales and locale-specific collation/ranges are deferred; this is not full Bash locale emulation. Extglob, shell options, POSIX named classes, collating/equivalence symbols, arrays, special/positional trim targets, replacements, substrings, arithmetic, substitutions, tilde/pathname/brace expansion and output buffering are excluded. Extglob/class/collation forms fail closed when selected, including variable patterns; quoted forms remain literals. No parser changes or extra upstream implementation are copied."
   }
 }
