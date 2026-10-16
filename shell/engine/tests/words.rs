@@ -250,7 +250,7 @@ fn case_locale_precedence_and_bounded_unknown_locale_policy() {
         ],
     );
     check(
-        r#"unset LC_ALL LC_CTYPE; LANG=C.UTF-8; v=é; x=C; args "${v^^${x#${LC_CTYPE:=C}}}" "$LC_CTYPE"; unset LC_CTYPE; LANG=C; x=C.UTF-8; args "${v^^${x#${LC_CTYPE:=C.UTF-8}}}" "$LC_CTYPE""#,
+        r#"LC_ALL=; LC_CTYPE=; LANG=C.UTF-8; v=é; x=C; args "${v^^${x#${LC_CTYPE:=C}}}" "$LC_CTYPE"; LC_CTYPE=; LANG=C; x=C.UTF-8; args "${v^^${x#${LC_CTYPE:=C.UTF-8}}}" "$LC_CTYPE""#,
         &[&["é", "C"], &["É", "C.UTF-8"]],
     );
     for locale in ["en_US.UTF-8", "tr_TR.UTF-8", "unsupported"] {

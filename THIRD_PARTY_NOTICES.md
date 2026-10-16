@@ -322,3 +322,7 @@ collation compatibility. Pattern effects precede locale selection and final IFS
 splitting; shared bounds, cooperative yields and cancellation-safe frames remain
 in force. No process host, browser transport or output buffering is copied or
 changed. Versions and fixed measurement metadata remain coordinator-owned.
+
+The original integration also reserves actual matcher vector capacities and case
+result String capacities before allocation, including spare slots. Exact-budget
+unit controls reject before growth; this is not copied from Bashkit.
