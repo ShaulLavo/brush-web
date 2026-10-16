@@ -730,6 +730,7 @@ fn expansion_work(limits: &Limits) -> expand::Work {
             .saturating_add(limits.expansion_bytes)
             .saturating_add(limits.arguments),
         limits.expansion_bytes,
+        limits.arguments,
     )
 }
 
@@ -853,17 +854,17 @@ async fn prepare_simple_command(
             if remaining_words == 0 {
                 return Err(2.into());
             }
-            vec![
-                expand::word(
-                    &word,
-                    state,
-                    &context.cancel,
-                    remaining_bytes,
-                    context.limits().expansion_bytes,
-                    &mut work,
-                )
-                .await?,
-            ]
+            let value = expand::word(
+                &word,
+                state,
+                &context.cancel,
+                remaining_bytes,
+                context.limits().expansion_bytes,
+                &mut work,
+            )
+            .await?;
+            work.consume_scalar_field();
+            vec![value]
         } else {
             expand::fields(
                 &word,
