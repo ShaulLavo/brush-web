@@ -1,6 +1,6 @@
 {
   "name": "brush-web",
-  "version": "0.0.25",
+  "version": "0.0.26",
   "private": true,
   "type": "module",
   "scripts": {
@@ -36,7 +36,8 @@
     "test:shell:wasi": "node scripts/test-shell-wasi.mjs",
     "test:shell:scoreboard": "node --test scripts/test-shell-scoreboard*.mjs scripts/test-compat-selection.mjs scripts/test-own-shell-runner.mjs",
     "compat:shell": "BASH_COMPAT_MODE=frozen BASH_COMPAT_ENGINES=own-shell node scripts/bash-compat.mjs",
-    "fuzz:shell-words": "node scripts/fuzz-shell-words.mjs"
+    "fuzz:shell-words": "node scripts/fuzz-shell-words.mjs",
+    "fuzz:shell-words:ci": "node scripts/fuzz-shell-words.mjs --replay scripts/fixtures/shell-words-seed-1.json --replay scripts/fixtures/shell-words-seed-42.json"
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "0.4.2",

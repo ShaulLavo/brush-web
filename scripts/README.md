@@ -32,3 +32,26 @@ persistent file. Each case is `MATCH`, `UNSUPPORTED` (a known unsupported featur
 2 with a diagnostic while Bash succeeds), or `MISMATCH`; the command exits non-zero when
 a mismatch is found. Reports include counts by class, operator and quote/operand feature,
 plus minimized mismatches with Bash and shell stdout as both text and base64 bytes.
+
+## Recorded CI gate
+
+Bash 5.3.15 is not available on every CI runner, so the two checked-in fixtures under
+`scripts/fixtures/` contain the Bash stdout/status oracle for seeds 1 and 42. Record or
+refresh one only on a machine with the pinned Bash version and a clean native run:
+
+```sh
+npm run fuzz:shell-words -- --count 3000 --seed 1 \
+  --shell /path/to/release/shell-engine \
+  --record scripts/fixtures/shell-words-seed-1.json
+```
+
+Replay never invokes Bash. It regenerates the cases and rejects a fixture whose source
+hash, seed, count, operator list, quote pairing, case identity, or script differs from
+this fuzzer, then compares native status and stdout bytes with the recorded oracle:
+
+```sh
+npm run fuzz:shell-words:ci -- --shell .build/shell/release/shell-engine
+```
+
+The CI replay is strict: only an explicitly recorded known unsupported case may be
+`UNSUPPORTED`; every other status or byte difference is a mismatch and exits non-zero.
