@@ -610,7 +610,7 @@ impl Expansion<'_> {
         }
         if replacement != absent {
             return self
-                .operand(operand, state, quoted, scalar, depth + 1)
+                .operand(operand, state, quoted, scalar, depth + 1, false)
                 .await;
         }
         let value = if replacement {
@@ -679,7 +679,7 @@ impl Expansion<'_> {
         // A trim's pattern has its own quote context. Outer quotes protect
         // only its returned value; quotes inside protect pattern characters.
         child
-            .operand(source, state, false, false, depth + 1)
+            .operand(source, state, false, false, depth + 1, true)
             .await?;
         self.raw_remaining -= capacity - child.raw_remaining;
         let ifs_changed = child.ifs_changed;
@@ -734,7 +734,7 @@ impl Expansion<'_> {
             elements_remaining: self.elements_remaining,
         };
         child
-            .operand(source, state, quoted, scalar, depth + 1)
+            .operand(source, state, quoted, scalar, depth + 1, false)
             .await?;
         self.raw_remaining -= capacity - child.raw_remaining;
         let ifs_changed = child.ifs_changed || name == "IFS";
@@ -784,8 +784,10 @@ impl Expansion<'_> {
         quoted: bool,
         scalar: bool,
         depth: usize,
+        pattern_source: bool,
     ) -> Result<(), Error> {
-        let mut scanner = operand::Scanner::new(source, quoted, self.pattern_context);
+        let mut scanner =
+            operand::Scanner::new(source, quoted, self.pattern_context, pattern_source);
         while let Some(piece) = scanner.next(self.work, self.cancel).await? {
             self.operand_piece(piece, state, quoted, scalar, depth)
                 .await?;

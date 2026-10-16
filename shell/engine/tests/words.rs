@@ -138,6 +138,124 @@ fn adapted_scalar_trim_examples() {
 }
 
 #[test]
+fn trim_source_spaces_preserve_escape_boundaries() {
+    check(
+        r#"p='\'; s=' '; v=' abc '; args "${v#${p} }" "${v##${p} }" "${v%${p} }" "${v%%${p} }"; args "${v#${p}$s}" "${v##${p}$s}" "${v%${p}$s}" "${v%%${p}$s}"; IFS=; args "${v#${p} }" "${v#${p}$s}"; args "${v#${p}${u:- }}" "${v#${p}${u:-$s}}""#,
+        &[
+            &[" abc ", " abc ", " abc ", " abc "],
+            &["abc ", "abc ", " abc", " abc"],
+            &[" abc ", " abc "],
+            &[" abc ", " abc "],
+        ],
+    );
+    check(
+        r#"p='\'; s=' '; v=' abc '; IFS=:; args "${v#${p} }" "${v##${p}$s}" "${v%${p} }" "${v%%${p}$s}"; args "${v#${p}${u:- }}" "${v#${p}${u:-$s}}""#,
+        &[&[" abc ", "abc ", " abc ", " abc"], &["abc ", "abc "]],
+    );
+    check(
+        r#"p='\'; s=' '; v=' abc '; args "${v#${p}${u:- }}" "${v#${p}${u:-' '}}" "${v#${p}${u:=$s}}" "$u""#,
+        &[&["abc ", " abc ", "abc ", " "]],
+    );
+}
+
+#[test]
+fn trim_source_space_controls_reach_scalars_and_lazy_operands() {
+    check(
+        r#"p='\'; s=' '; v=' abc '; a=${v#${p} }; b=${v##${p} }; c=${v%${p} }; d=${v%%${p} }; args "$a" "$b" "$c" "$d"; args "${u:-${v#${p} }}" "${u:-${v##${p} }}" "${u:-${v%${p} }}" "${u:-${v%%${p} }}"; a=${u:=${v#${p} }}; args "$a" "$u"; set=yes; args "${set:-${v#$(args forbidden)}}" "${missing+${v#${bad:?forbidden}}}""#,
+        &[
+            &[" abc ", " abc ", " abc ", " abc "],
+            &[" abc ", " abc ", " abc ", " abc "],
+            &[" abc ", " abc "],
+            &["yes", ""],
+        ],
+    );
+}
+
+#[test]
+fn trim_source_tabs_and_newlines_remain_distinct_from_source_spaces() {
+    for whitespace in ["\t", "\n"] {
+        let source = r#"p='\'; s='WS'; v='WSabcWS'; args "${v#${p}WS}" "${v##${p}WS}" "${v%${p}WS}" "${v%%${p}WS}"; IFS=; args "${v#${p}$s}""#.replace("WS", whitespace);
+        let prefix = format!("abc{whitespace}");
+        let suffix = format!("{whitespace}abc");
+        check(
+            &source,
+            &[
+                &[
+                    prefix.as_str(),
+                    prefix.as_str(),
+                    suffix.as_str(),
+                    suffix.as_str(),
+                ],
+                &[prefix.as_str()],
+            ],
+        );
+    }
+}
+
+#[test]
+fn trim_bracket_braces_keep_quote_boundaries_and_partial_protection() {
+    check(
+        r#"v='}ab}'; args ${v#['}']} ${v##['}']} ${v%['}']} ${v%%['}']}; v='{ab{'; args ${v#['{']} ${v##['{']} ${v%['{']} ${v%%['{']}; v='-ab-'; args ${v#['}'"-"a]} ${v##['}'"-"a]} ${v%['}'"-"a]} ${v%%['}'"-"a]}; v='}ab}'; a=${v#['}']*}; b=${v##['}']*}; c=${v%*['}']}; d=${v%%*['}']}; args "$a" "$b" "$c" "$d"; args "${v#['}']}" "${v##['}']}" "${v%['}']}" "${v%%['}']}""#,
+        &[
+            &["ab}", "ab}", "}ab", "}ab"],
+            &["ab{", "ab{", "{ab", "{ab"],
+            &["ab-", "ab-", "-ab", "-ab"],
+            &["ab}", "", "}ab", ""],
+            &["ab}", "ab}", "}ab", "}ab"],
+        ],
+    );
+}
+
+#[test]
+fn trim_bracket_braces_reach_lazy_operands_and_literal_malformed_classes() {
+    check(
+        r#"v='}ab}'; a=${u:-${v#['}']}}; b=${u:-${v##['}']}}; c=${u:-${v%['}']}}; d=${u:-${v%%['}']}}; args "$a" "$b" "$c" "$d"; a=${saved:=${v#['}']}}; args "$a" "$saved"; v='[}ab[}'; args ${v#['}'} ${v##['}'} ${v%['}'} ${v%%['}'}; v='[{ab[{'; args ${v#['{'} ${v##['{'} ${v%['{'} ${v%%['{'}"#,
+        &[
+            &["ab}", "ab}", "}ab", "}ab"],
+            &["ab}", "ab}"],
+            &["ab[}", "ab[}", "[}ab", "[}ab"],
+            &["ab[{", "ab[{", "[{ab", "[{ab"],
+        ],
+    );
+}
+
+#[test]
+fn trim_review_controls_preserve_selected_error_messages() {
+    for (source, expected) in [
+        (
+            r#"p='\'; v=' abc '; args ${bad:?"${v#${p} }"}; args forbidden"#,
+            "/usr/bin/bash: line 1: bad:  abc \n",
+        ),
+        (
+            r#"v='}abc'; args ${bad:?${v#['}']}}; args forbidden"#,
+            "/usr/bin/bash: line 1: bad: abc\n",
+        ),
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(source), 127);
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.errors.bytes(), expected.as_bytes());
+    }
+}
+
+#[test]
+fn trim_nested_length_input_cannot_bypass_shared_snapshot_storage() {
+    for operand in ["${v#${#p}}", "${u:-${v#${#p}}}"] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: 256,
+            ..Limits::default()
+        });
+        rig.variable("v", "abc");
+        rig.variable("p", &"x".repeat(256));
+        assert_eq!(rig.run(&format!("args \"{operand}\"")), 2);
+        assert!(rig.calls.borrow().is_empty());
+        // Ordinary length retains PR20's input bound and counting behavior.
+        assert_eq!(rig.run("args ${#p}"), 0);
+        assert_eq!(*rig.calls.borrow(), &[vec!["256"]]);
+    }
+}
+
+#[test]
 fn scalar_trims_distinguish_empty_unset_no_match_and_zero_length_matches() {
     check(
         r#"v=abc; e=; args "${u#*}" "${u##?}" "${u%a}" "${u%%*}" "${e#?}" "${e%%}"; args "${v#}" "${v##}" "${v%}" "${v%%}" "${v#z*}" "${v%%z}"; args ${u#*} ${e%%?} ${v##*}; args "${v#*}" "${v%*}" "${v##*}" "${v%%*}" "$v" "${u+set}"; args "${u#${side:=bad}}" "${e%%$(args forbidden)}" "${side-unset}""#,

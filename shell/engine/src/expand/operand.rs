@@ -45,15 +45,22 @@ pub(super) struct Scanner<'a> {
     quote: Quote,
     outer_quoted: bool,
     pattern: bool,
+    pattern_source: bool,
 }
 impl<'a> Scanner<'a> {
-    pub(super) fn new(source: &'a str, outer_quoted: bool, pattern: bool) -> Self {
+    pub(super) fn new(
+        source: &'a str,
+        outer_quoted: bool,
+        pattern: bool,
+        pattern_source: bool,
+    ) -> Self {
         Self {
             source,
             cursor: 0,
             quote: Quote::None,
             outer_quoted,
             pattern,
+            pattern_source,
         }
     }
     fn protected(&self) -> bool {
@@ -116,7 +123,10 @@ impl<'a> Scanner<'a> {
             return self.expansion(start, work, cancel).await.map(Some);
         }
         self.check_literal(ch)?;
-        Ok(Some(self.text(value, self.protected())))
+        // Bash protects source spaces in a pattern, but not source tabs/newlines.
+        // Expansion-provided spaces retain the expansion's existing IFS rules.
+        let protected = self.protected() || self.pattern_source && ch == ' ';
+        Ok(Some(self.text(value, protected)))
     }
     fn escape(&mut self, slash: &'a str) -> Result<Piece<'a>, Error> {
         let next = self.peek().ok_or(2)?;
