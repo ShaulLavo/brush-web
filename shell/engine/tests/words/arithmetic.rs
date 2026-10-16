@@ -341,3 +341,18 @@ fn positional_slice_arithmetic_orders_effects_and_rejects_negative_lengths() {
     );
     assert!(rig.calls.borrow().is_empty());
 }
+
+#[test]
+fn cancelling_positional_slice_emission_keeps_writes_and_unwinds_function_arguments() {
+    let rig = Rig::new(Limits::default());
+    let value = "x".repeat(8192);
+    let source = format!("f() {{ args \"${{@:(started=1):2}}\"; }}; f '{value}' '{value}'");
+    let job = rig.shell.start(&source).unwrap();
+    rig.drive_until_variable("started", "1");
+    assert!(!job.is_finished());
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.run("args \"$#\" \"$started\""), 0);
+    assert_eq!(*rig.calls.borrow(), [vec!["0", "1"]]);
+}
