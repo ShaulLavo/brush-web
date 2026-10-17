@@ -261,19 +261,6 @@ async fn dollar_opener(
     }))
 }
 
-async fn arithmetic_open(
-    source: &str,
-    after_open: usize,
-    work: &mut Work,
-    cancel: &Cancel,
-) -> Result<bool, Error> {
-    // The second parenthesis must be logically adjacent: a continuation is
-    // removed, but ordinary whitespace still makes this command substitution.
-    Ok(dollar_opener(source, after_open, false, work, cancel)
-        .await?
-        .is_some_and(|(_, open)| open == '('))
-}
-
 /// Reuse the parser's command-boundary grammar for comments, heredocs, case
 /// patterns, quotes and nested substitutions. Feeding it is iterative; no
 /// command AST is built and no substitution is executed.
@@ -288,15 +275,37 @@ async fn command_end(
     // Initial frame/parens/code-state vectors are allocated by `new`.
     work.admit_storage(std::mem::size_of::<CommandBoundaryScanner>().saturating_add(512))?;
     let mut scanner = CommandBoundaryScanner::new();
-    for (index, ch) in source[after_open..].char_indices() {
+    let mut chars = source[after_open..].chars();
+    let mut finished = false;
+    loop {
         work.checkpoint(cancel).await?;
-        // Literal buffers (including heredoc lines/delimiters) grow with text.
-        // Structural boundaries additionally cover geometric growth of the
-        // scanner's parallel frame/code/case/heredoc vectors, before `feed`.
-        let structural = ch.is_whitespace() || matches!(ch, '$' | '(' | ')' | '<' | '>');
+        let (ch, replay) = if scanner.has_pending() {
+            (scanner.pending_char(), true)
+        } else if let Some(ch) = chars.next() {
+            (Some(ch), false)
+        } else if !finished {
+            finished = true;
+            (None, false)
+        } else {
+            break;
+        };
+        // The raw tape and literal buffers grow with text. Structural steps
+        // also admit frame/case/heredoc vectors and fallback-opener storage.
+        // Replayed characters and EOF frame unwinds pay the same admission.
+        let structural =
+            ch.is_none_or(|ch| ch.is_whitespace() || matches!(ch, '$' | '(' | ')' | '<' | '>'));
         work.admit_storage(16 + usize::from(structural) * 512)?;
-        if scanner.feed(ch) == CommandBoundaryStep::Close {
-            return Ok(after_open + index + ch.len_utf8());
+        let step = if replay {
+            scanner.resume()
+        } else if let Some(ch) = ch {
+            scanner.feed(ch)
+        } else {
+            scanner.finish()
+        };
+        match step {
+            CommandBoundaryStep::Close => return Ok(after_open + scanner.offset()),
+            CommandBoundaryStep::Limit => return Err(2),
+            CommandBoundaryStep::Body => {}
         }
     }
     Ok(source.len())
@@ -316,7 +325,7 @@ async fn opaque_end(
         let (open_index, open) = dollar_opener(source, start + 1, true, work, cancel)
             .await?
             .ok_or(2)?;
-        if open == '(' && !arithmetic_open(source, open_index + 1, work, cancel).await? {
+        if open == '(' {
             return command_end(source, open_index + 1, work, cancel).await;
         }
         while chars
@@ -329,9 +338,7 @@ async fn opaque_end(
         frames.push(if open == '\'' {
             Frame::AnsiQuote
         } else {
-            // Arithmetic uses balanced parentheses, never command keyword,
-            // comment or heredoc recognition (`<<` is a numeric shift).
-            Frame::Group(if open == '(' { ')' } else { '}' })
+            Frame::Group('}')
         });
     } else {
         frames.push(Frame::Quote(first));
@@ -375,7 +382,7 @@ async fn opaque_end(
                 chars.next();
                 work.checkpoint(cancel).await?;
             }
-            if open == '(' && !arithmetic_open(source, open_index + 1, work, cancel).await? {
+            if open == '(' {
                 let end = command_end(source, open_index + 1, work, cancel).await?;
                 while chars.peek().is_some_and(|(index, _)| start + *index < end) {
                     chars.next();
@@ -386,7 +393,7 @@ async fn opaque_end(
                 frames.push(if open == '\'' {
                     Frame::AnsiQuote
                 } else {
-                    Frame::Group(if open == '(' { ')' } else { '}' })
+                    Frame::Group('}')
                 });
             }
         } else if let Frame::Group(close) = frame {

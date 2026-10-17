@@ -36,7 +36,7 @@ function optionsFor(args) {
     }
     if (arg === "--help" || arg === "-h") {
       console.log(`Usage: npm run fuzz:shell-braces -- [options]
-  --count N       Generated cases, excluding fixed controls (default: 3000)
+  --count N       Original generated cases (default: 3000), plus boundary matrix
   --seed N        Unsigned 32-bit seed (default: 1; also run seed 42)
   --timeout-ms N  Per-process timeout (default: 2000)
   --shell PATH    Existing native shell-engine; never builds a binary
@@ -92,9 +92,58 @@ function randomFor(seed) {
   };
 }
 
+// These productions describe scanner boundaries, not arbitrary pre-rendered atoms.
+// All command-bearing exercises have a selected va guard; unsupported command
+// execution is never needed, but syntax failures are still scored normally.
+export const boundaryContexts = [
+  "word",
+  "braces",
+  "default",
+  "arithmetic",
+  "command",
+  "quoted-command",
+];
+export const boundaryProtections = ["escaped", "single", "double"];
+export const boundaryOpeners = ["brace", "command", "arithmetic"];
+export const boundaryBodies = [
+  "case",
+  "subshell",
+  "case-subshell",
+  "comment-open",
+  "comment-close",
+];
+export const boundarySpellings = ["fused", "spaced"];
+const boundarySuffixes = { brace: "{x,y}", command: "(x)", arithmetic: "((1+2))" };
+const boundaryCommands = {
+  case: "case x in x) :;; esac",
+  subshell: "(printf x)",
+  "case-subshell": "case x in x) (printf x);; esac",
+  "comment-open": "# (\nprintf x",
+  "comment-close": "# )\nprintf x",
+};
+
 export function spelling(node) {
   if (node.kind === "list") return `{${node.children.map(spelling).join(",")}}`;
   if (node.kind === "concat") return node.children.map(spelling).join("");
+  if (node.kind === "boundary") {
+    if (node.form === "ambiguity")
+      return `${node.opener === "fused" ? "$((" : "$( ("}${boundaryCommands[node.body]}) )`;
+    if (node.form === "arithmetic") return `$(((1+2) << ${node.shift}))`;
+    const dollar = { escaped: "\\$", single: "'$'", double: '"$"' }[node.protection];
+    const suffix = node.open ? "{x" : boundarySuffixes[node.opener];
+    return dollar + (node.literal && node.opener !== "brace" ? quote(suffix) : suffix);
+  }
+  if (node.kind === "boundary-nest") return `\${u:-${spelling(node.child)}}`;
+  if (node.kind === "boundary-guard") return `\${va:-${spelling(node.child)}}`;
+  if (node.kind === "boundary-context") {
+    const child = spelling(node.child);
+    if (node.context === "braces") return `{left,${child},right}`;
+    if (node.context === "default") return `\${u:-${child}}`;
+    if (node.context === "arithmetic") return `$((0 + ${child}))`;
+    if (node.context === "command") return `$(printf '%s' ${child})`;
+    if (node.context === "quoted-command") return `$(printf '%s' "${child}")`;
+    return child;
+  }
   return node.text;
 }
 
@@ -102,6 +151,13 @@ export function bound(node) {
   if (node.kind === "list") return node.children.reduce((sum, child) => sum + bound(child), 0);
   if (node.kind === "concat")
     return node.children.reduce((product, child) => product * bound(child), 1);
+  // Open protected braces can expose a suffix after the parameter closes, so
+  // retain the child's conservative field bound even for an inactive operand.
+  if (node.kind === "boundary-guard") return bound(node.child);
+  if (node.kind === "boundary-nest") return bound(node.child);
+  if (node.kind === "boundary-context")
+    return node.context === "braces" ? 2 + bound(node.child) : bound(node.child);
+  if (node.kind === "boundary") return node.opener === "brace" ? 2 : 1;
   return node.fields ?? 1;
 }
 
@@ -110,6 +166,23 @@ function atom(text, tag = "literal", fields = 1) {
 }
 
 function tagsFor(node) {
+  if (node.kind === "boundary")
+    return ["boundary", `boundary-${node.form}`, `boundary-opener-${node.opener}`].concat(
+      node.protection ? [`boundary-protection-${node.protection}`] : [],
+      node.body ? [`boundary-body-${node.body}`] : [],
+      node.literal ? ["boundary-selected-literal"] : [],
+      node.form === "protected" && node.opener === "brace"
+        ? [`boundary-brace-${node.open ? "open" : "closed"}`]
+        : [],
+    );
+  if (node.child) {
+    let depth = 0;
+    for (let child = node.child; child.kind === "boundary-nest"; child = child.child) depth++;
+    return [node.kind].concat(
+      node.context ? [`boundary-context-${node.context}`, `boundary-depth-${depth}`] : [],
+      tagsFor(node.child),
+    );
+  }
   return node.children ? [node.kind].concat(node.children.flatMap(tagsFor)) : [node.tag];
 }
 
@@ -194,6 +267,8 @@ export function fixedCases() {
     ["$((case == in)){a,b}", "arithmetic-keyword-boundary"],
     ["${va:-$((1 << 2\n))}{a,b}", "inactive-arithmetic-boundary"],
     ["$(((1+2) << 1)){a,b}", "arithmetic-parenthesis-boundary"],
+    ["${va:-$((case x in x) :;; esac) )}{a,b}", "inactive-subshell-case-boundary"],
+    ['${va:-$(echo "${u:-\\${x}")}{a,b}', "inactive-escaped-dollar-boundary"],
     ["${va:-$(# ) }\necho {a,b}\n)}", "inactive-command-comment"],
     [`${"${va:-"}${"${u:-".repeat(20)}x${"}".repeat(21)}`, "inactive-deep-parameter"],
     [`{a,b}${"${va:-"}${"${u:-".repeat(20)}x${"}".repeat(21)}`, "generated-deep-parameter"],
@@ -296,6 +371,74 @@ export function fixedCases() {
   return cases;
 }
 
+export function boundaryCases(seed) {
+  const random = randomFor(seed);
+  const features = boundarySpellings
+    .flatMap((opener) =>
+      boundaryBodies.map((body) => ({ kind: "boundary", form: "ambiguity", opener, body })),
+    )
+    .concat(
+      boundaryProtections.flatMap((protection) =>
+        boundaryOpeners.flatMap((opener) =>
+          (opener === "brace" ? [false, true] : [false]).map((open) => ({
+            kind: "boundary",
+            form: "protected",
+            protection,
+            opener,
+            open,
+          })),
+        ),
+      ),
+    );
+  const cases = [];
+  // Complete cross product, independent of random sampling and --count. Keep
+  // this separate from the original seeded stream so no old case is displaced.
+  for (const feature of features)
+    for (const context of boundaryContexts)
+      for (let depth = 0; depth <= 3; depth++) {
+        let child = feature;
+        for (let level = 0; level < depth; level++) child = { kind: "boundary-nest", child };
+        child = { kind: "boundary-context", context, child };
+        // When command substitution is implemented, exercise command-bearing
+        // branches selected too, rather than leaving execution behind this guard.
+        const guarded = { kind: "boundary-guard", child };
+        const children = [guarded, { kind: "list", children: [atom("a"), atom("b")] }];
+        if (random.next() % 2) children.reverse();
+        const node = { kind: "concat", children };
+        const id = `boundary-${feature.form}-${feature.protection ?? feature.body}-${feature.opener}-${feature.open ? "open" : "closed"}-${context}-${depth}`;
+        for (const mode of modes) cases.push(makeCase(`${id}-${mode}`, node, mode));
+      }
+  // Selected controls distinguish literal dollars and real arithmetic from the
+  // inactive scanner exercises. Parentheses remain protected shell-word text.
+  for (const protection of boundaryProtections)
+    for (const opener of boundaryOpeners) {
+      const node = {
+        kind: "concat",
+        children: [
+          { kind: "boundary", form: "protected", protection, opener, literal: true },
+          { kind: "list", children: [atom("a"), atom("b")] },
+        ],
+      };
+      cases.push(makeCase(`boundary-selected-${protection}-${opener}`, node));
+    }
+  for (const shift of [0, 1, 2])
+    for (const mode of modes)
+      cases.push(
+        makeCase(
+          `boundary-selected-arithmetic-${shift}-${mode}`,
+          {
+            kind: "concat",
+            children: [
+              { kind: "boundary", form: "arithmetic", opener: "arithmetic", shift },
+              { kind: "list", children: [atom("a"), atom("b")] },
+            ],
+          },
+          mode,
+        ),
+      );
+  return cases;
+}
+
 export function generateCases(seed, count) {
   const random = randomFor(seed);
   const cases = fixedCases();
@@ -309,7 +452,7 @@ export function generateCases(seed, count) {
       cases.push(makeCase(`generated-${index / 2}-${mode}`, node, mode, context));
     }
   }
-  return cases;
+  return cases.concat(boundaryCases(seed));
 }
 
 const encode = (result) => ({
@@ -435,9 +578,32 @@ function mismatchSignature(bash, ours) {
   ]);
 }
 
+function containsBoundary(node) {
+  if (node.kind === "boundary") return true;
+  if (node.child) return containsBoundary(node.child);
+  return node.children?.some(containsBoundary) ?? false;
+}
+
 export function reductions(node) {
+  if (node.kind === "boundary") {
+    if (node.form === "ambiguity" && node.body === "case-subshell")
+      return [
+        { ...node, body: "case" },
+        { ...node, body: "subshell" },
+      ];
+    if (node.form === "arithmetic" && node.shift) return [{ ...node, shift: 0 }];
+    return [];
+  }
+  if (node.child) {
+    const candidates = reductions(node.child).map((child) => ({ ...node, child }));
+    // A nesting wrapper can disappear, but not a guard or context wrapper:
+    // shrinking must never turn inactive command syntax into selected execution.
+    return node.kind === "boundary-nest" ? [node.child].concat(candidates) : candidates;
+  }
   if (!node.children) return node.text === "x" ? [] : [atom("x")];
-  const candidates = node.children.slice();
+  const candidates = containsBoundary(node)
+    ? node.children.filter(containsBoundary)
+    : node.children.slice();
   if (node.children.length > 2) candidates.push({ ...node, children: node.children.slice(0, 2) });
   for (const [index, child] of node.children.entries()) {
     for (const replacement of reductions(child)) {
@@ -611,7 +777,10 @@ function main() {
       schema: 1,
       mode: options.replays.length ? "replay" : options.selfControl ? "bash-self-control" : "live",
       sourceHash: fingerprint(),
-      generated: options.count,
+      generated: options.count + boundaryCases(options.seed).length,
+      originalGenerated: options.count,
+      boundaryGenerated: boundaryCases(options.seed).length,
+      fixed: fixedCases().length,
       timeoutMs: options.timeoutMs,
       shell,
       recordPending: Boolean(options.record && reports.some((item) => item.counts.MISMATCH)),

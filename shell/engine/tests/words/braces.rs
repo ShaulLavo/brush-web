@@ -329,6 +329,10 @@ fn brace_scanning_range_emission_and_products_cooperate_with_cancellation() {
         format!("{{{},tail}}", "x".repeat(24_000)),
         "{1..50000}".into(),
         "{1..200}{1..200}".into(),
+        format!(
+            "${{scope:-$((printf '%s' '{}') )}}{{a,b}}",
+            "x".repeat(12_000)
+        ),
     ] {
         let rig = Rig::new(Limits {
             arguments: 60_000,
@@ -435,5 +439,17 @@ fn brace_opacity_distinguishes_arithmetic_shifts_and_shell_keywords() {
     check(
         "args $((1 << 2\n)){a,b}; case=1; in=2; args $((case == in)){a,b}; v=ok; args ${v:-$((1 << 2\n))}{a,b} $(((1+2) << 1)){a,b}",
         &[&["4a", "4b"], &["0a", "0b"], &["oka", "okb", "6a", "6b"]],
+    );
+}
+
+#[test]
+fn brace_opacity_preserves_inactive_subshell_case_and_escaped_dollars() {
+    check(
+        "v=ok; args ${v:-$((case x in x) :;; esac) )}{a,b} \"${v:-$((case x in x) :;; esac) )}{a,b}\"",
+        &[&["oka", "okb", "ok{a,b}"]],
+    );
+    check(
+        r#"v=ok; args ${v:-$(echo "${u:-\${x}")}{a,b} "${v:-$(echo "${u:-\${x}")}{a,b}""#,
+        &[&["oka", "okb", "ok{a,b}"]],
     );
 }

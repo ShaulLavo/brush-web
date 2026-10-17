@@ -4,6 +4,12 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   bound,
+  boundaryBodies,
+  boundaryCases,
+  boundaryContexts,
+  boundaryOpeners,
+  boundaryProtections,
+  boundarySpellings,
   fixedCases,
   generateCases,
   matches,
@@ -52,13 +58,17 @@ const result = (patch = {}) => ({
   ...patch,
 });
 
-test("default seeds generate 3000 paired cases plus fixed controls deterministically", () => {
+test("default seeds retain 3000 original paired cases and append the complete boundary matrix", (t) => {
+  t.diagnostic(
+    `fixed=${fixedCases().length} originalGenerated=3000 boundaryGenerated=${boundaryCases(1).length} total=${generateCases(1, 3000).length}`,
+  );
   for (const seed of [0, 1, 42, 0xffffffff]) {
     const cases = generateCases(seed, 3000);
     assert.deepEqual(cases, generateCases(seed, 3000));
-    assert.equal(cases.length, 3000 + fixedCases().length);
+    assert.equal(cases.length, 3000 + fixedCases().length + boundaryCases(seed).length);
     assert.equal(new Set(cases.map((item) => item.id)).size, cases.length);
-    const generated = cases.slice(fixedCases().length);
+    assert.deepEqual(cases.slice(fixedCases().length + 3000), boundaryCases(seed));
+    const generated = cases.slice(fixedCases().length, fixedCases().length + 3000);
     for (let index = 0; index < generated.length; index += 2) {
       const [left, right] = generated.slice(index, index + 2);
       assert.equal(left.mode, "unquoted");
@@ -82,7 +92,133 @@ test("default seeds generate 3000 paired cases plus fixed controls deterministic
 });
 
 test("odd count preserves the requested generated count", () => {
-  assert.equal(generateCases(1, 3).length, fixedCases().length + 3);
+  assert.equal(generateCases(1, 3).length, fixedCases().length + 3 + boundaryCases(1).length);
+  assert.equal(generateCases(1, 0).length, fixedCases().length + boundaryCases(1).length);
+});
+
+function nodesIn(node) {
+  return [node].concat(
+    node.child ? nodesIn(node.child) : [],
+    node.children ? node.children.flatMap(nodesIn) : [],
+  );
+}
+
+for (const seed of [1, 42]) {
+  test(`seed ${seed} covers every boundary feature/context/depth/mode tuple without exclusions`, () => {
+    const cases = boundaryCases(seed);
+    assert.deepEqual(cases, boundaryCases(seed));
+    assert.equal(cases.length, 1071);
+    const matrix = cases.filter((item) => item.tags.includes("boundary-guard"));
+    assert.equal(matrix.length, 1056);
+    const actual = [];
+    for (const item of matrix) {
+      const nodes = nodesIn(item.node);
+      const feature = nodes.find((node) => node.kind === "boundary");
+      const context = nodes.find((node) => node.kind === "boundary-context").context;
+      const depth = nodes.filter((node) => node.kind === "boundary-nest").length;
+      assert.ok(item.tags.includes(`boundary-depth-${depth}`));
+      assert.ok(item.tags.includes(`boundary-context-${context}`));
+      assert.ok(depth >= 0 && depth <= 3);
+      assert.equal(nodes.filter((node) => node.kind === "boundary-guard").length, 1);
+      actual.push(
+        [
+          feature.form,
+          feature.opener,
+          feature.protection ?? feature.body,
+          Boolean(feature.open),
+          context,
+          depth,
+          item.mode,
+        ].join("/"),
+      );
+      assert.ok(bound(item.node) <= 128);
+      assert.ok(item.script.length < 4096);
+      assert.equal(item.context, "word");
+      assert.ok(!Object.hasOwn(item, "unsupported"));
+      assert.ok(!Object.hasOwn(item, "skip"));
+      if (feature.form === "ambiguity") {
+        assert.ok(spelling(feature).startsWith(feature.opener === "fused" ? "$((" : "$( ("));
+        assert.ok(spelling(feature).endsWith(") )"));
+        if (feature.body.includes("case")) {
+          assert.ok(spelling(feature).includes("case x in x)"));
+          assert.ok(spelling(feature).includes("esac"));
+        }
+        if (feature.body.includes("subshell")) assert.ok(spelling(feature).includes("(printf x)"));
+        if (feature.body.startsWith("comment-"))
+          assert.ok(
+            spelling(feature).includes(
+              feature.body === "comment-open" ? "# (\nprintf x" : "# )\nprintf x",
+            ),
+          );
+      } else {
+        const dollar = { escaped: "\\$", single: "'$'", double: '"$"' }[feature.protection];
+        const opener = { brace: "{", command: "(", arithmetic: "((" }[feature.opener];
+        assert.ok(spelling(feature).startsWith(dollar + opener));
+      }
+    }
+    const features = boundarySpellings
+      .flatMap((opener) => boundaryBodies.map((body) => ["ambiguity", opener, body, false]))
+      .concat(
+        boundaryProtections.flatMap((protection) =>
+          boundaryOpeners.flatMap((opener) =>
+            (opener === "brace" ? [false, true] : [false]).map((open) => [
+              "protected",
+              opener,
+              protection,
+              open,
+            ]),
+          ),
+        ),
+      );
+    const expected = features.flatMap((feature) =>
+      boundaryContexts.flatMap((context) =>
+        [0, 1, 2, 3].flatMap((depth) =>
+          ["unquoted", "double"].map((mode) => feature.concat([context, depth, mode]).join("/")),
+        ),
+      ),
+    );
+    assert.equal(new Set(actual).size, expected.length);
+    assert.deepEqual(actual.sort(), expected.sort());
+    const selected = cases.filter((item) => !item.tags.includes("boundary-guard"));
+    assert.equal(selected.length, 15);
+    assert.equal(
+      selected.filter((item) => item.tags.includes("boundary-selected-literal")).length,
+      9,
+    );
+    assert.equal(selected.filter((item) => item.tags.includes("boundary-arithmetic")).length, 6);
+  });
+}
+
+test("boundary reductions preserve guards, context and protected/ambiguous opener structure", () => {
+  let reduced = 0;
+  for (const item of boundaryCases(1)) {
+    const original = nodesIn(item.node);
+    const feature = original.find((node) => node.kind === "boundary");
+    const guard = original.some((node) => node.kind === "boundary-guard");
+    const context = original.find((node) => node.kind === "boundary-context")?.context;
+    for (const candidate of reductions(item.node)) {
+      if (spelling(candidate).length >= spelling(item.node).length) continue;
+      reduced++;
+      const nodes = nodesIn(candidate);
+      const smaller = nodes.find((node) => node.kind === "boundary");
+      assert.ok(smaller);
+      assert.equal(smaller.form, feature.form);
+      assert.equal(smaller.opener, feature.opener);
+      assert.equal(smaller.protection, feature.protection);
+      assert.equal(smaller.open, feature.open);
+      assert.equal(
+        nodes.some((node) => node.kind === "boundary-guard"),
+        guard,
+      );
+      assert.equal(nodes.find((node) => node.kind === "boundary-context")?.context, context);
+      assert.ok(
+        nodes.filter((node) => node.kind === "boundary-nest").length <=
+          original.filter((node) => node.kind === "boundary-nest").length,
+      );
+      assert.ok(bound(candidate) <= 128);
+    }
+  }
+  assert.ok(reduced > 600);
 });
 
 test("all fields observers have a leading fixed argument, including empty alternatives", () => {
@@ -117,8 +253,33 @@ test("all fields observers have a leading fixed argument, including empty altern
     "arithmetic-keyword-boundary",
     "inactive-arithmetic-boundary",
     "arithmetic-parenthesis-boundary",
+    "inactive-subshell-case-boundary",
+    "inactive-escaped-dollar-boundary",
   ])
     assert.ok(tags.has(tag), tag);
+});
+
+test("boundary syntax failures remain valid scored fixture observations", () => {
+  const fixture = fixtureFor();
+  for (const entry of fixture.cases) {
+    if (entry.case.tags.includes("boundary-guard")) entry.bash.status = 2;
+  }
+  assert.equal(
+    validateFixture("shell-braces-seed-1.json", fixture, options).length,
+    fixture.cases.length,
+  );
+  assert.ok(
+    matches(
+      result({ status: 2, stdout: Buffer.alloc(0) }),
+      result({ status: 2, stdout: Buffer.alloc(0) }),
+    ),
+  );
+  assert.ok(
+    !matches(
+      result({ status: 2, stdout: Buffer.alloc(0) }),
+      result({ status: 0, stdout: Buffer.alloc(0) }),
+    ),
+  );
 });
 
 test("exact stdout and status decide matches, not stderr", () => {
@@ -166,11 +327,11 @@ test("structural reductions preserve brace trees and lower spelling length", () 
 test("strict fixture validator accepts complete synthetic in-memory observations", () => {
   assert.equal(
     validateFixture("shell-braces-seed-1.json", fixtureFor(), options).length,
-    fixedCases().length,
+    fixedCases().length + boundaryCases(1).length,
   );
   assert.equal(
     validateFixture("shell-braces-seed-42.json", fixtureFor(42), options).length,
-    fixedCases().length,
+    fixedCases().length + boundaryCases(1).length,
   );
 });
 

@@ -29,10 +29,10 @@ This supersedes plan 001's choice of Brush, its fallback of forking Bashkit, and
 The scoreboard is `npm run compat`: GNU bash 5.3 is the oracle, a case passes when stdout bytes and exit status match, and the interpreter score uses builtins-only cases. Targets to pass, in order:
 
 | Builtins-only corpus | Cases | Brush (browser) | Bashkit source |
-| --- | ---: | ---: | ---: |
-| Oils | 1,682 | 78.4% | 95.4% |
-| Brush suite | 1,889 | 70.8% | 84.1% |
-| Bashkit suite | 2,223 | 82.1% | 96.2% |
+| -------------------- | ----: | --------------: | -------------: |
+| Oils                 | 1,682 |           78.4% |          95.4% |
+| Brush suite          | 1,889 |           70.8% |          84.1% |
+| Bashkit suite        | 2,223 |           82.1% |          96.2% |
 
 Brush's numbers after the `$$` fix are 78.5%, 71.2% and 82.3%. The held-out rows are the honest comparison: Bashkit was tuned against Oils and its own suite.
 
@@ -53,13 +53,14 @@ Rules for climbing:
 1. **Engine on real browser workers.** This gate is mandatory before step 6 replaces Brush. Steps 2 and 3 may proceed with tested `ProcessHost` stand-ins, as approved by the owner on 2026-10-16. The interpreter runs on one async executor in one worker: every pipeline stage, subshell and background job is a task. Shell I/O never blocks; the executor parks only when no task can run, and wakes on I/O readiness, child exit or interrupt. File descriptors are a table of reference-counted endpoints: subshells and stages share open endpoints, never copies, so EOF and EPIPE follow the last close. Pipes are bounded (the proof used 32 KiB). Bounded pipes alone do not bound memory: define limits and backpressure, spilling or explicit failure at the terminal and worker queues, command captures, substitutions and accumulating utilities. Command dispatch, loops, expansions and in-process utilities run with bounded work budgets, explicit yields and interrupt checks, because a task that never waits on I/O would otherwise starve every other task. Child processes go through a process-host interface (spawn with argv, environment, cwd and descriptor bindings; wait; kill; nonblocking readiness and exit notifications), implemented on the shared runtime from plan 001 step 2. Until that lands it may use this repository's current process imports, but only after generalizing that host: today it tracks one active child and passes no arbitrary descriptor bindings, so it cannot run Bun-to-Bun pipelines or the inherited-descriptor test. Define the guest-visible broken-pipe contract with the runtime: a child killed by a closed pipe reports 141, but a guest that handles EPIPE keeps its own exit status.
 
 Step 1 includes the minimum production semantics, fixture commands and session interface these tests need (simple functions, redirects, a few builtins). Later steps broaden that implementation; steps 2 and 3 can use the native/WASI stand-ins while this browser gate remains open. Acceptance, in the browser:
-   - commit `/work/reports/browser-shell-research/pipelines.acceptance.spec.ts` under `tests/`, change it to select the new engine explicitly and assert which engine is running (Brush is still the default), then pass all sixteen tests across its seven scenarios with real `bun` children: live ticker through `grep`, more than 1 MiB in all four builtin/external pairings, Ctrl+C, `pipefail` and `PIPESTATUS`, early reader exit, state inheritance, backpressure;
-   - Ctrl+C reaches the shell while WASM is running (a shared interrupt word, not a message), interrupts the foreground job and its descendants, confirms their exits, and leaves unrelated background jobs running; shell shutdown cleans up the whole session;
-   - an always-ready background loop (`while :; do :; done &`) does not stop foreground commands from responding;
-   - a guest that handles EPIPE and exits with its own status keeps that status;
-   - a slow terminal and an accumulating consumer stay within the defined memory bounds;
-   - a non-standard descriptor (`3>&1`, `exec 4<file`) is inherited by a child;
-   - `bun dev &` returns to the prompt, keeps streaming, and the next command can `kill %1` or `wait` for it.
+
+- commit `/work/reports/browser-shell-research/pipelines.acceptance.spec.ts` under `tests/`, change it to select the new engine explicitly and assert which engine is running (Brush is still the default), then pass all sixteen tests across its seven scenarios with real `bun` children: live ticker through `grep`, more than 1 MiB in all four builtin/external pairings, Ctrl+C, `pipefail` and `PIPESTATUS`, early reader exit, state inheritance, backpressure;
+- Ctrl+C reaches the shell while WASM is running (a shared interrupt word, not a message), interrupts the foreground job and its descendants, confirms their exits, and leaves unrelated background jobs running; shell shutdown cleans up the whole session;
+- an always-ready background loop (`while :; do :; done &`) does not stop foreground commands from responding;
+- a guest that handles EPIPE and exits with its own status keeps that status;
+- a slow terminal and an accumulating consumer stay within the defined memory bounds;
+- a non-standard descriptor (`3>&1`, `exec 4<file`) is inherited by a child;
+- `bun dev &` returns to the prompt, keeps streaming, and the next command can `kill %1` or `wait` for it.
 
 2. **Scoreboard.** Add the new shell as an engine in `scripts/bash-compat.mjs`, run all three corpora, commit the fixed GNU bash observations and baseline, and wire the exact-count comparison into CI. Target-branch baseline comparison must prevent lowering the candidate baseline from concealing a regression. Expect a low first score; the point is the number. This step can use tested native/WASI process-host stand-ins. The first fixed baseline is 288/1,682 Oils, 295/1,888 Brush-suite and 445/2,222 Bashkit-suite; two fresh GNU bash nondeterminism exclusions reduce the secondary denominators. Exact category counts and case outcomes are committed in `docs/evidence/own-shell-baseline.json`. The historical Brush targets above use their earlier case sets and must be rescored under the same fixed identity before comparison. Candidate baselines must match current per-case pass membership, including gains, while target-branch comparison enforces corpus nonregression.
 
@@ -127,11 +128,11 @@ Run all native/WASI word tests, regenerate word fixtures 1/42 independently and
 diff byte-for-byte, and require zero lost fixed-corpus cases. Own and clean any
 task-created targets and scratch under the usual lane rules.
 
-
 ## Next word unit: ANSI-C operands and two-phase parameter extraction
 
 Status: Approved. This is the **very next unit after brace expansion merges**,
-before the IFS storage-admission follow-up above. It is not a CI exemption.
+including the IFS storage-admission follow-up above before adding allocation
+paths. It is not a CI exemption.
 
 Brace controls exposed an existing scalar-parameter bug, independent of braces.
 The first reproduction is:
@@ -176,7 +177,6 @@ patches or raw decoded-text insertion into the outer shell grammar. Inspect
 from later extraction, preserve storage/work/raw admission and cancellation,
 regenerate all affected fixtures with independent byte comparison, and run the
 full native/WASI suites and per-case score ratchet before pushing.
-
 
 ## Follow-up: redirect word expansion contexts
 
