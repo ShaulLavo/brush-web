@@ -1,13 +1,19 @@
 //! Original structural brace expansion. Shell parts stay opaque and borrowed:
 //! only unquoted source literal characters can be delimiters. No private Unicode
 //! placeholders or recursive AST clones are used.
-use super::{Cancel, Error, Word, Work, admit_string_growth, admit_vec_slot};
+use super::{Cancel, Error, Word, Work, admit_string_growth, admit_vec_exact, admit_vec_slot};
 use shell_parser::parser::WordPart;
 use std::borrow::Cow;
 
 enum Piece<'a> {
     Source(&'a str),
     Text(Cow<'a, str>, bool),
+}
+
+/// Storage admitted for a vector's buffer (`admit_vec_slot` charges exactly
+/// its capacity), returned when the vector is dropped.
+fn vec_bytes<T>(value: &Vec<T>) -> usize {
+    value.capacity().saturating_mul(std::mem::size_of::<T>())
 }
 
 /// Brace expansion needs an unquoted literal `{`. Words without one skip the
@@ -136,6 +142,7 @@ async fn alternatives<'a>(
             return Err(2.into());
         }
         let mut result = Vec::new();
+        let comma_bytes = vec_bytes(&commas);
         for end in commas.into_iter().chain(std::iter::once(body.len())) {
             work.checkpoint(cancel).await?;
             let mut alternative = Vec::new();
@@ -144,6 +151,7 @@ async fn alternatives<'a>(
             result.push(alternative);
             start = end + 1;
         }
+        work.release_storage(comma_bytes);
         return Ok(Some(result));
     }
     let mut source = String::new();
@@ -161,13 +169,17 @@ async fn alternatives<'a>(
             source.push(ch);
         }
     }
-    let Some(range) = range(&source) else {
+    let range = range(&source);
+    work.release_storage(source.capacity());
+    drop(source);
+    let Some(range) = range else {
         return Ok(None);
     };
     if range.count > limit as u128 {
         return Err(2.into());
     }
     let mut result = Vec::new();
+    admit_vec_exact(&mut result, range.count as usize, work)?;
     for index in 0..range.count as usize {
         work.checkpoint(cancel).await?;
         let offset = index as i128 * range.step as i128;
@@ -415,6 +427,9 @@ pub(super) async fn variants(
     let Some(source) = word.raw.as_deref() else {
         return Ok(None);
     };
+    // Piece vectors are temporaries: once the spellings exist they are freed,
+    // and their storage returns to the command budget.
+    let start = work.storage_left();
     // A word without any opening brace needs no scanner frame allocation.
     let mut has_open = false;
     for byte in source.bytes() {
@@ -425,6 +440,7 @@ pub(super) async fn variants(
         }
     }
     if !has_open {
+        work.release_storage(start.saturating_sub(work.storage_left()));
         return Ok(None);
     }
     // Ordinary words need neither a piece vector nor a second owned spelling.
@@ -491,6 +507,7 @@ pub(super) async fn variants(
         cursor = end;
     }
     if !has_braces {
+        work.release_storage(start.saturating_sub(work.storage_left()));
         return Ok(None);
     }
     let mut variants = Vec::new();
@@ -500,11 +517,20 @@ pub(super) async fn variants(
     loop {
         let mut changed = false;
         let mut next = Vec::new();
+        // Buffers dropped below were admitted slot by slot; return them as
+        // they are freed so peak, not cumulative, temporary storage counts.
+        let outer_bytes = vec_bytes(&variants);
+        let outer_single = variants.len() == 1;
         for mut pieces in variants {
             work.checkpoint(cancel).await?;
             if let Some((open, close, items)) = group(&mut pieces, limit, work, cancel).await? {
                 changed = true;
                 expanded = true;
+                if outer_single {
+                    // One source word: its items are exactly the next variants.
+                    admit_vec_exact(&mut next, items.len().min(limit), work)?;
+                }
+                let items_bytes = vec_bytes(&items);
                 for item in items {
                     work.checkpoint(cancel).await?;
                     if next.len() >= limit {
@@ -512,15 +538,18 @@ pub(super) async fn variants(
                     }
                     let mut replacement = Vec::new();
                     copy(&mut replacement, &pieces[..open], work, cancel).await?;
+                    let item_bytes = vec_bytes(&item);
                     for piece in item {
                         work.checkpoint(cancel).await?;
                         admit_vec_slot(&mut replacement, work)?;
                         replacement.push(piece);
                     }
+                    work.release_storage(item_bytes);
                     copy(&mut replacement, &pieces[close + 1..], work, cancel).await?;
                     admit_vec_slot(&mut next, work)?;
                     next.push(replacement);
                 }
+                work.release_storage(items_bytes.saturating_add(vec_bytes(&pieces)));
             } else {
                 if next.len() >= limit {
                     return Err(2.into());
@@ -529,17 +558,24 @@ pub(super) async fn variants(
                 next.push(pieces);
             }
         }
+        work.release_storage(outer_bytes);
         variants = next;
         if !changed {
             break;
         }
     }
+    let transient = start.saturating_sub(work.storage_left());
     if !expanded {
+        work.release_storage(transient);
         return Ok(None);
     }
     let mut result = Vec::new();
+    admit_vec_exact(&mut result, variants.len(), work)?;
+    // Part of `transient`, returned early as each variant's pieces are freed.
+    let mut released = 0usize;
     for variant in variants {
         let mut raw = String::new();
+        let variant_bytes = vec_bytes(&variant);
         let mut variant = variant.into_iter().peekable();
         while let Some(piece) = variant.next() {
             let value = match &piece {
@@ -556,8 +592,12 @@ pub(super) async fn variants(
                 raw.push(ch);
             }
         }
+        drop(variant);
+        work.release_storage(variant_bytes);
+        released = released.saturating_add(variant_bytes);
         admit_vec_slot(&mut result, work)?;
         result.push(raw);
     }
+    work.release_storage(transient.saturating_sub(released));
     Ok(Some(result))
 }

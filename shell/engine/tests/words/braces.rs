@@ -326,6 +326,18 @@ fn brace_generated_spelling_and_repeated_copies_need_storage_even_for_tiny_value
 }
 
 #[test]
+fn default_limits_admit_a_ten_thousand_word_range() {
+    // Bash expands `{0..10000}` for a builtin; peak, not cumulative, temporary
+    // storage is charged, so the default command budget holds it.
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("args {0..10000}"), 0);
+    let calls = rig.calls.borrow();
+    assert_eq!(calls[0].len(), 10_001);
+    assert_eq!(calls[0].first().map(String::as_str), Some("0"));
+    assert_eq!(calls[0].last().map(String::as_str), Some("10000"));
+}
+
+#[test]
 fn brace_scanning_range_emission_and_products_cooperate_with_cancellation() {
     for word in [
         format!("{{{},tail}}", "x".repeat(24_000)),
@@ -336,8 +348,11 @@ fn brace_scanning_range_emission_and_products_cooperate_with_cancellation() {
             "x".repeat(12_000)
         ),
     ] {
+        // Admissible but long: exact reservations reject an oversized range
+        // up front, so the budget lets each word run until interrupted.
         let rig = Rig::new(Limits {
             arguments: 60_000,
+            expansion_bytes: 8 * 1024 * 1024,
             ..Limits::default()
         });
         rig.variable("scope", "outside");

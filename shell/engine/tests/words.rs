@@ -1989,9 +1989,11 @@ fn vanished_words_do_not_consume_argument_capacity() {
 
 #[test]
 fn aggregate_work_is_bounded_even_when_every_expansion_disappears() {
+    // Command work is source + expansion bytes + one step per argument slot.
     let rig = Rig::new(Limits {
         source_bytes: 256,
         expansion_bytes: 128,
+        arguments: 4096,
         ..Limits::default()
     });
     rig.variable("v", &" ".repeat(128));

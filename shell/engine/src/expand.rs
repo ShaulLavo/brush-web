@@ -181,6 +181,14 @@ impl Work {
         self.storage_remaining -= bytes;
         Ok(())
     }
+    fn storage_left(&self) -> usize {
+        self.storage_remaining
+    }
+    /// Return storage admitted for a temporary once it has been dropped. Only
+    /// freed memory: retained values stay charged for the whole command.
+    fn release_storage(&mut self, bytes: usize) {
+        self.storage_remaining = self.storage_remaining.saturating_add(bytes);
+    }
     pub(crate) fn consume_scalar_field(&mut self) {
         self.fields_remaining = self.fields_remaining.saturating_sub(1);
     }
@@ -220,6 +228,21 @@ fn admit_string_growth(value: &mut String, bytes: usize, work: &mut Work) -> Res
     work.admit_storage(capacity - value.capacity())?;
     value
         .try_reserve_exact(capacity - value.len())
+        .map_err(|_| Error::Status(2))
+}
+
+/// Admit and reserve room for exactly `total` elements when the count is
+/// known, instead of doubling (which can charge almost twice the need).
+fn admit_vec_exact<T>(value: &mut Vec<T>, total: usize, work: &mut Work) -> Result<(), Error> {
+    if total <= value.capacity() {
+        return Ok(());
+    }
+    let bytes = (total - value.capacity())
+        .checked_mul(std::mem::size_of::<T>())
+        .ok_or(2)?;
+    work.admit_storage(bytes)?;
+    value
+        .try_reserve_exact(total - value.len())
         .map_err(|_| Error::Status(2))
 }
 
@@ -1850,10 +1873,29 @@ async fn expand(
         .await;
     };
     let mut values = Vec::new();
+    // Usually one field per spelling; more fields still grow by doubling.
+    admit_vec_exact(&mut values, variants.len().min(max_fields), work)?;
     let mut bytes_remaining = max_bytes;
+    // The generated spellings move into `values`; their vector is freed below.
+    let spelling_slots = variants
+        .capacity()
+        .saturating_mul(std::mem::size_of::<String>());
     for variant in variants {
         work.checkpoint(cancel).await?;
         if variant.is_empty() {
+            continue;
+        }
+        if plain_literal(&variant, work, cancel).await? {
+            // One field, exactly as the reparse would produce it. The variant
+            // was already admitted when it was generated; only its output and
+            // argument slot are new.
+            raw_remaining = raw_remaining.checked_sub(variant.len()).ok_or(2)?;
+            bytes_remaining = bytes_remaining.checked_sub(variant.len()).ok_or(2)?;
+            if values.len() >= max_fields {
+                return Err(2.into());
+            }
+            admit_vec_slot(&mut values, work)?;
+            values.push(variant);
             continue;
         }
         work.admit_parse(variant.len(), cancel).await?;
@@ -1930,7 +1972,26 @@ async fn expand(
             values.push(value);
         }
     }
+    work.release_storage(spelling_slots);
     Ok(values)
+}
+
+/// A brace variant made only of characters with no meaning to the parser or
+/// to later expansion (no quotes, expansions, operators, blanks, globs, tilde
+/// or braces) is its own single field; it needs no reparse.
+async fn plain_literal(variant: &str, work: &mut Work, cancel: &Cancel) -> Result<bool, Error> {
+    for ch in variant.chars() {
+        work.checkpoint(cancel).await?;
+        if !(ch.is_alphanumeric()
+            || matches!(
+                ch,
+                '_' | '-' | '.' | ',' | '/' | '+' | ':' | '=' | '@' | '%' | '^'
+            ))
+        {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Textual expansion precedes arithmetic parsing, even in skipped branches.

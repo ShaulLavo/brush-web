@@ -36,7 +36,9 @@ impl Default for Limits {
         Self {
             source_bytes: 256 * 1024,
             expansion_bytes: 1024 * 1024,
-            arguments: 4096,
+            // Bash has no builtin argument count limit; expansion_bytes
+            // bounds memory. `{0..10000}` alone needs 10,001 arguments.
+            arguments: 65_536,
             pipeline_stages: 128,
             jobs: 128,
             function_depth: 128,
