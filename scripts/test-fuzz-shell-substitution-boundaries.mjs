@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
@@ -38,6 +39,22 @@ test("seeded generation is deterministic and bounded", () => {
     assert.equal(new Set(cases.map((item) => item.id)).size, cases.length);
     assert.ok(cases.length < 4000);
     for (const item of cases) assert.ok(item.script.length < 4096, item.id);
+  }
+});
+
+test("TERM controls observe the completed job rather than successful kill", () => {
+  const cases = fixedCases();
+  for (const id of ["default-term", "named-term", "numeric-term"]) {
+    const item = cases.find((item) => item.id === "fixed-job-signal-" + id);
+    assert.ok(item);
+    const stdout = execFileSync("/usr/bin/bash", ["--noprofile", "--norc", "-c", item.script], {
+      encoding: "utf8",
+      timeout: 3000,
+      maxBuffer: 4096,
+      stdio: ["ignore", "pipe", "ignore"],
+      env: { PATH: "/usr/bin:/bin", LC_ALL: "C" },
+    });
+    assert.equal(stdout, "wait=143\nstatus=0\n", id);
   }
 });
 

@@ -129,7 +129,9 @@ const finiteSignalJob = "i=0; while ((i < 1000000)); do ((i += 1)); done &";
 function signalSource(kill, observation) {
   const value = observation === "kill" ? "kill_status" : "wait_status";
   const print = observation === "kill" ? "kill" : "wait";
-  return `${finiteSignalJob}; ${kill}; ${value}=$?; wait %1; printf '${print}=%s\\n' \"$${value}\"`;
+  const observed =
+    observation === "kill" ? `${kill}; ${value}=$?; wait %1` : `${kill}; wait %1; ${value}=$?`;
+  return `${finiteSignalJob} ${observed}; printf '${print}=%s\\n' \"$${value}\"`;
 }
 
 const fixedSources = [
