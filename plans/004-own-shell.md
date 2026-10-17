@@ -100,8 +100,9 @@ The runtime itself (plan 001 step 2 and `handoff-runtime.md`), the terminal choi
 
 ## Follow-up: IFS snapshot storage admission
 
-Status: Approved. Fold this into the immediately ordered ANSI-C word unit below,
-before adding more allocation paths. This was found during arithmetic review and predates that PR.
+Status: Approved. Complete this with the post-substitution ANSI-C guard follow-up
+below, before adding more allocation paths; the deferred full cursor is not a
+prerequisite. This was found during arithmetic review and predates that PR.
 
 `Ifs::new` in `shell/engine/src/expand.rs` copies the IFS string and inserts
 characters into a `BTreeSet` without calling `Work::admit_storage`. It checks
@@ -131,9 +132,10 @@ task-created targets and scratch under the usual lane rules.
 
 ## Next word unit: ANSI-C operands and two-phase parameter extraction
 
-Status: Approved. This is the **very next unit after brace expansion merges**,
-including the IFS storage-admission follow-up above before adding allocation
-paths. It is not a CI exemption.
+Status: Approved. Land command/process substitution first and restore the
+control-flow checkpoint. Sequence the full ANSI-C cursor by measured fixed-corpus
+yield as described below; low-yield work is approved for later, not dropped. Finish
+the IFS storage-admission follow-up above before adding allocation paths.
 
 Brace controls exposed an existing scalar-parameter bug, independent of braces.
 The first reproduction is:
@@ -167,7 +169,11 @@ decoded specials (apostrophes, braces, dollars, double quotes, escapes, empty
 text) in **every operator's operand**, both quoted and unquoted, selected and
 unselected. Existing seeds 1/42 do not reach this phase. Run Bash self-controls
 and failing-first comparisons before implementation; retain exact status and
-stdout observations, including Bash failures. No unsupported/CI exemptions.
+stdout observations, including Bash failures. The complete implementation must
+match these controls. While the cursor is deferred, explicitly diagnosed
+unsupported shapes remain separately counted, never converted into passes or
+blanket operator exemptions; Bash failures must also retain their exact oracle
+status/stdout observations.
 
 Implement general **two-phase parameter extraction**, not quote-specific
 patches or raw decoded-text insertion into the outer shell grammar. Inspect
@@ -179,11 +185,180 @@ from later extraction, preserve storage/work/raw admission and cancellation,
 regenerate all affected fixtures with independent byte comparison, and run the
 full native/WASI suites and per-case score ratchet before pushing.
 
+### Two-phase design checkpoint (2026-10-17)
+
+Status: Approved; the complete word-wide cursor is deferred, with no identified
+direct fixed-corpus gains. Land command/process substitution first; only then
+schedule the narrow typed guard below. Preserve these controls and the complete
+design for later, and put the compatibility climb into control flow,
+functions/`set --`, errexit and redirects. Before reopening the full cursor,
+remeasure affected failures in the Oils, Brush and Bashkit lists. Do not preserve
+silently incorrect output or mark unrelated ANSI-C quoting unsupported.
+
+Fixed-corpus yield checked against `docs/evidence/own-shell-oracle.json` and the
+matching `docs/evidence/own-shell-baseline.json` at brace PR #29, commit
+`9b371d4dd098bca90590d9102dff3dd74ef95178`: all 9,221 scripts were screened;
+43 contained both `$'` and `${` and were read individually. Only eight actual
+ANSI-C-in-parameter-operand cases (11 occurrences) exist: one of 2,492 Oils cases,
+one of 2,894 Brush cases and six of 3,835 Bashkit cases. **All eight already pass;
+none covers the vulnerable double-quoted decoded quote/brace/dollar/backslash/NUL
+shapes. At that checkpoint, zero of 4,088 failures was directly attributable to
+this unit.** These are historical screening results, not newly measured gains.
+Therefore defer the complete cursor. **Immediately after command substitution
+lands, fold in a small, narrowly scoped status-2 `unsupported` guard for the
+silently wrong outer-double-quoted decoded quote/brace/NUL shapes.** Preserve the
+eight passing cases and protected quoting contexts, and show only Bash-successful
+controls moving from `MISMATCH` to `UNSUPPORTED`, not to `MATCH`. If Bash errors,
+a guard returning status 2 must remain `MISMATCH` against Bash's actual status and
+stdout; never reclassify a Bash failure as unsupported or invent a successful
+oracle result. This schedules future work, not an implemented guard or a claimed
+score gain. The screening is direct source coverage, not a proof about arbitrary
+text synthesized later with `eval`.
+
+Preserve the passing case IDs: `oils:var-sub-quote:217`,
+`brush-suite:word_expansion/params:53`,
+`bashkit-suite:param-operand-quotes:43`,
+`bashkit-suite:param-operand-quotes:113`, and
+`bashkit-suite:var-op-test:252`, `:271`, `:280`, `:289`. They exercise protected
+trim/replacement patterns, an unquoted default with `}`, and a quoted tab default;
+a blanket ANSI-C-in-parameter rejection would lose useful supported behavior.
+The older multi-engine `docs/evidence/bash-compatibility.json` is not the current
+own-shell failing list. Reproduce the screening by joining oracle/baseline case
+IDs, filtering scripts containing `$'` and `${`, then inspecting source context;
+also check `$` plus escaped-newline before the apostrophe (the sole current case,
+`brush-suite:line_continuation:4`, is top-level ANSI-C, not a parameter operand).
+
+The existing lexer `read_parameter_body` decodes an ANSI-C island into a quoted,
+NUL-protected string. The word parser then commits its operand boundary, and the
+engine sees only a selected operand. Changing just that final operand cannot fix
+this: a decoded close and quote can affect later text in the same original word.
+GNU Bash 5.3.15 controls, checked on this host:
+
+```bash
+v=SET; X='a b'
+printf '<%s>\n' "${v:-$'}\x22'}"$X
+# One field: <SET}a b>
+printf '<%s>\n' "${v:-$'}\x22'}""$X"
+# Two fields: <SET}a> and <b>
+printf '<%s>\n' "${v:-$'}\x22'}" $X
+# Three fields: <SET}>, <a>, <b>. Original word boundaries stay fixed.
+printf '<%s>\n' "${v:-$'}\x22'}"$'\x24X'
+# One field: <SET}'a b'>. Generated quote recipes are not hard protection.
+```
+
+**Phase 1: original shell grammar.** Keep source word/command/redirection
+boundaries authoritative. The lexer consumes each ANSI-C island by its original
+spelling, never feeding decoded punctuation into the shell lexer or its source
+boundary scanner. Retain original quote delimiters, source spans, ANSI-C islands
+and original command-substitution descriptors in an expansion-source payload for
+the complete affected word. Keep `Word.raw` unchanged for printing, braces and
+diagnostics. Distinguish original syntax, genuinely protected literal escapes,
+decoded data and generated quote events with typed provenance, not data bytes.
+Original command bodies still receive eager shell-syntax validation. Dollars
+created by decoding do not introduce new original-script syntax validation.
+
+**Phase 2: word-wide expansion projection.** Use one shared cursor that projects
+an ANSI-C island exactly once using its phase-1 quoting recipe. When execution
+reaches `${`, extract its complete projected boundary before choosing the operand,
+including nested projected parameters. Return the existing parameter operation
+and bounded operand views, evaluate only selected operands, then resume the same
+cursor immediately after the actual projected close. A decoded `}` may leave a
+tail outside the parameter but inside the original word. Quoting of that tail and
+later source text must follow the cursor, not precomputed per-part quote flags.
+Unaffected words may retain the current parsed-parts fast path; the deferred
+payload must be authoritative for affected words, never executed alongside stale
+static parts. Keep existing protected segments and final IFS splitting downstream.
+
+Extraction and selected-operand expansion share provenance and cursor positions,
+not identical quote rules. Apostrophes can participate in boundary matching while
+remaining literal during expansion of an outer-double-quoted default operand.
+Operator disposition matters: `#`, `%`, `^`, `,` patterns and replacement pattern
+and RHS preserve ANSI-C quoting; defaults and substring expressions project
+active decoded syntax. Undocumented `~`/`~~` act like the latter, unlike `^`/`,`.
+
+```bash
+v=abc
+printf '<%s>\n' "${v:-$'\x27'}" # status 1, no stdout, even unselected
+printf '<%s>\n' "${v#$'\x27'}"  # <abc>, status 0
+printf '<%s>\n' "${v/a/$'\x27'}" # <'bc>, status 0
+printf '<%s>\n' "${v~$'\x27'}" # status 1, no stdout
+```
+
+The decoder must preserve an explicit NUL-termination outcome; its current empty
+string result loses a distinction needed by extraction and by the remaining word:
+
+```bash
+v=SET
+printf '<%s>\n' "${v:-$'\x00tail'}" # status 1, no stdout
+printf '<%s>\n' "${v:-$'}\x00tail'}"AFTER # <SET>, status 0
+v=abc; printf '<%s>\n' "${v#$'\x00'}" # <abc>, status 0
+```
+
+Malformed projected extraction fails when execution reaches that expansion, not
+while parsing the script. Bash `-n` accepts these words, an unexecuted `if` branch
+does not fail, and an earlier `printf 'BEFORE\n'` still prints before the error.
+An executed outer `${v:-${u:-$'\x27'}}` fails even if `v=SET`: boundary extraction
+precedes outer operand selection. Preserve source-order expansion side effects;
+do not validate every deferred word/parameter in a script eagerly. Generated
+`$v`, `${…}`, `$((…))` and `$()` may expand, but generated `$'…'` must not trigger
+original ANSI-C decoding again. Decoded separators and redirects stay word data.
+
+**Interim guard implementation:** carry one allocation-free typed feature bit
+from the lexer through `SpannedToken` and parser current-token metadata into
+`Word`. Set it while consuming original-source ANSI-C islands, using an explicit
+`ParameterScan` query for active-double-quoted versus protected operand context.
+The decoder classifies decoded apostrophe, double quote, `}`, backslash, dollar,
+backtick and NUL before truncation; retain `had_decoded_nul`. Do not make this a
+parse error or runtime source reparse. At `expand_one` entry, after the ordinary
+work/cancellation checkpoint and before interpreting parts, return a typed static
+unsupported-feature error rendered as status 2 with the normal source line. The
+guard rejects an affected word atomically: earlier words have already expanded,
+but earlier expansions inside the same rejected word do not run. This conservative
+unsupported contract is distinct from the eventual exact side-effect semantics.
+
+OR the bit when words are appended; preserve it in scalar assignment words and
+bounded brace reparsing. Nested parameter flags accumulate into their containing
+word even across lazy outer operands; opaque command-substitution bodies keep
+independent execution scopes and must not poison their containing words.
+
+Decoded-special detection alone is insufficient. Bash 5.3.15 prints `<B>` for
+`v=A; vfoo=B; printf '<%s>\n' "${u:-$v$'foo'}"`: decoded `foo` can join an earlier
+variable name without containing any structural special itself. Keep the only
+unguarded active-default case a proven simple literal operand: literal text and
+ANSI-C chunks, with no other expansion, quote or escape syntax and no decoded
+specials. Fixed-capacity frame flags for active ANSI presence and other operand
+syntax suffice to reject complicated active operands conservatively. Guard
+active ANSI-C substring operands too: `v=abcdef; printf '<%s>\n' "${v:$'1:2'}"`
+prints `<bc>` in Bash, so decoded arithmetic delimiters also matter. The existing
+quoted tab default remains a supported simple literal; all other seven frozen
+cases remain protected. Do not blanket-disable an operator or ANSI-C quoting.
+
+Implementation points: the source/projection distinction and operator context
+belong beside `ParameterScan` in `shell/parser/src/parser/parameter_scan.rs`;
+`lexer.rs` retains source islands and decoder outcomes; `mod.rs` parameter-token
+parsing accepts extracted typed views; `substring.rs` validates original command
+bodies only; `shell/engine/src/expand/operand.rs` consumes projected views; the
+word dispatcher in `shell/engine/src/expand.rs` selects the authoritative cursor
+before static part iteration. Preserve the existing decoder's byte-run UTF-8,
+unknown-escape and `\c` consumption behavior rather than extending the smaller
+duplicate decoder in `parse_word`.
+
+Both phases share work, storage, raw/output allowances and cancellation. Admit
+piece vectors, decoded buffers, materialized tokens and diagnostics before
+allocation, including extraction of unselected operands. Cursor clones copy
+positions, not buffers; use admitted stable storage and span views to avoid
+quadratic decoding/copying. Keep status 1 malformed extraction distinct from
+status 2 resource/unsupported failures and status 130 cancellation. Verification
+must include original corpus membership, operator/selection/quote matrices,
+whole-word quote crossings, NUL termination, skipped branches, expansion-side
+effects, token/depth limits, native/WASI suites and independent fixture replay.
+
 ## Follow-up: redirect word expansion contexts
 
-Status: Approved. After the immediately ordered ANSI-C unit and the IFS
-admission fix, handle redirect-target contexts separately from scalar assignment
-RHSs. Current `interpreter.rs::redirects` calls `expand::word` (scalar), which
+Status: Approved. After the IFS admission fix, handle redirect-target contexts
+separately from scalar assignment; this may precede the full low-yield ANSI-C
+cursor once unimplemented ANSI-C shapes fail explicitly. Current
+`interpreter.rs::redirects` calls `expand::word` (scalar), which
 intentionally suppresses brace expansion and field splitting. Reproducer:
 `echo hi >/dev/null{1,2}`. Bash 5.3.15 reports an ambiguous redirect/status 1;
 our memory filesystem instead receives a literal `/dev/null{1,2}` filename.
