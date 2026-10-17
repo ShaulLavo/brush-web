@@ -15,7 +15,14 @@
 enum Frame {
     /// Shell code inside `$(` (or `(` nesting within it).
     Code,
+    /// Immediately after `$(`: a second adjacent `(` selects arithmetic.
+    Substitution,
+    /// Arithmetic parens hide shell keywords, comments and heredoc operators.
+    Arithmetic,
+    /// A `${...}` span inside arithmetic or command text.
+    Parameter,
     Single,
+    Ansi,
     Double,
     Backtick,
 }
@@ -50,6 +57,10 @@ struct CodeState {
     /// The next word starts a command.
     cmd_pos: bool,
     cases: Vec<CaseCtx>,
+    /// Operators and heredocs belong to this scope, not nested substitutions.
+    lt_run: usize,
+    arith_at: Option<usize>,
+    pending_heredocs: std::collections::VecDeque<Heredoc>,
 }
 
 /// Longest keyword we need to recognise (`case`, `esac`).
@@ -61,11 +72,15 @@ struct Heredoc {
     strip_tabs: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 enum Mode {
     Normal,
     /// After a backslash: the next char is literal.
-    Escape,
+    Escape {
+        previous: Option<char>,
+    },
+    /// A continuation after `$(` must not hide an arithmetic second `(`.
+    SubstitutionEscape,
     /// `#` comment, until newline.
     Comment,
     /// Reading the word after `<<` / `<<-`.
@@ -74,6 +89,9 @@ enum Mode {
         word: String,
         started: bool,
         quote: Option<char>,
+        /// A `$(...)` inside the delimiter word, scanned by its own scanner
+        /// so quotes, escapes and nested spans cannot end it early.
+        nested: Option<Box<SubstScanner>>,
     },
     /// Inside heredoc bodies; `line` accumulates the current line.
     Body {
@@ -101,12 +119,14 @@ pub struct SubstScanner {
     code: Vec<CodeState>,
     mode: Mode,
     prev: Option<char>,
-    /// `<` chars seen in a row in code context.
-    lt_run: usize,
-    pending_heredocs: Vec<Heredoc>,
-    /// Paren depth at which an arithmetic `((` started in the top code frame;
-    /// `<<` inside it is a shift, not a heredoc.
-    arith_at: Option<usize>,
+    offset: usize,
+    root_arithmetic: Option<usize>,
+    /// Body start offset per code frame (parallel to `code`).
+    starts: Vec<usize>,
+    /// Closed `$(...)` bodies whose enclosing text is all raw (`$((`,
+    /// `${...}` or quotes): no enclosing command parse reaches them, but
+    /// bash parses them as commands with the script.
+    opaque_commands: Vec<(usize, usize)>,
 }
 
 impl Default for SubstScanner {
@@ -117,8 +137,12 @@ impl Default for SubstScanner {
 
 impl SubstScanner {
     pub fn new() -> Self {
+        Self::with_frame(Frame::Substitution)
+    }
+
+    fn with_frame(frame: Frame) -> Self {
         Self {
-            stack: vec![Frame::Code],
+            stack: vec![frame],
             parens: vec![0],
             code: vec![CodeState {
                 cmd_pos: true,
@@ -126,15 +150,52 @@ impl SubstScanner {
             }],
             mode: Mode::Normal,
             prev: None,
-            lt_run: 0,
-            pending_heredocs: Vec::new(),
-            arith_at: None,
+            offset: 0,
+            root_arithmetic: None,
+            starts: vec![0],
+            opaque_commands: Vec::new(),
         }
     }
 
+    /// Process one source scalar. The scanner never buffers or replays source.
     pub fn feed(&mut self, c: char) -> Step {
+        self.offset += c.len_utf8();
+        self.process(c)
+    }
+
+    /// Byte offset just past the last source scalar.
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    /// Byte position of the second `(` when the root opened as `$((`.
+    /// Continuations may precede it. Bash scans such a span as raw arithmetic
+    /// text and never parses it as commands at parse time; whether it expands
+    /// as arithmetic or as a command is [`arithmetic_expression`]'s decision.
+    pub fn arithmetic_start(&self) -> Option<usize> {
+        self.root_arithmetic
+    }
+
+
+    fn process(&mut self, c: char) -> Step {
+        let escaped = match self.mode {
+            Mode::Escape { previous } => Some(previous),
+            Mode::SubstitutionEscape => Some(None),
+            _ => None,
+        };
         let step = self.feed_inner(c);
-        self.prev = Some(c);
+        // A consumed escape is data, never a fresh dollar/quote opener. A
+        // continuation alone preserves the preceding logical character.
+        self.prev = match escaped {
+            Some(previous) => {
+                if c == '\n' {
+                    previous
+                } else {
+                    None
+                }
+            }
+            None => Some(c),
+        };
         step
     }
 
@@ -144,7 +205,14 @@ impl SubstScanner {
 
     fn feed_inner(&mut self, c: char) -> Step {
         match std::mem::replace(&mut self.mode, Mode::Normal) {
-            Mode::Escape => Step::Body,
+            Mode::Escape { .. } => Step::Body,
+            Mode::SubstitutionEscape => {
+                if c != '\n' {
+                    *self.stack.last_mut().expect("substitution frame") = Frame::Code;
+                    self.quote_word();
+                }
+                Step::Body
+            }
             Mode::Comment => {
                 if c == '\n' {
                     self.on_newline();
@@ -154,21 +222,43 @@ impl SubstScanner {
                 Step::Body
             }
             Mode::Body { mut line } => {
+                if c == ')' && self.delimiter_line(&line) {
+                    // Bash, in a command substitution: a line that is the
+                    // delimiter followed by the closing `)` ends the
+                    // here-document ("delimited by end-of-file") and the `)`
+                    // is read again as code.
+                    self.code
+                        .last_mut()
+                        .expect("code state")
+                        .pending_heredocs
+                        .pop_front();
+                    return self.feed_normal(c);
+                }
                 if c != '\n' {
                     line.push(c);
                     self.mode = Mode::Body { line };
                     return Step::Body;
                 }
-                let doc = &self.pending_heredocs[0];
+                let doc = &self.code.last_mut().expect("code state").pending_heredocs[0];
                 let candidate = if doc.strip_tabs {
                     line.trim_start_matches('\t')
                 } else {
                     line.as_str()
                 };
                 if candidate == doc.delimiter {
-                    self.pending_heredocs.remove(0);
+                    self.code
+                        .last_mut()
+                        .expect("code state")
+                        .pending_heredocs
+                        .pop_front();
                 }
-                if !self.pending_heredocs.is_empty() {
+                if !self
+                    .code
+                    .last_mut()
+                    .expect("code state")
+                    .pending_heredocs
+                    .is_empty()
+                {
                     self.mode = Mode::Body {
                         line: String::new(),
                     };
@@ -180,7 +270,46 @@ impl SubstScanner {
                 mut word,
                 started,
                 quote,
+                mut nested,
             } => {
+                // A `$(...)` in the delimiter is part of its word (bash reads
+                // the word with its substitutions; the body line matches the
+                // literal text).
+                if quote.is_none() && (nested.is_some() || (c == '(' && word.ends_with('$'))) {
+                    word.push(c);
+                    match nested.as_mut() {
+                        None => nested = Some(Box::new(SubstScanner::new())),
+                        Some(scanner) => {
+                            if scanner.feed(c) == Step::Close {
+                                nested = None;
+                            }
+                        }
+                    }
+                    self.mode = Mode::Delimiter {
+                        strip_tabs,
+                        word,
+                        started: true,
+                        quote,
+                        nested,
+                    };
+                    return Step::Body;
+                }
+                if quote == Some('\\') {
+                    // An escaped character is part of the delimiter word, even
+                    // a metacharacter (`<<foo\)` waits for the line `foo)`);
+                    // an escaped newline is a continuation.
+                    if c != '\n' {
+                        word.push(c);
+                    }
+                    self.mode = Mode::Delimiter {
+                        strip_tabs,
+                        word,
+                        started: true,
+                        quote: None,
+                        nested,
+                    };
+                    return Step::Body;
+                }
                 if let Some(q) = quote {
                     if c != q {
                         word.push(c);
@@ -191,6 +320,7 @@ impl SubstScanner {
                         word,
                         started: true,
                         quote,
+                        nested: None,
                     };
                     return Step::Body;
                 }
@@ -200,6 +330,7 @@ impl SubstScanner {
                         word,
                         started: false,
                         quote: None,
+                        nested: None,
                     };
                     return Step::Body;
                 }
@@ -209,6 +340,7 @@ impl SubstScanner {
                         word,
                         started,
                         quote: None,
+                        nested: None,
                     };
                     return Step::Body;
                 }
@@ -216,10 +348,14 @@ impl SubstScanner {
                     c.is_whitespace() || matches!(c, ';' | '|' | '&' | '(' | ')' | '<' | '>');
                 if ends {
                     if !word.is_empty() {
-                        self.pending_heredocs.push(Heredoc {
-                            delimiter: word,
-                            strip_tabs,
-                        });
+                        self.code
+                            .last_mut()
+                            .expect("code state")
+                            .pending_heredocs
+                            .push_back(Heredoc {
+                                delimiter: word,
+                                strip_tabs,
+                            });
                     }
                     // The terminator is ordinary code: reprocess it.
                     return self.feed_inner(c);
@@ -230,17 +366,27 @@ impl SubstScanner {
                         word,
                         started: true,
                         quote: Some(c),
+                        nested: None,
                     };
                     return Step::Body;
                 }
-                if c != '\\' {
-                    word.push(c);
+                if c == '\\' {
+                    self.mode = Mode::Delimiter {
+                        strip_tabs,
+                        word,
+                        started: true,
+                        quote: Some('\\'),
+                        nested,
+                    };
+                    return Step::Body;
                 }
+                word.push(c);
                 self.mode = Mode::Delimiter {
                     strip_tabs,
                     word,
                     started: true,
                     quote: None,
+                    nested: None,
                 };
                 Step::Body
             }
@@ -248,8 +394,26 @@ impl SubstScanner {
         }
     }
 
+    fn delimiter_line(&self, line: &str) -> bool {
+        let Some(doc) = self.code.last().and_then(|st| st.pending_heredocs.front()) else {
+            return false;
+        };
+        let candidate = if doc.strip_tabs {
+            line.trim_start_matches('\t')
+        } else {
+            line
+        };
+        candidate == doc.delimiter
+    }
+
     fn on_newline(&mut self) {
-        if !self.pending_heredocs.is_empty() {
+        if !self
+            .code
+            .last_mut()
+            .expect("code state")
+            .pending_heredocs
+            .is_empty()
+        {
             self.mode = Mode::Body {
                 line: String::new(),
             };
@@ -258,6 +422,36 @@ impl SubstScanner {
 
     fn feed_normal(&mut self, c: char) -> Step {
         match self.top() {
+            Frame::Substitution => {
+                if c == '\\' {
+                    self.mode = Mode::SubstitutionEscape;
+                    return Step::Body;
+                }
+                *self.stack.last_mut().expect("substitution frame") = if c == '(' {
+                    let start = self.offset - c.len_utf8();
+                    if self.stack.len() == 1 {
+                        self.root_arithmetic = Some(start);
+                    }
+                    Frame::Arithmetic
+                } else {
+                    Frame::Code
+                };
+                // The consumed dollar opener is outside this scope.
+                self.prev = None;
+                self.feed_normal(c)
+            }
+            Frame::Arithmetic => self.feed_arithmetic(c),
+            Frame::Parameter => self.feed_parameter(c),
+            Frame::Ansi => {
+                if c == '\\' {
+                    self.mode = Mode::Escape {
+                        previous: self.prev,
+                    };
+                } else if c == '\'' {
+                    self.stack.pop();
+                }
+                Step::Body
+            }
             Frame::Single => {
                 if c == '\'' {
                     self.stack.pop();
@@ -266,11 +460,16 @@ impl SubstScanner {
             }
             Frame::Double => {
                 match c {
-                    '\\' => self.mode = Mode::Escape,
+                    '\\' => {
+                        self.mode = Mode::Escape {
+                            previous: self.prev,
+                        }
+                    }
                     '"' => {
                         self.stack.pop();
                     }
                     '(' if self.prev == Some('$') => self.push_code(),
+                    '{' if self.prev == Some('$') => self.stack.push(Frame::Parameter),
                     '`' => self.stack.push(Frame::Backtick),
                     _ => {}
                 }
@@ -278,7 +477,11 @@ impl SubstScanner {
             }
             Frame::Backtick => {
                 match c {
-                    '\\' => self.mode = Mode::Escape,
+                    '\\' => {
+                        self.mode = Mode::Escape {
+                            previous: self.prev,
+                        }
+                    }
                     '`' => {
                         self.stack.pop();
                     }
@@ -291,12 +494,116 @@ impl SubstScanner {
     }
 
     fn push_code(&mut self) {
-        self.stack.push(Frame::Code);
+        self.stack.push(Frame::Substitution);
+        self.starts.push(self.offset);
         self.parens.push(0);
         self.code.push(CodeState {
             cmd_pos: true,
             ..CodeState::default()
         });
+    }
+
+    fn pop_code(&mut self) -> Step {
+        self.parens.pop();
+        self.code.pop();
+        let start = self.starts.pop().expect("code frame start");
+        let frame = self.stack.pop();
+        if self.stack.is_empty() {
+            return Step::Close;
+        }
+        if frame == Some(Frame::Code) && self.raw_context() {
+            self.opaque_commands.push((start, self.offset - 1));
+        }
+        Step::Body
+    }
+
+    /// No enclosing frame is command text (parsed with its own span) or a
+    /// backquote (parsed only when it expands).
+    fn raw_context(&self) -> bool {
+        !self
+            .stack
+            .iter()
+            .any(|frame| matches!(frame, Frame::Code | Frame::Backtick))
+    }
+
+    /// See [`SubstScanner::opaque_commands`] field docs: `(start, end)` byte
+    /// ranges of closed command bodies nested only in raw text.
+    pub fn opaque_commands(&self) -> &[(usize, usize)] {
+        &self.opaque_commands
+    }
+
+    /// At end of input: where bash's first command parse of the unterminated
+    /// span starts (the outermost open command frame), or `None` when only
+    /// raw text is open, whose sole error is the end of input.
+    pub fn unterminated_command_start(&self) -> Option<usize> {
+        let mut code = 0;
+        for frame in &self.stack {
+            match frame {
+                Frame::Code => return Some(self.starts[code]),
+                Frame::Backtick => return None,
+                Frame::Substitution | Frame::Arithmetic => code += 1,
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn feed_arithmetic(&mut self, c: char) -> Step {
+        // Bash gives `$((` arithmetic lexical precedence: balance the whole
+        // raw outer span first, without activating command comments/heredocs.
+        // Nonadjacent final closes may execute as a command subshell, but do
+        // not change that source boundary or allow fallback at source EOF.
+        match c {
+            '\\' => {
+                self.mode = Mode::Escape {
+                    previous: self.prev,
+                }
+            }
+            '\'' => self.stack.push(if self.prev == Some('$') {
+                Frame::Ansi
+            } else {
+                Frame::Single
+            }),
+            '"' => self.stack.push(Frame::Double),
+            '`' => self.stack.push(Frame::Backtick),
+            // Bash's arithmetic matcher (`P_ARITH`) nests `$(` but not `${`:
+            // braces are plain text there and parentheses inside them count.
+            '(' if self.prev == Some('$') => self.push_code(),
+            '(' => *self.parens.last_mut().expect("arithmetic frame") += 1,
+            ')' => {
+                let depth = self.parens.last_mut().expect("arithmetic frame");
+                if *depth == 0 {
+                    return self.pop_code();
+                }
+                *depth -= 1;
+            }
+            _ => {}
+        }
+        Step::Body
+    }
+
+    fn feed_parameter(&mut self, c: char) -> Step {
+        match c {
+            '\\' => {
+                self.mode = Mode::Escape {
+                    previous: self.prev,
+                }
+            }
+            '\'' => self.stack.push(if self.prev == Some('$') {
+                Frame::Ansi
+            } else {
+                Frame::Single
+            }),
+            '"' => self.stack.push(Frame::Double),
+            '`' => self.stack.push(Frame::Backtick),
+            '{' if self.prev == Some('$') => self.stack.push(Frame::Parameter),
+            '(' if self.prev == Some('$') => self.push_code(),
+            '}' => {
+                self.stack.pop();
+            }
+            _ => {}
+        }
+        Step::Body
     }
 
     /// Mark the current word as quoted (a quote or escape starts in code).
@@ -399,9 +706,15 @@ impl SubstScanner {
     }
 
     fn feed_code(&mut self, c: char) -> Step {
-        let lt_run = if c == '<' { self.lt_run + 1 } else { 0 };
-        let heredoc_op = self.lt_run == 2 && c != '<' && self.arith_at.is_none();
-        self.lt_run = lt_run;
+        let lt_run = if c == '<' {
+            self.code.last_mut().expect("code state").lt_run + 1
+        } else {
+            0
+        };
+        let heredoc_op = self.code.last_mut().expect("code state").lt_run == 2
+            && c != '<'
+            && self.code.last_mut().expect("code state").arith_at.is_none();
+        self.code.last_mut().expect("code state").lt_run = lt_run;
         if heredoc_op {
             // `<<` followed by something other than a third `<`.
             self.mode = Mode::Delimiter {
@@ -409,8 +722,14 @@ impl SubstScanner {
                 word: String::new(),
                 started: false,
                 quote: None,
+                nested: None,
             };
             return self.feed_inner(c);
+        }
+        if c == '{' && self.prev == Some('$') {
+            self.quote_word();
+            self.stack.push(Frame::Parameter);
+            return Step::Body;
         }
         let word_char = !c.is_whitespace()
             && !matches!(
@@ -439,11 +758,17 @@ impl SubstScanner {
         match c {
             '\\' => {
                 self.quote_word();
-                self.mode = Mode::Escape;
+                self.mode = Mode::Escape {
+                    previous: self.prev,
+                };
             }
             '\'' => {
                 self.quote_word();
-                self.stack.push(Frame::Single);
+                self.stack.push(if self.prev == Some('$') {
+                    Frame::Ansi
+                } else {
+                    Frame::Single
+                });
             }
             '"' => {
                 self.quote_word();
@@ -459,6 +784,11 @@ impl SubstScanner {
                 self.on_newline();
             }
             '(' => {
+                if self.prev == Some('$') {
+                    self.quote_word();
+                    self.push_code();
+                    return Step::Body;
+                }
                 self.end_word();
                 // The optional `(` before a case pattern is not nesting.
                 if let Some(CasePhase::Pattern { started: false }) = self.case_here() {
@@ -467,16 +797,20 @@ impl SubstScanner {
                 }
                 if let Some(depth) = self.parens.last_mut() {
                     *depth += 1;
-                    if self.prev == Some('(') && self.arith_at.is_none() {
-                        self.arith_at = Some(depth.saturating_sub(2));
+                    if self.prev == Some('(')
+                        && self.code.last_mut().expect("code state").arith_at.is_none()
+                    {
+                        self.code.last_mut().expect("code state").arith_at =
+                            Some(depth.saturating_sub(2));
                     }
                 }
                 self.set_cmd_pos(true);
             }
             ')' => {
                 self.end_word();
-                // `)` ending a case pattern list starts the branch body.
-                if let Some(CasePhase::Pattern { .. }) = self.case_here() {
+                // `)` ending a case pattern list starts the branch body. With
+                // no pattern yet (`;;)`) it is no terminator: bash reports it.
+                if let Some(CasePhase::Pattern { started: true }) = self.case_here() {
                     self.set_case_phase(CasePhase::Body);
                     self.set_cmd_pos(true);
                     return Step::Body;
@@ -484,18 +818,19 @@ impl SubstScanner {
                 let depth = self.parens.last_mut().expect("code frame");
                 if *depth > 0 {
                     *depth -= 1;
-                    if self.arith_at.is_some_and(|at| *depth <= at) {
-                        self.arith_at = None;
+                    if self
+                        .code
+                        .last_mut()
+                        .expect("code state")
+                        .arith_at
+                        .is_some_and(|at| *depth <= at)
+                    {
+                        self.code.last_mut().expect("code state").arith_at = None;
                     }
                     self.set_cmd_pos(false);
                 } else {
                     // Closes this `$(` frame.
-                    self.parens.pop();
-                    self.code.pop();
-                    self.stack.pop();
-                    if self.stack.is_empty() {
-                        return Step::Close;
-                    }
+                    return self.pop_code();
                 }
             }
             ';' | '&' => {
@@ -518,14 +853,65 @@ impl SubstScanner {
     }
 }
 
+/// The arithmetic expression of a resolved `$((...))` body, or `None` when
+/// bash runs the span as a command substitution. `body` is the text between
+/// `$(` and the final `)`; `start` is [`SubstScanner::arithmetic_start`].
+/// Bash requires the text after the inner `(` to end in `)` and, without that
+/// `)`, to balance its parentheses outside quotes (`chk_arithsub`), so
+/// `$((a) + (b))` is a command.
+pub(crate) fn arithmetic_expression(body: &str, start: usize) -> Option<&str> {
+    let expression = body
+        .get(start + 1..)?
+        .trim_end_matches("\\\n")
+        .strip_suffix(')')?;
+    balanced_arithmetic(expression).then_some(expression)
+}
+
+/// Bash `chk_arithsub`: raw parentheses balance outside quotes and escapes.
+fn balanced_arithmetic(text: &str) -> bool {
+    let mut depth = 0usize;
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '(' => depth += 1,
+            ')' => match depth.checked_sub(1) {
+                Some(next) => depth = next,
+                None => return false,
+            },
+            '\\' => {
+                chars.next();
+            }
+            '\'' => {
+                if !chars.by_ref().any(|c| c == '\'') {
+                    break;
+                }
+            }
+            '"' => {
+                // Bash skips a double-quoted string with its nested `$(`,
+                // `${` and backquote spans; reuse the scanner's quote frames.
+                let mut quoted = SubstScanner::with_frame(Frame::Double);
+                for c in chars.by_ref() {
+                    quoted.feed(c);
+                    if quoted.stack.is_empty() {
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
 #[cfg(test)]
 /// Split `s` (the text after `$(`) at the matching `)`: returns the body and
 /// the byte offset just past the `)`, or `None` when unterminated.
 fn split_subst_body(s: &str) -> Option<(&str, usize)> {
     let mut scanner = SubstScanner::new();
-    for (i, c) in s.char_indices() {
+    for c in s.chars() {
         if scanner.feed(c) == Step::Close {
-            return Some((&s[..i], i + 1));
+            let end = scanner.offset();
+            return Some((&s[..end - 1], end));
         }
     }
     None
@@ -611,6 +997,76 @@ mod tests {
             body("case x in x) (echo case);; esac) y"),
             Some("case x in x) (echo case);; esac")
         );
+    }
+
+    #[test]
+    fn dollar_arithmetic_is_not_command_grammar() {
+        for (source, expected) in [
+            ("(1 << 2\n)) rest", "(1 << 2\n)"),
+            ("(case == in)) rest", "(case == in)"),
+            ("(16#ff)) rest", "(16#ff)"),
+            ("(1 + ${u:-')'})) rest", "(1 + ${u:-')'})"),
+            ("(1 + $((2 << 3\n)))) rest", "(1 + $((2 << 3\n)))"),
+            ("(1 + $(echo 2 # ) }\n))) rest", "(1 + $(echo 2 # ) }\n))"),
+        ] {
+            assert_eq!(body(source), Some(expected), "{source}");
+        }
+    }
+
+    #[test]
+    fn arithmetic_candidates_keep_the_raw_outer_boundary() {
+        for (source, expected, suffix) in [
+            ("(printf é) ) suffix", "(printf é) ", " suffix"),
+            (
+                "(case x in x) :;; esac) ) suffix",
+                "(case x in x) :;; esac",
+                " ) suffix",
+            ),
+            (
+                "(# (\nprintf é) ) ) suffix",
+                "(# (\nprintf é) ) ",
+                " suffix",
+            ),
+            ("(# )\nprintf é) suffix", "(# )\nprintf é", " suffix"),
+        ] {
+            assert_eq!(body(source), Some(expected), "{source}");
+            let (_, end) = split_subst_body(source).unwrap();
+            assert_eq!(&source[end..], suffix, "{source}");
+        }
+        for source in ["(printf é # (\n)) suffix", "(# (\nprintf é) ) suffix"] {
+            assert_eq!(body(source), None, "{source}");
+        }
+    }
+
+    #[test]
+    fn escaped_dollars_cannot_introduce_nested_syntax() {
+        for source in [
+            r#"echo "${u:-\${x}") suffix"#,
+            r#"echo "${u:-\$(x}") suffix"#,
+            r#"echo "${u:-\$$(printf x)}") suffix"#,
+            r#"echo "\$(case") suffix"#,
+        ] {
+            let (_, end) = split_subst_body(source).unwrap();
+            assert_eq!(&source[end..], " suffix", "{source}");
+        }
+    }
+
+    #[test]
+    fn arithmetic_continuations_preserve_logical_parens() {
+        for source in ["\\\n(1 << 2\n)) suffix", "(1 << 2)\\\n) suffix"] {
+            let (_, end) = split_subst_body(source).unwrap();
+            assert_eq!(&source[end..], " suffix", "{source}");
+        }
+    }
+
+    #[test]
+    fn process_substitution_fused_opener_matches_raw_parens() {
+        // Bash reads `<((` like `$((`: raw parenthesis matching, so the case
+        // pattern's `)` counts and the span ends after `esac)`.
+        let source = "(case x in x) :;; esac)) suffix";
+        let (body, end) = split_subst_body(source).unwrap();
+        assert_eq!(body, "(case x in x) :;; esac");
+        assert_eq!(&source[end..], ") suffix");
     }
 
     #[test]

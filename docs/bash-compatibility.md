@@ -9,61 +9,61 @@ Reproduce with `npm run compat`. Raw results, one line per case, are in [bash-co
 - **Oracle:** GNU bash 5.3.15(1)-release, run as `bash -c` with empty stdin. Oils' own expected-output annotations are ignored.
 - **Pass:** stdout bytes and exit status identical to bash. Each engine's `$TMP` and `$HOME` paths are normalized first. stderr is recorded but not scored, because error messages legitimately differ. Bash and the engines produced stderr in the same cases (both empty or both non-empty) for 97–99% of passing Oils cases.
 - **Fresh shell per case,** 10-second timeout. Crashes and timeouts count as failures.
-- **Interpreter score versus commands:** bash runs each case once with the full `PATH` and once with only the two test helpers on `PATH`. A case is *builtins-only* when both runs agree. Only builtins-only cases form the interpreter score. Other cases need external commands or start `$SH`. They are reported separately, and a failure is labeled *missing command* when the engine lacks a command bash needed.
+- **Interpreter score versus commands:** bash runs each case once with the full `PATH` and once with only the two test helpers on `PATH`. A case is _builtins-only_ when both runs agree. Only builtins-only cases form the interpreter score. Other cases need external commands or start `$SH`. They are reported separately, and a failure is labeled _missing command_ when the engine lacks a command bash needed.
 - **Determinism:** bash runs each case twice, and cases with differing results are dropped (8 in total).
 - **Helpers:** Oils cases call `argv.py` and `printenv.py`. Bash gets Python 3 equivalents of Oils' Python 2 scripts. The other engines get identical builtins.
 
-| Engine | How it ran |
-| --- | --- |
+| Engine          | How it ran                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Brush (browser) | Pinned Brush plus `patches/brush-browser.patch`, built for `wasm32-wasip1`. A second binary in `rust/brush-browser` (`brush-compat`) builds the same shell as the browser binary, with the same `brush-core`, Bash-mode builtins and browser utilities, but runs a script instead of the interactive editor. It runs under `node:wasi` with an in-memory-like root directory. |
-| Bashkit source | WASM from `npm run build:bashkit` (the `bashkit-terminal` engine), through `Bash.execute` with the workbench options. A thrown parse error counts as status 2. |
-| Bashkit 0.18.2 | Published `@everruns/bashkit-wasm`, same options. |
-| just-bash 3.6.0 | `Bash.exec` with `rawScript` and the workbench's execution limits, all bundled commands. |
-| Brush native | Reference only: the same pinned source built natively, run as `brush -c` with host commands. It separates Brush's interpreter from its browser port. |
+| Bashkit source  | WASM from `npm run build:bashkit` (the `bashkit-terminal` engine), through `Bash.execute` with the workbench options. A thrown parse error counts as status 2.                                                                                                                                                                                                                |
+| Bashkit 0.18.2  | Published `@everruns/bashkit-wasm`, same options.                                                                                                                                                                                                                                                                                                                             |
+| just-bash 3.6.0 | `Bash.exec` with `rawScript` and the workbench's execution limits, all bundled commands.                                                                                                                                                                                                                                                                                      |
+| Brush native    | Reference only: the same pinned source built natively, run as `brush -c` with host commands. It separates Brush's interpreter from its browser port.                                                                                                                                                                                                                          |
 
 ## Corpora and bias
 
-| Corpus | Written by | Used how | Bias |
-| --- | --- | --- | --- |
-| [Oils spec tests](https://github.com/oils-for-unix/oils/tree/bdc8364c253ce921e033bbc2399ea2ce0be41825/spec), pinned in `sources.lock.json` | Oils project | **Primary.** 120 files that compare against bash, 2,492 cases | **Not neutral.** just-bash vendors these files in its test suite. Bashkit runs this suite against real bash as a tracked metric (`just oils-spec`; nine result snapshots on 2026-10-08 and 09 alone). Only Brush is untuned. |
-| Brush `brush-shell/tests/cases/compat` | Brush | Secondary. Cases defined only by a script (2,228 of 2,894) | Home suite for Brush, held out for the others. 601 cases are marked as known Brush failures. |
-| Bashkit `tests/spec_cases/bash` | Bashkit | Secondary. Files ported from Oils or just-bash are dropped (3,825 scored) | Home suite for Bashkit, held out for the others. |
+| Corpus                                                                                                                                     | Written by   | Used how                                                                  | Bias                                                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------------------------------------ | ------------ | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Oils spec tests](https://github.com/oils-for-unix/oils/tree/bdc8364c253ce921e033bbc2399ea2ce0be41825/spec), pinned in `sources.lock.json` | Oils project | **Primary.** 120 files that compare against bash, 2,492 cases             | **Not neutral.** just-bash vendors these files in its test suite. Bashkit runs this suite against real bash as a tracked metric (`just oils-spec`; nine result snapshots on 2026-10-08 and 09 alone). Only Brush is untuned. |
+| Brush `brush-shell/tests/cases/compat`                                                                                                     | Brush        | Secondary. Cases defined only by a script (2,228 of 2,894)                | Home suite for Brush, held out for the others. 601 cases are marked as known Brush failures.                                                                                                                                 |
+| Bashkit `tests/spec_cases/bash`                                                                                                            | Bashkit      | Secondary. Files ported from Oils or just-bash are dropped (3,825 scored) | Home suite for Bashkit, held out for the others.                                                                                                                                                                             |
 
 Excluded Oils files cover interactive editing, history, completion, prompts and bind; job control, cross-process signals, ulimit, umask and times; shell executable flags (`sh-usage`); xtrace, whose output is stderr only; and files with no bash comparison. The JSON lists each file and its reason. Also excluded: 30 Oils cases that read files from the Oils repository, and the Brush harness cases that need arguments, fixture files, a terminal or environment setup.
 
 ## Results: builtins-only (interpreter)
 
-| Oils category | Cases | Brush (browser) | Bashkit source | Bashkit 0.18.2 | just-bash | Brush native |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Quoting and word splitting | 73 | 91.8% | 97.3% | 63% | 93.2% | 93.2% |
-| Parameter expansion | 173 | 69.9% | 92.5% | 53.2% | 86.1% | 69.9% |
-| Brace expansion | 53 | 96.2% | 94.3% | 56.6% | 96.2% | 98.1% |
-| Arithmetic | 116 | 83.6% | 96.6% | 59.5% | 93.1% | 83.6% |
-| Arrays and assoc arrays | 127 | 66.9% | 95.3% | 29.1% | 87.4% | 67.7% |
-| Assignment, scope and special vars | 109 | 77.1% | 93.6% | 55% | 80.7% | 78% |
-| Command substitution and subshells | 25 | 92% | 100% | 80% | 100% | 92% |
-| Globbing and extglob | 76 | 92.1% | 100% | 55.3% | 77.6% | 92.1% |
-| Conditionals, test, `[[ ]]` and case | 146 | 89.7% | 99.3% | 60.3% | 97.9% | 91.1% |
-| Grammar, functions and control flow | 180 | 86.1% | 95% | 75.6% | 86.7% | 88.3% |
-| Here-docs and redirects | 44 | 81.8% | 95.5% | 65.9% | 95.5% | 90.9% |
-| Pipelines | 12 | 91.7% | 100% | 83.3% | 100% | 91.7% |
-| errexit, options and traps | 164 | 61.6% | 93.9% | 44.5% | 57.3% | 67.1% |
-| echo, printf, read, mapfile, getopts | 147 | 82.3% | 95.2% | 60.5% | 93.2% | 83% |
-| Other builtins (cd, eval, source, type, alias…) | 155 | 65.2% | 94.8% | 47.7% | 80.6% | 71.6% |
-| Real-world idioms (ble.sh, blogs, Nix) | 82 | 78% | 92.7% | 39% | 81.7% | 79.3% |
-| **Oils overall** | **1,682** | **78.4%** | **95.4%** | **55.1%** | **85.3%** | **80.4%** |
-| Brush suite (held out except for Brush) | 1,889 | 70.8% | 84.1% | 55.8% | 68.3% | 76.9% |
-| Bashkit suite (held out except for Bashkit) | 2,223 | 82.1% | 96.2% | 70.8% | 81.3% | 84.6% |
+| Oils category                                   |     Cases | Brush (browser) | Bashkit source | Bashkit 0.18.2 | just-bash | Brush native |
+| ----------------------------------------------- | --------: | --------------: | -------------: | -------------: | --------: | -----------: |
+| Quoting and word splitting                      |        73 |           91.8% |          97.3% |            63% |     93.2% |        93.2% |
+| Parameter expansion                             |       173 |           69.9% |          92.5% |          53.2% |     86.1% |        69.9% |
+| Brace expansion                                 |        53 |           96.2% |          94.3% |          56.6% |     96.2% |        98.1% |
+| Arithmetic                                      |       116 |           83.6% |          96.6% |          59.5% |     93.1% |        83.6% |
+| Arrays and assoc arrays                         |       127 |           66.9% |          95.3% |          29.1% |     87.4% |        67.7% |
+| Assignment, scope and special vars              |       109 |           77.1% |          93.6% |            55% |     80.7% |          78% |
+| Command substitution and subshells              |        25 |             92% |           100% |            80% |      100% |          92% |
+| Globbing and extglob                            |        76 |           92.1% |           100% |          55.3% |     77.6% |        92.1% |
+| Conditionals, test, `[[ ]]` and case            |       146 |           89.7% |          99.3% |          60.3% |     97.9% |        91.1% |
+| Grammar, functions and control flow             |       180 |           86.1% |            95% |          75.6% |     86.7% |        88.3% |
+| Here-docs and redirects                         |        44 |           81.8% |          95.5% |          65.9% |     95.5% |        90.9% |
+| Pipelines                                       |        12 |           91.7% |           100% |          83.3% |      100% |        91.7% |
+| errexit, options and traps                      |       164 |           61.6% |          93.9% |          44.5% |     57.3% |        67.1% |
+| echo, printf, read, mapfile, getopts            |       147 |           82.3% |          95.2% |          60.5% |     93.2% |          83% |
+| Other builtins (cd, eval, source, type, alias…) |       155 |           65.2% |          94.8% |          47.7% |     80.6% |        71.6% |
+| Real-world idioms (ble.sh, blogs, Nix)          |        82 |             78% |          92.7% |            39% |     81.7% |        79.3% |
+| **Oils overall**                                | **1,682** |       **78.4%** |      **95.4%** |      **55.1%** | **85.3%** |    **80.4%** |
+| Brush suite (held out except for Brush)         |     1,889 |           70.8% |          84.1% |          55.8% |     68.3% |        76.9% |
+| Bashkit suite (held out except for Bashkit)     |     2,223 |           82.1% |          96.2% |          70.8% |     81.3% |        84.6% |
 
 On each engine's held-out corpora, Bashkit source scores 84.1% on the Brush suite, against Brush's own 70.8% (browser) and 76.9% (native). Brush scores 82.1% on the Bashkit suite and just-bash 81.3%. just-bash's lead over Brush on Oils mostly disappears on the two corpora it did not import.
 
 ## Results: cases needing external commands
 
-| Corpus | Cases | Brush (browser) | Bashkit source | Bashkit 0.18.2 | just-bash | Brush native |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Oils | 779 | 47.8% | 93.2% | 43.9% | 83.3% | 80.9% |
-| Brush suite | 339 | 33.3% | 72% | 40.1% | 54.6% | 83.2% |
-| Bashkit suite | 1,602 | 12.6% | 94.5% | 61.7% | 59.9% | 94.4% |
+| Corpus        | Cases | Brush (browser) | Bashkit source | Bashkit 0.18.2 | just-bash | Brush native |
+| ------------- | ----: | --------------: | -------------: | -------------: | --------: | -----------: |
+| Oils          |   779 |           47.8% |          93.2% |          43.9% |     83.3% |        80.9% |
+| Brush suite   |   339 |           33.3% |            72% |          40.1% |     54.6% |        83.2% |
+| Bashkit suite | 1,602 |           12.6% |          94.5% |          61.7% |     59.9% |        94.4% |
 
 Most Brush failures here are missing commands (1,623 of its failures across the three corpora). This measures the browser command set, not the interpreter.
 
@@ -100,7 +100,6 @@ Cause: `mapfile` replaces the array through builtin side effects that remove the
 - Category labels group Oils files by subject. Cases inside a file can touch other features.
 - Bashkit and just-bash were tuned against Oils. Treat their Oils numbers as upper bounds, and use the held-out rows for the comparison.
 
-
 ## Own-shell fixed scoreboard
 
 The original `shell-engine` CLI is registered as `own-shell`. Brush is still the
@@ -108,20 +107,20 @@ browser default. The first measured baseline is **288/1,682 Oils, 295/1,888 Brus
 445/2,222 Bashkit-suite**. The historical engine tables above keep their original
 case sets and are not a comparison under this new fixed identity.
 
-| Corpus | Previously classified builtins-only cases | Fresh scored cases | Own-shell passes |
-| --- | ---: | ---: | ---: |
-| Oils | 1,682 | 1,682 | 288 |
-| Brush suite | 1,889 | 1,888 | 295 |
-| Bashkit suite | 2,223 | 2,222 | 445 |
+| Corpus        | Previously classified builtins-only cases | Fresh scored cases | Own-shell passes |
+| ------------- | ----------------------------------------: | -----------------: | ---------------: |
+| Oils          |                                     1,682 |              1,682 |              288 |
+| Brush suite   |                                     1,889 |              1,888 |              295 |
+| Bashkit suite |                                     2,223 |              2,222 |              445 |
 
 The first word-field expansion slice raises the committed baseline without
 changing the fixed identity, eligibility or oracle observations:
 
-| Corpus | Initial passes | Word-field passes | Gained | Lost |
-| --- | ---: | ---: | ---: | ---: |
-| Oils | 288 | 291 | 3 | 0 |
-| Brush suite | 295 | 304 | 9 | 0 |
-| Bashkit suite | 445 | 452 | 7 | 0 |
+| Corpus        | Initial passes | Word-field passes | Gained | Lost |
+| ------------- | -------------: | ----------------: | -----: | ---: |
+| Oils          |            288 |               291 |      3 |    0 |
+| Brush suite   |            295 |               304 |      9 |    0 |
+| Bashkit suite |            445 |               452 |      7 |    0 |
 
 The [measured replay](https://github.com/ShaulLavo/brush-web/actions/runs/38886633355)
 at `1149096` supplies these outcomes. CI also checks fresh pass membership against
@@ -154,24 +153,24 @@ for all 16 Oils subject categories, 120 Brush file categories and 261 Bashkit
 file categories, including categories whose cases are all skipped. Its `counts`
 are recomputed from per-case outcomes when validated. Oils' first scored counts:
 
-| Oils category | Scored cases | Passes |
-| --- | ---: | ---: |
-| Quoting and word splitting | 73 | 38 |
-| Parameter expansion | 173 | 6 |
-| Brace expansion | 53 | 5 |
-| Arithmetic | 116 | 1 |
-| Arrays and assoc arrays | 127 | 5 |
-| Assignment, scope and special vars | 109 | 9 |
-| Command substitution and subshells | 25 | 2 |
-| Globbing and extglob | 76 | 24 |
-| Conditionals, test, [[ ]] and case | 146 | 21 |
-| Grammar, functions and control flow | 180 | 82 |
-| Here-docs and redirects | 44 | 26 |
-| Pipelines | 12 | 9 |
-| errexit, options and traps | 164 | 19 |
-| echo, printf, read, mapfile, getopts | 147 | 14 |
-| Other builtins (cd, eval, source, type, alias...) | 155 | 16 |
-| Real-world idioms | 82 | 11 |
+| Oils category                                     | Scored cases | Passes |
+| ------------------------------------------------- | -----------: | -----: |
+| Quoting and word splitting                        |           73 |     38 |
+| Parameter expansion                               |          173 |      6 |
+| Brace expansion                                   |           53 |      5 |
+| Arithmetic                                        |          116 |      1 |
+| Arrays and assoc arrays                           |          127 |      5 |
+| Assignment, scope and special vars                |          109 |      9 |
+| Command substitution and subshells                |           25 |      2 |
+| Globbing and extglob                              |           76 |     24 |
+| Conditionals, test, [[ ]] and case                |          146 |     21 |
+| Grammar, functions and control flow               |          180 |     82 |
+| Here-docs and redirects                           |           44 |     26 |
+| Pipelines                                         |           12 |      9 |
+| errexit, options and traps                        |          164 |     19 |
+| echo, printf, read, mapfile, getopts              |          147 |     14 |
+| Other builtins (cd, eval, source, type, alias...) |          155 |     16 |
+| Real-world idioms                                 |           82 |     11 |
 
 The fixed set starts from the published case membership in
 `docs/evidence/bash-compatibility.json`, including all excluded and external-case
@@ -301,7 +300,6 @@ are not accepted for this scalar grammar. Replay verifies the generator hash,
 seed-generated case identity, case count, oracle version and timeout before
 running. The separate recorded shell-word gate remains unchanged.
 
-
 ## Scalar arithmetic and substring offsets
 
 PR #28 adds scalar arithmetic expansion, arithmetic commands, `let`, recursive
@@ -310,11 +308,11 @@ Readonly declarations protect scalar writes and preserve local scope.
 Arithmetic expansion errors discard the current read unit and resume at the
 next top-level newline. Completed assignments survive errors and cancellation.
 
-| Corpus | Previous passes | Arithmetic passes | Gained | Lost |
-| --- | ---: | ---: | ---: | ---: |
-| Oils | 380 | 481 | 101 | 0 |
-| Brush suite | 340 | 384 | 44 | 0 |
-| Bashkit suite | 595 | 754 | 159 | 0 |
+| Corpus        | Previous passes | Arithmetic passes | Gained | Lost |
+| ------------- | --------------: | ----------------: | -----: | ---: |
+| Oils          |             380 |               481 |    101 |    0 |
+| Brush suite   |             340 |               384 |     44 |    0 |
+| Bashkit suite |             595 |               754 |    159 |    0 |
 
 The fixed oracle, case sets and environment are unchanged. The [PR CI run](https://github.com/ShaulLavo/brush-web/actions/runs/38975907453)
 at `8caa622` supplies the committed baseline artifact. Its complete pass membership
@@ -324,3 +322,66 @@ Arithmetic seeds 7, 314 and 981 each match 3,674 Bash 5.3.15 cases. Seeds 7 and
 314 are recorded for CI. Readonly seeds 17 and 314 each match 267 cases, and
 27 parser compatibility cases match. Regenerated word fixtures for seeds 1
 and 42 remain byte-identical, with 3,014 cases each.
+
+## Brace expansion: lists and ranges
+
+`npm run fuzz:shell-braces -- --shell /path/to/native/shell-engine` compares
+5,318 cases with installed GNU Bash 5.3.15: 3,000 original generated cases,
+2,031 boundary cases and 287 fixed controls.
+Run both `--seed 1` (default) and `--seed 42`. `--self-control` instead compares
+two fresh Bash processes; `npm run test:fuzz-shell-braces` checks the generator,
+strict process matching and fixture validation without a shell build.
+
+The original bounded grammar pairs quoted/unquoted command words and covers
+nested/adjacent lists, empty alternatives, numeric and ASCII ranges, signed
+padding, step zero, escaped/unmatched delimiters and opaque parameter results.
+A leading fixed `printf '<%s>\\n'` argument distinguishes zero fields from one
+empty field. Arithmetic counters test expansion order and evaluation once per
+generated word; assignment and parameter-operand controls must not brace-expand.
+Arithmetic failures in an older baseline are **MISMATCH**, never exemptions.
+There is no tilde or selected command substitution; fixed controls cover
+inactive command-substitution comments and deeply nested skipped defaults.
+Generated letter ranges stay in one ASCII case: crossing `Z..a` beside `$v` can enter Bash's backtick parsing. An
+isolated cross-case fixed control remains. Cartesian products are capped at 128
+possible fields; engine resource-limit tests remain separate, not literal-output
+fallbacks. Structural shrinking preserves context, quoting and failure status.
+
+A structured boundary matrix systematically combines arithmetic/command-subshell
+ambiguity, case patterns, subshells, comment parentheses and protected dollars
+before parameter/command/arithmetic openers. Ambiguous forms vary one, two or
+three closing parentheses so unmatched raw arithmetic spans remain distinct
+from syntax errors inside a complete command substitution. Every feature crosses
+six enclosing contexts, depths 0–3 and both quoting modes; the original seeded stream is not
+displaced. Command-bearing operands stay inactive, while selected literal and
+arithmetic controls exercise supported execution. Syntax failures are scored,
+not excluded. Shrinking retains boundary kind, protection, context and guards.
+
+The fuzzer never builds. It self-queues through this host's light queue and cleans
+its private run directory (parent: `FUZZ_BRACES_SCRATCH`, else `RUNNER_TEMP`,
+else the OS temporary directory). `--output PATH` keeps exact byte diagnostics.
+`--record PATH` refuses dirty candidate runs and Bash self-controls. Seeds 1/42
+are frozen only after a zero-mismatch native comparison.
+`npm run fuzz:shell-braces:ci -- --shell PATH` replays both fixtures without Bash,
+validating the generator hash, full ordered cases, coverage, seed, Bash version
+family, timeout, status and canonical base64 observations before execution.
+
+The implementation runs on original source before parameter-name parsing, so
+`$v{a,b}` references `va` and `vb`, while `${v}{a,b}` retains its explicit name
+boundary. Quote/escape spans and parameter/arithmetic text stay opaque. Lexical
+line continuations join range fragments and dollar-opened constructs before
+brace recognition, while ANSI-C quotes retain their escape boundaries. Invalid
+enclosing groups do not become new ranges after their children expand. Lists
+and numeric/ASCII-letter ranges preserve order, duplicate/empty alternatives,
+padding and endpoint-directed steps. Scalar assignments and parameter operands
+do not perform brace expansion. Declaration RHSs and redirect targets retain
+the engine's existing scalar behavior; Bash's redirect brace/ambiguity rules
+are an approved follow-up, not claimed here. Pathname and tilde execution stay
+separate.
+
+Borrowed source spans and iterative expansion avoid recursive AST cloning.
+Generated spellings are storage/work admitted before word-only parsing; their
+length does not spend the emitted raw-output budget. All variants share field,
+byte, raw-output and work limits. Resource exhaustion fails before dispatch,
+never as a literal fallback or a partially expanded command. Native and WASI
+regressions cover deep nesting, cancellation, source words above 4 KiB, and
+independent storage and output budgets.

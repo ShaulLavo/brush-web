@@ -39,9 +39,7 @@
     "archiveSha256": "e0a1d49f86d79cbeac93ee1df845be46905e2776465a135c9775066055056420",
     "rust": "1.95.0",
     "wasmBindgen": "0.2.128",
-    "features": [
-      "terminal"
-    ],
+    "features": ["terminal"],
     "wasmOpt": false
   },
   "oils": {
@@ -110,10 +108,7 @@
         "reason": "Expose a standalone parser crate with explicit input, work and cancellation limits."
       },
       {
-        "paths": [
-          "scripts/check-shell-parser.mjs",
-          "plans/004-own-shell.md"
-        ],
+        "paths": ["scripts/check-shell-parser.mjs", "plans/004-own-shell.md"],
         "change": "Replace the source byte-identity requirement with this base-revision and change record. No upstream parser behavior or tests changed.",
         "reason": "The parser is maintained as our own code; fixes may diverge freely from Bashkit."
       },
@@ -147,19 +142,13 @@
         "reason": "Deferred IFS splitting requires the lexical protection of every escaped character, not only escaped glob characters. Quote-removed token text cannot recover that protection or distinguish escaped quote bytes from source quote delimiters. The transport and cursor keep metadata bounded by token length and avoid context-specific raw-source reparsing."
       },
       {
-        "paths": [
-          "shell/parser/src/parser/lexer.rs",
-          "shell/parser/tests/api.rs"
-        ],
+        "paths": ["shell/parser/src/parser/lexer.rs", "shell/parser/tests/api.rs"],
         "classification": "Original ParameterHeader helper and regression tests in the owned Bashkit-derived lexer/API adapter; no additional upstream implementation copied.",
         "change": "Track target-header and subscript context separately for each nested unquoted parameter. Reuse the existing ordinary single-quote handler for brackets in scalar operands rather than treating them as array subscripts. Retain raw single quotes in actual target subscripts, the original literal-escape metadata, quote/escape emission and all upstream assertions. Add controls for all trim operators, nested and malformed bracket patterns, target arrays/lengths, literal apostrophe spans and partial escape protection. Bump parser to 0.0.4.",
         "reason": "Quoted opening/closing braces in basic scalar bracket patterns must stay inside the operand. ParameterHeader frames use the existing nesting ceiling, and each frame transition runs in the already budgeted lexer character loop; no new sentinel or reparsing path is added."
       },
       {
-        "paths": [
-          "shell/parser/src/parser/mod.rs",
-          "shell/parser/tests/api.rs"
-        ],
+        "paths": ["shell/parser/src/parser/mod.rs", "shell/parser/tests/api.rs"],
         "classification": "Original parser boundary correction and regression tests in the owned Bashkit-derived replacement operand scanner.",
         "change": "Stop replacement operands at the outer closing brace while nesting only nested ${...} operands, and keep backslashes literal inside single-quoted spans. Add parser regressions for bare braces and escaped single-quote boundaries with following words. Preserve existing quote, escape, slash and upstream parser behavior.",
         "reason": "Bash replacement operands do not treat bare braces as nested syntax, and backslashes have no escape role inside single quotes. Counting either incorrectly swallows the replacement boundary and can silently change argv or reject a command that Bash accepts."
@@ -186,19 +175,13 @@
         "reason": "Replacement support introduced nested scalar tokens whose literal braces and substitution lookalikes were incorrectly interpreted by the older generic operand boundary readers. Matching boundaries before lazy evaluation must follow the same per-parameter quote context as direct replacement parsing without recursion, candidate strings, reparsing, or a reset depth allowance."
       },
       {
-        "paths": [
-          "shell/parser/src/parser/mod.rs",
-          "shell/parser/tests/api.rs"
-        ],
+        "paths": ["shell/parser/src/parser/mod.rs", "shell/parser/tests/api.rs"],
         "classification": "Original bounded parser corrections in the owned Bashkit-derived parser; no additional upstream code copied.",
         "change": "Recognize ${#:offset:length} as substring of the scalar positional count, not length. Reject remaining same-line tokens after parse_command_list finishes a compound command or its redirects instead of silently accepting a second command without a separator. Retain every upstream assertion; add hash-slice and separator controls. Classify malformed special-parameter length spellings as delayed bad substitutions while retaining valid scalar hash trim and substring headers.",
         "reason": "Arithmetic slice foundations use the existing parser to validate Bash shell-word <(...)/>(...) boundaries; silently accepting (x)+(y) or (x)>=(y) would miss Bash fatal lexical errors. State scalar/special/positional interfaces remain the semantic source."
       },
       {
-        "paths": [
-          "shell/parser/src/parser/mod.rs",
-          "shell/parser/tests/api.rs"
-        ],
+        "paths": ["shell/parser/src/parser/mod.rs", "shell/parser/tests/api.rs"],
         "classification": "Original explicit shell-body validation option and regression tests; no additional upstream implementation copied.",
         "change": "Limit the arithmetic separator check to Parser::with_strict_command_separators. Captured shell-body validation opts in, and nested command parsers inherit the policy. Preserve the original public parse default and keep every strict separator assertion through the explicit entrypoint. Propagate process-substitution syntax failures only during strict validation. Add default-policy and nested command/process-substitution controls.",
         "reason": "The engine parses a whole script before executing alias or shopt changes. Applying the new shell-body separator check globally rejected previously accepted scripts whose command boundaries can change through aliases. Localizing validation avoids introducing incomplete runtime alias support."
@@ -219,16 +202,70 @@
         "reason": "Substring text has an outer word-reading pass and a later brace-extraction pass. Arithmetic substitutions are opaque to the former; invalid shell grammar must retain Bash fatal status 127 or 1 at the correct stage, including skipped defaults and unused functions, without test-case or prefix heuristics."
       },
       {
-        "paths": [
-          "shell/parser/src/parser/mod.rs",
-          "shell/parser/tests/api.rs"
-        ],
+        "paths": ["shell/parser/src/parser/mod.rs", "shell/parser/tests/api.rs"],
         "classification": "Original arithmetic field delimiter correction; no additional upstream implementation copied.",
         "change": "Ignore parentheses, braces, colons and question marks inside quoted or escaped portions while finding a substring offset or length boundary. Retain raw quote spelling for lazy operand evaluation. Add direct AST and Bash differential regression controls.",
         "reason": "An unused quoted operand containing an unmatched parenthesis raised the substring field depth and swallowed the enclosing brace, so arithmetic received a spurious closing brace even when the operand was skipped."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/ast.rs",
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/lexical.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/parameter_scan.rs",
+          "shell/parser/src/parser/print_cmd.rs",
+          "shell/parser/src/parser/tokens.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original structural quote-protection and word-phase adapters in the owned Bashkit-derived parser; no additional upstream implementation copied. Base remains everruns/bashkit crates/bashkit/src/parser at 491c3281f668b76d64b15210b8f5d7bf97244be0.",
+        "change": "Replace quoted-glob backslash insertion with existing lexical quote boundaries decoded to literal data and part_quoted flags. Remove obsolete assignment glob-unescaping, preserving real source backslashes, and retain empty quoted prefixes beside brace groups. Retain raw spelling on every word, including the first token and words following function definitions, so brace expansion can run before parameter-name and operand-boundary parsing. Add an admitted, fuel/depth-bounded single-word lexical reparse API with an inert removable prefix; preserve quoted empty results and reject extra tokens or deferred syntax failures without parsing command grammar. Replace the deliberate top-level source-discard assertion with source-retention coverage; update two marker-helper expectations to stop requiring invented backslashes. All other existing assertions retained. Preserve lexical ANSI-C quote boundaries and recognize dollar-opened syntax across removed line continuations; keep quoted literal dollars protected. Keep ANSI-C control escape decoding separate from quote-boundary consumption; add original API controls for escaped apostrophes and continued dollar openers. All prior assertions retained. Expose single-quote parameter-scan context so continuation removal does not change single-quoted data.",
+        "reason": "Brace alternatives must distinguish quoted commas/braces from active punctuation without encoding protection in string data. Brace expansion also precedes variable-name recognition and balanced source ${...} skipping, which the later expansion AST cannot reconstruct. Raw source plus bounded word-only reparsing preserves that phase ordering without changing parameter operand semantics or adding pathname/tilde execution support. Early brace processing also needs the same lexical quote/continuation boundaries as ordinary source words; literal quote protection and source boundaries must survive decoding. Outer-double-quoted ANSI-C operand extraction remains a separate approved follow-up."
+      },
+      {
+        "paths": [
+          "shell/parser/src/limits.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/substring.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original typed-resource adapters and regression tests in the owned Bashkit-derived parser; no additional upstream implementation copied. Parser base remains everruns/bashkit crates/bashkit/src/parser at 491c3281f668b76d64b15210b8f5d7bf97244be0.",
+        "change": "Represent parser fuel, AST/lexical parameter depth, parameter-boundary/command fuel and depth, and conditional-depth failures as typed ResourceLimit errors at their original rejection sites. Preserve public lexer error-token text with sticky typed state and retain existing diagnostic message bodies. Expanded-word reparsing bounds prefix allocation and shares its work allowance across child parsers; sticky resource failures cannot be hidden by earlier deferred syntax errors. Remove parser and engine string-prefix resource classification. Add API controls distinguishing resource failures from generated syntax errors, aggregate child work and deeply nested inactive defaults.",
+        "reason": "Brace-generated words must report resource exhaustion as explicit status 2 while retaining Bash status 1 for generated expansion syntax failures. A lower reparse nesting cap rejected already-accepted inactive operands; ordinary source parsing and generated reparsing now share the initial parser ceiling. Typed origins make this distinction structural rather than dependent on diagnostic wording."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/subst_scan.rs",
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/substring.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original arithmetic-boundary extension to the owned incremental substitution scanner and its parser/lexer call sites; no additional upstream implementation copied. Parser base remains everruns/bashkit crates/bashkit/src/parser at 491c3281f668b76d64b15210b8f5d7bf97244be0.",
+        "change": "Distinguish arithmetic substitution parentheses from command-substitution code, including nested substitutions, rather than treating arithmetic identifiers as shell keywords or shifts as heredoc operators. Incrementally replay ambiguous arithmetic as command code from a shared source tape, preserving full case/comment/heredoc state and resolved fallback openers. Expose each replay step and EOF fallback to caller work/cancellation admission, retain typed resource errors, and resolve byte-accurate lexer lookahead without consuming suffix text. Protect escaped dollars and keep lexical state per code frame. Process substitutions retain command-only initialization. Add original scanner/API controls for shifts, keyword-shaped arithmetic names, command-subshell ambiguity, protected dollars, continuations, Unicode offsets and replay fuel.",
+        "reason": "The brace generator exposed initial-lexer failures in arithmetic inside double quotes or parameter operands. Independent review then identified lost case grammar during ambiguous command-subshell fallback and escaped-dollar boundary errors; the generator now systematically produces the class at bounded nesting depths. Shared structural scanning fixes these distinctions without dropping controls or adding exemptions. Explicit replay work prevents hidden uncancellable rescans and speculative candidate-copy growth."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/subst_scan.rs",
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/substring.rs",
+          "shell/parser/src/parser/ast.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original changes to the owned substitution scanner, lexer and parser; semantics from GNU Bash 5.3 parse.y (parse_comsub, parse_matched_pair with P_ARITH) and subst.c (chk_arithsub), observed against /usr/bin/bash 5.3.15; no upstream code copied. Parser base remains everruns/bashkit crates/bashkit/src/parser at 491c3281f668b76d64b15210b8f5d7bf97244be0.",
+        "change": "Replace the arithmetic-to-command replay with bash's model: a fused $(( or <(( span ends by raw parenthesis matching (quotes and nested $( respected; ${ is plain text inside it), and only then is classified as arithmetic (final inner close plus chk_arithsub balance) or as command text. Command-classified fused bodies that fail to parse become WordPart::UnparsedCommandSubstitution instead of rejecting the script. Every other $( and <( body, including bodies inside ${...} operands and nested in raw $(( text, is parsed with the script; its syntax error is Error::ShellWord (status 127). An unterminated span is 127 when bash's parse of the bodies it already read, or of the outermost open command frame, stops at a token, and the EOF error (2) otherwise. Parser::with_strict_substitution_bodies parses substitution bodies with strict separators while a whole-script top level stays lenient. Nested substitution parses run after each word's scan loop returns, and grammar functions on the recursive path keep temporaries in out-of-line helpers (debug per-level stack about 21 KB to 7 KB). Lexer substitution scanning is charged one work unit per character.",
+        "reason": "The brace generator's boundary matrix (closing-count variants) showed bash rejects or accepts these spans by raw paren matching and reports comsub syntax errors with status 127; the replay accepted comment-hidden parentheses. A stricter hard-depth test overflowed the 2 MiB debug test stack before the AST cap."
       }
     ],
-    "removedUpstreamTests": []
+    "removedUpstreamTests": [
+      {
+        "name": "parser::print_cmd::tests::top_level_words_do_not_keep_source_text",
+        "reason": "Deliberately replaced by top_level_words_keep_source_text_for_early_brace_expansion: brace expansion precedes quote removal and parameter parsing for all source words, not only function-body words. The replacement asserts the retained original spelling."
+      }
+    ]
   },
   "shellScoreboard": {
     "oracleFile": "docs/evidence/own-shell-oracle.json",
@@ -239,9 +276,7 @@
       "oils": {
         "repository": "https://github.com/oils-for-unix/oils",
         "revision": "bdc8364c253ce921e033bbc2399ea2ce0be41825",
-        "paths": [
-          "spec/*.test.sh"
-        ],
+        "paths": ["spec/*.test.sh"],
         "license": "Apache-2.0",
         "licenseFile": "docs/evidence/licenses/oils-LICENSE.txt",
         "licenseSha256": "1908bfaf2f61195b2ca1601deec0e69bc0c6937be21bae18120d655e44c6d501"
@@ -249,9 +284,7 @@
       "brush-suite": {
         "repository": "https://github.com/reubeno/brush",
         "revision": "4cfba081f2f8bcda8150010a57203d020f14f0cc",
-        "paths": [
-          "brush-shell/tests/cases/compat/**/*.yaml"
-        ],
+        "paths": ["brush-shell/tests/cases/compat/**/*.yaml"],
         "license": "MIT",
         "licenseFile": "docs/evidence/licenses/brush-MIT.txt",
         "licenseSha256": "1c2618836a777ebc734928c5a8b3aba0e98a7726d88cb7bdb227c7889e86e902"
@@ -259,13 +292,8 @@
       "bashkit-suite": {
         "repository": "https://github.com/everruns/bashkit",
         "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
-        "paths": [
-          "crates/bashkit/tests/spec_cases/bash/*.test.sh"
-        ],
-        "excludedFiles": [
-          "oils-*",
-          "*just-bash*"
-        ],
+        "paths": ["crates/bashkit/tests/spec_cases/bash/*.test.sh"],
+        "excludedFiles": ["oils-*", "*just-bash*"],
         "license": "MIT",
         "licenseFile": "shell/parser/LICENSE",
         "licenseSha256": "b3e3b2f3fd15c45106e08434a52c5ad9ca97f15a1cc9894ab5b01078124cf613"
@@ -313,9 +341,7 @@
       },
       {
         "path": "crates/bashkit/src/parser/print_cmd.rs",
-        "items": [
-          "normalize_raw_word continuation removal, adapted as a lazy prefix iterator"
-        ]
+        "items": ["normalize_raw_word continuation removal, adapted as a lazy prefix iterator"]
       }
     ],
     "testSources": [
@@ -330,9 +356,7 @@
       "shell/engine/src/state.rs",
       "shell/engine/src/builtins.rs"
     ],
-    "testDestinations": [
-      "shell/engine/tests/words.rs"
-    ],
+    "testDestinations": ["shell/engine/tests/words.rs"],
     "strategy": "Adapt quote-aware literal/basic variable/positional/PIPESTATUS fields, IFS rules, scalar contexts and command-name promotion into the original streaming engine. Structural protection replaces sentinel strings. Declaration syntax requires an unquoted literal command and assignment prefix; retained raw spelling rejects escapes lost by token decoding, using only continuation removal from normalize_raw_word. An original bounded engine adapter uses the unchanged public Lexer raw-capture API for top-level declaration words not retained by the parser; quoted-at words trim leading mixed-IFS delimiters as verified with GNU Bash, diverging from upstream where needed. Cooperative Budget work, intermediate byte/element bounds and aggregate command field/byte limits reject overflow instead of truncating. No parser modifications, general parameter operators, globbing, substitutions, mapfile or output buffering are ported."
   },
   "shellParameterDefaults": {
@@ -381,9 +405,7 @@
       "shell/parser/src/parser/lexer.rs",
       "shell/parser/src/parser/mod.rs"
     ],
-    "testDestinations": [
-      "shell/engine/tests/words.rs"
-    ],
+    "testDestinations": ["shell/engine/tests/words.rs"],
     "strategy": "Adapt only ordinary scalar ${v-word}, ${v:-word}, ${v+word} and ${v:+word}. Preserve unset versus empty and select operands lazily without copying unused values. A cooperative engine scanner streams quote-protected operand pieces into existing Fields; the engine injects no quote sentinels. Single quotes protect unquoted operands and remain literal inside outer double quotes. Reparse only admitted basic-variable or scalar +/- tokens through the unchanged parser API, with at most 4096 UTF-8 bytes per synchronous call and 32 scalar-operator levels. The lexer retains raw operand backslashes in outer double quotes, and nested ${...} remains structural inside literal apostrophe spans. Parser operand and quoted-word boundary scans keep raw escapes and existing lexer protection indivisible. The engine scanner removes escapes once, uses quote context for literal process-substitution lookalikes, and recognizes opaque substitution boundaries without evaluating them; heredoc/comment syntax in those skipped regions fails closed. Simple-command redirects and argv share Work. Cumulative token bytes and eight reserved work steps per parsed byte share the command Work allowance with scanning and expansion; all admission loops yield and check cancellation. Check parsed shape instead of accepting parser literal fallbacks. Large literal operands bypass reparsing and retain existing intermediate/aggregate expansion and argument limits. Tests adapt unset cases by leaving variables absent, observe argv directly, and add lazy nested unsupported operands, quotes, IFS, scalar contexts, budgets, depth, size and cancellation regressions. The existing WASI runner explicitly includes words.rs. Assignment/error operators, arrays/list operands, indirection, pattern operations, globbing, tilde, brace expansion, arithmetic and substitutions remain unsupported when selected. Independent regressions cover escaped dollars, braced variables, quoted process-substitution lookalikes and escaped backticks, including nested, scalar and IFS contexts. Parser changes are recorded under shellParser.changeLog; upstream tests, captured oracle, baseline, mapfile implementation and output buffering remain unchanged."
   },
   "shellParameterEffects": {
@@ -434,9 +456,7 @@
       "shell/engine/src/state.rs",
       "shell/engine/src/interpreter.rs"
     ],
-    "testDestinations": [
-      "shell/engine/tests/words.rs"
-    ],
+    "testDestinations": ["shell/engine/tests/words.rs"],
     "strategy": "Extend the scalar operator selection to ${v=word}, ${v:=word}, ${v?word} and ${v:?word}. Retain only selected assignment/error operands, bounded before growth, using the existing cooperative scanner and shared command Work. Store the unsplit quote-removed value; unlike default operands, inner operand quotes do not protect returned assignment fields. Retain bounded typed text, protected-empty and list-separator segments until word expansion finishes, then split once using post-expansion IFS, including earlier unquoted segments. List separators retain the character selected at expansion time, with a space fallback for @ and unquoted lists. Their boundaries are resolved against final IFS, rather than frozen as groups. Original GNU Bash adaptations protect element/scalar spaces emitted under empty IFS, select word-wide space splitting for positional unquoted * emitted under empty IFS, and apply list-word leading mixed-delimiter rules. Literal IFS protection uses the emission-time IFS, cached with nested-write invalidation and reused at final splitting. A word requests field splitting only for an unquoted expansion or quoted @. Quoted/scalar protection and explicit empty elements remain structural. Adjacent equally protected text shares storage; both collection and splitting spend shared Work and yield for cancellation. Independent GNU Bash regressions cover assignment-updated IFS, mixed quote/list boundaries, field/byte/work rejection and cancellation during the deferred split. Cumulative target/value storage and diagnostic space are admitted before persistent copies. A cancellation-safe prefix frame exposes earlier RHS assignments while completed parameter writes also update the saved caller value, replacing the discarded assignment_state clone. Expand argv first, then apply Bash assignment-only versus named-command redirect/RHS ordering. Typed fatal parameter errors propagate through sequences, AND/OR, loop conditions and function frames; explicit subshells, pipeline stages and background jobs contain them. GNU Bash and frozen observations require top-level/simple-child status 127, compound-body status 1 and explicit-subshell redirect status 127, instead of upstream hardcoded 1. Empty diagnostic operands differ from omitted operands. Diagnostics use the frozen /usr/bin/bash identity and the preparation-stage stderr route, with bounded allocation. Tests add scalar nesting, lazy unsupported skipping, dynamic scope, quote removal/field boundaries, redirected and assignment-only commands, exact frozen diagnostics/stdout/status, child isolation, bounds and cancellation. Prefix-frame destruction is bounded by the admitted argument count and completes restoration synchronously just like FunctionFrame. Existing upstream parser tests remain unchanged. Arrays, positional/list targets and operands, substitutions, arithmetic, patterns, globbing, tilde and brace expansion remain deferred when selected; no output buffering or oracle edits. Measured baseline gains are recorded separately. Diagnostic follow-on: original engine error metadata carries parser-selected optional line anchors through parameter failures. Local parser adaptations record consumed-token end lines and grammar context; multiline simple, brace, subshell, function and while redirect diagnostics follow bounded GNU Bash observations. The parser change and unchanged upstream assertions are recorded in shellParser.changeLog. No status/control-flow, oracle, case-set or baseline changes accompany this correction. Review follow-on: an original interpreter-only CommandError retains the effective stderr endpoint when a later redirect target fails, including an explicitly closed stderr, while prefix-RHS diagnostics retain the original route. Isolated compound redirects use the incoming parameter-error status and switch to body status 1 only after successful redirect preparation. Separate original command preparation/dispatch boundaries finish diagnostics and release all diagnostic-only descriptor owners before external child waits or compound bodies; this repairs the CI EPIPE-before-consumer-exit regression without changing its streaming assertion. Existing source anchors, frames, cancellation, streaming and bounds remain in force; parser, versions, oracle and baseline are unchanged by this follow-on. Original accounting records list-word and splitting modes during the existing part visit instead of rescanning the word. Nonempty emission and split entry use their first character checkpoint; empty, captured and list-separator paths keep explicit checkpoints. Generated separators consume raw UTF-8 bytes before retention and output bytes when emitted. Focused original regressions cover list-before/after IFS writes, quoted/unquoted @/*, zero/empty/multiple elements, protected delimiters, PIPESTATUS, literal protection, nested writes, limits and cancellation. The unchanged shared redirect/argv reparse regression retains its 100-step ceiling and 97-step success. Per-character work in both phases, the command ceiling and the shared argv/redirect parser allowance remain unchanged. Native CI follow-on: absent-IFS observations now explicitly remove the nonexported startup value in the test fixture; separate controls retain normal Bash startup behavior. Original lexer/parser escape metadata preserves emission-time protection of escaped literals without changing the field splitter. Focused engine controls cover partial protection, escaped variable-name boundaries and syntax characters, quote continuations, UTF-8, scalar assignments and stored functions. Existing 136 Bash observations, shared-work limits and cancellation assertions remain unchanged. Original shell-state initialization adapter, verified against clean GNU Bash 5.3.15 startup, seeds nonexported IFS once with space/tab/newline. Later empty, changed and removed values retain ordinary state representation without expansion-time reinitialization. Original state and scalar-operator tests cover startup, export exclusion, lookup and local restoration. The pre-existing seeded-IFS cancellation test is preserved unchanged. Original diagnostic-whitespace correction: clean GNU Bash 5.3.15 C.UTF-8 probes require selected ?/:? operands to expand as independent unquoted words, split unprotected expansion text using final IFS, and join fields with ASCII spaces. Direct literal whitespace and inner quotes retain protection; outer quotes and scalar contexts do not suppress diagnostic splitting. Reuse the bounded structural field splitter and cooperative scanner, with bounded, cancellable joining and unchanged assignment captures, source anchors, status and descriptor ownership. Independent exact engine regressions cover omitted versus explicitly empty operands, unset/null selection, inner/outer quotes, literal versus expanded whitespace, nested defaults/assignments, empty/mixed/Unicode IFS and preparation-stage routing. Existing assertions, upstream tests, frozen oracle/scorer/case set/classifications/exclusions and production limit settings remain unchanged. Integration with merged scalar trim: diagnostics explicitly leave pattern context and scan with outer_quoted/pattern/pattern_source all false; assignment operands keep the merged ordinary pattern_source=false behavior. Shared command work/storage and enclosing trim snapshot charges remain in force. Exact clean Bash controls cover errors selected inside all four trim patterns, trims returned into error messages, source spaces/tabs/newlines versus expansion whitespace, inner versus outer quoting, mixed and empty IFS, and multiline assignment diagnostic anchors. All pre-existing parser/API/word/streaming assertions are retained. Integration advances root to 0.0.21 and engine to 0.0.8 with both locks; parser remains 0.0.4. Fixed score, baseline, oracle and plan measurements are unchanged. Lexical pattern context is separated from inherited pattern snapshot accounting, so diagnostics leave pattern syntax while preserving cumulative snapshot/length admission from enclosing trims. A focused 256-byte regression rejects two 80-byte length inputs plus the existing trim snapshot and diagnostic reserve; ordinary diagnostics also retain buffers, so their scalar and length snapshots require the same pre-copy shared storage admission even outside trims. Fragmented literal/quoted segments plus direct and nested length/scalar expansions have explicit rejection and successful-message controls. P1 allocation follow-on: diagnostic field boundaries now write directly into a single joined buffer through the existing Fields state machine, never retaining internal field Strings or allocating a diagnostic field vector. Diagnostic segment slots/text and joined String capacities share cumulative command storage admission before every allocation/growth, including coexisting buffers; deterministic amortized reservations account spare capacity. A command-wide remaining field ceiling follows argv, declaration scalar fields and reserved assignments into nested diagnostics, rather than max_raw+1. Ordinary argv field storage, IFS/quote boundary decisions, parser/line/routing/frame behavior and configured limits remain unchanged. Joined output retains per-field/per-character cooperative work checkpoints. Focused regressions cover the 256-byte/8-argument/150-colon report, exact remaining-field boundaries after argv/declaration/assignment/scalar/redirect contexts, independent storage rejection and success, no partial dispatch and recovery. Private sink controls verify exact one-byte storage admission boundaries on native/WASI layouts, zero field-vector capacity and cooperative cancellation without a returned partial message. The newly added ordinary diagnostic two-length control now requires storage rejection, matching the retained-buffer contract; all other prior assertions and parser/API/streaming sources are unchanged. Versions, fixed oracle/scorer/baseline and plan measurements remain unchanged. Fresh candidate CI/review is required; no local native/WASI/browser runtime or size/score gain is claimed."
   },
   "shellParameterLength": {
@@ -454,9 +474,7 @@
       },
       {
         "path": "crates/bashkit/src/interpreter/mod.rs",
-        "items": [
-          "expand_variable (ordinary scalar, positive positional, ? and # lookup)"
-        ]
+        "items": ["expand_variable (ordinary scalar, positive positional, ? and # lookup)"]
       }
     ],
     "testSources": [
@@ -470,9 +488,7 @@
       "shell/engine/src/expand.rs",
       "shell/engine/src/expand/operand.rs"
     ],
-    "testDestinations": [
-      "shell/engine/tests/words.rs"
-    ],
+    "testDestinations": ["shell/engine/tests/words.rs"],
     "strategy": "Adapt scalar ${#name}, positive positional, ? and # lengths through the existing state lookup and quote-aware segment path. Admit only exact scalar length tokens in selected lazy operands, preserving token/parse/depth admission and leaving scalar operator targets unchanged. Bound transient input snapshots by intermediate expansion capacity and remaining shared command work before copying, check cancellation before snapshotting, release state borrows before awaits, and checkpoint every input byte. Count UTF-8 leading bytes as Unicode scalar values, including separate combining marks; C/POSIX count bytes. Consult current LC_ALL, LC_CTYPE and LANG in order, skipping empty values. Recognize case-insensitive .UTF-8 and .UTF8 codeset suffixes. All-empty and unrecognized locales use C byte counting, deliberately replacing Bashkit's UTF-8 default; arbitrary locale emulation is deferred. Decimal output uses existing raw/field/byte/work limits and IFS handling. Tests cover locale changes and dynamic scope/restoration, selected and skipped operands, scalar/argv/redirect contexts, quote and IFS boundaries, fail-closed unsupported targets, snapshot/output/field/token/depth/shared-work bounds, cooperative yield and cancellation. Parser files and upstream parser tests are unchanged. No arrays, lists, patterns, nounset, command substitution or arithmetic are ported. Local review correction validates positive decimal target syntax independently of machine index width, including leading zeros, while retaining zero exclusion and the existing selected-token admission cap. Ordinary scalar assignment target validation and state lookup are unchanged; absent out-of-range positional values expand to empty and therefore have length zero."
   },
   "shellParameterTrim": {
@@ -521,10 +537,7 @@
       "crates/bashkit/tests/spec_cases/bash/param-operand-quotes.test.sh:99-104",
       "crates/bashkit/tests/spec_cases/bash/variables.test.sh:79-105"
     ],
-    "testDestinations": [
-      "shell/engine/tests/words.rs",
-      "shell/parser/tests/api.rs"
-    ],
+    "testDestinations": ["shell/engine/tests/words.rs", "shell/parser/tests/api.rs"],
     "strategy": "Adapt only ordinary identifier scalar ${v#pat}, ${v##pat}, ${v%pat}, ${v%%pat}. Resolve the value before pattern side effects; empty and unset values skip the pattern as verified with GNU Bash. Expand selected patterns through the existing recursive scalar machinery with a separate structured character-protection sink: outer quotes protect the returned value; inner quotes and escapes protect pattern characters only. Pattern mode admits literal/*/?/basic bracket syntax, basic variable patterns, supported nested scalar operators and their side effects, without field splitting the pattern. Single quotes in a trim pattern quote text even inside outer double quotes; nested default/assignment/error operands retain their own ordinary quote rules. Unquoted variable backslashes are pattern escapes; quote-boundary escape behavior is represented explicitly, including the distinct bracket rule observed in GNU Bash. Preserve lazy skipped operands and fail closed on selected unsupported syntax and targets. Snapshots are admitted before copying against raw/work/storage bounds, counting checkpoints follow snapshots, and no state borrow crosses an await. Pattern character, atom and state storage share command-wide storage accounting, including vanished results and length inputs nested inside patterns. The original iterative matcher propagates basic-glob states across borrowed UTF-8 character boundaries; suffixes reverse atoms and input traversal, not bracket contents. Every normalization, compilation, bracket, reversal, state, input and matching loop checkpoints shared Work and cancellation. It allocates no candidate strings, has no 10000-call cutoff and propagates exhaustion explicitly rather than returning a false or partial match. Pattern bytes, returned bytes, selected-token reparsing, depth, fields, redirects and argv retain the existing shared admission limits. IFS writes invalidate the parent cache and returned text splits against final IFS. Tests add adapted examples and original GNU Bash C.UTF-8 observations, scalar/RHS/declaration/redirect contexts, dynamic scope, valid external prefix frames, shared bounds, no partial dispatch, cooperative yield and cancellation130. The owned lexer header/operand distinction is corrected as recorded in shellParser.changeLog; the retained license/upstream assertions and fixed scorer/corpus/oracle/classifications/exclusions are unchanged. Coordinator-owned baseline and measurements are not changed by the review repairs. No score gain or browser/runtime success is claimed before coordinator CI.",
     "localDivergence": "Unicode scalar matching and codepoint ranges are the supported pattern model, verified against focused GNU Bash probes under LC_ALL=C.UTF-8. Byte-oriented matching in C/POSIX or other non-UTF-8 locales and locale-specific collation/ranges are deferred; this is not full Bash locale emulation. Extglob, shell options, POSIX named classes, collating/equivalence symbols, arrays, special/positional trim targets, replacements, substrings, arithmetic, substitutions, tilde/pathname/brace expansion and output buffering are excluded. Extglob/class/collation forms fail closed when selected, including variable patterns; quoted forms remain literals. The owned lexer distinguishes target subscripts from operand brackets using original bounded ParameterHeader frames; existing quote handling and escape metadata are retained. No extra upstream implementation is copied.",
     "reviewCorrections": {
@@ -574,9 +587,7 @@
       "crates/bashkit/tests/spec_cases/bash/string-ops.test.sh:73-85",
       "crates/bashkit/tests/spec_cases/bash/bashbox-word-expander.test.sh:181-186"
     ],
-    "testDestinations": [
-      "shell/engine/tests/words.rs"
-    ],
+    "testDestinations": ["shell/engine/tests/words.rs"],
     "strategy": "Only ordinary identifier scalar ^, ^^, comma and double-comma targets. Resolve and admit the original target snapshot before operand effects; only unset targets skip operands, while set empty targets evaluate them. Reuse the structural pattern sink and lazy scalar scanner, with independent inner pattern and outer result protection. An omitted or unquoted expanded-empty pattern defaults to ?, while quoted empty patterns match nothing. First forms inspect index zero only. Compile once, allocate one state vector, and reset/advance the existing iterative matcher for each eligible character. No candidate strings, recursion, per-candidate allocation, call caps, or exhaustion-as-false. All snapshot bytes, pattern scans/compilation/state resets, mapping characters and emitted output use shared Work/storage/raw/argument/field bounds and cooperative cancellation130. Mapping output is admitted before retention. No state borrow crosses await; existing cancellation-safe local, positional and valid external prefix frames remain in use. Pattern effects invalidate IFS before final result splitting and locale is selected after operand evaluation.",
     "originalAdapters": "case.rs uses an explicit constant-size mapping for ASCII and Latin-1 input rather than Rust Unicode expansion. pattern.rs retains quoted-empty pattern presence, reuses the bounded matcher for single-character matching, and admits mapped storage/output. expand.rs shares the existing trim pattern-evaluation helper without changing its order or work charges; operand.rs admits the four selected nested operators. Existing parser AST/operators are reused unchanged. Integration correction: matcher Character/Atom vectors reserve and charge actual geometric capacity; matcher state vectors reserve their exact charged size; case result Strings charge spare capacity before growth. Focused unit tests establish the exact admission boundary without allocating on failure.",
     "localDivergence": "C/POSIX/default locales map ASCII only, preserving non-ASCII value characters and rejecting non-ASCII patterns to avoid claiming byte-oriented multibyte pattern matching. C.UTF-8 and C.utf8 map ASCII plus U+0080..U+00FF inputs, including unchanged sharp-s, micro-sign to Greek capital mu, and y-diaeresis to capital Y-diaeresis. Other locale names fail closed for set targets. In UTF-8 mode, selected characters outside Latin-1 return status2; unselected characters and first-form tails remain unchanged. Full Unicode, language-specific mappings, collation and byte-locale non-ASCII patterns are deferred. Named classes, extglob, collation/equivalence symbols, arrays, namerefs, positional/special targets, transformations, toggle, replacement, substring, arithmetic/substitution, pathname/tilde/brace expansion and process/browser/output-buffer changes are excluded. Unlike upstream, do not expand sharp-s to SS, and preserve quoted-empty versus unquoted-empty patterns. Frozen scorer/oracle/input/classification/exclusions/baseline and plan measurements are unchanged.",
@@ -667,9 +678,7 @@
       },
       {
         "path": "crates/bashkit/src/parser/mod.rs",
-        "symbols": [
-          "parse_braced_parameter replacement arm"
-        ],
+        "symbols": ["parse_braced_parameter replacement arm"],
         "destination": "shell/parser/src/parser/mod.rs",
         "classification": "Local correction in the owned parser; retain nested operand boundaries and raw quote/escape protection."
       },
@@ -732,22 +741,15 @@
       },
       {
         "path": "crates/bashkit/src/interpreter/expansion.rs",
-        "parts": [
-          "substring_part",
-          "slice_range"
-        ]
+        "parts": ["substring_part", "slice_range"]
       },
       {
         "path": "crates/bashkit/tests/spec_cases/bash/arithmetic.test.sh",
-        "parts": [
-          "scalar operator and base examples"
-        ]
+        "parts": ["scalar operator and base examples"]
       },
       {
         "path": "crates/bashkit/tests/integration/byte_range_panic_tests.rs",
-        "parts": [
-          "negative and overflow slice regression concepts"
-        ]
+        "parts": ["negative and overflow slice regression concepts"]
       }
     ],
     "localPaths": [
@@ -766,5 +768,27 @@
       "invalid UTF-8 scalar output",
       "locale collation and arbitrary non-UTF-8 encodings"
     ]
+  },
+  "shellBraces": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "classification": "Original asynchronous raw-source brace phase and regressions; upstream used as semantic reference only, no additional upstream implementation copied.",
+    "referenceSources": [
+      "crates/bashkit/src/interpreter/brace_expansion.rs",
+      "crates/bashkit/tests/spec_cases/bash/brace-expansion.test.sh"
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/expand/braces.rs",
+      "shell/engine/src/expand.rs"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words/braces.rs",
+      "scripts/fuzz-shell-braces.mjs",
+      "scripts/test-fuzz-shell-braces.mjs",
+      "scripts/fixtures/shell-braces-seed-1.json",
+      "scripts/fixtures/shell-braces-seed-42.json"
+    ],
+    "strategy": "Run brace lists and signed, padded numeric/ASCII-letter ranges before parameter-name parsing and field splitting. Unlike the upstream AST placeholder/cloning implementation, borrow raw source spans, preserve quoted/escaped syntax structurally, reparse admitted generated words, and use iterative cooperative expansion. Invalid enclosing groups stay literal while children expand. Every growing vector/string and parser temporary is storage-admitted; raw output is charged only when emitted and shared across variants. Limits fail explicitly, never return literal or partial results. Original GNU Bash 5.3.15 differential generators and engine resource/deep-nesting tests verify behavior. Removed lexical line continuations join range fragments and dollar-opened opaque constructs without normalizing protected quote bodies. Use the original shared substitution scanner for all opaque dollar-parenthesis bodies, distinguishing arithmetic from command grammar and incrementally replaying ambiguous fallback syntax. Checkpoint and storage-admit every source, replay and EOF step so inactive comments, heredocs and case patterns cannot expose brace punctuation or hide uncancellable work. Preserve the initial parser nesting ceiling when reparsing generated words; iterative opaque scanning adds no smaller lexical cap."
   }
 }

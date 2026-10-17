@@ -29,10 +29,10 @@ This supersedes plan 001's choice of Brush, its fallback of forking Bashkit, and
 The scoreboard is `npm run compat`: GNU bash 5.3 is the oracle, a case passes when stdout bytes and exit status match, and the interpreter score uses builtins-only cases. Targets to pass, in order:
 
 | Builtins-only corpus | Cases | Brush (browser) | Bashkit source |
-| --- | ---: | ---: | ---: |
-| Oils | 1,682 | 78.4% | 95.4% |
-| Brush suite | 1,889 | 70.8% | 84.1% |
-| Bashkit suite | 2,223 | 82.1% | 96.2% |
+| -------------------- | ----: | --------------: | -------------: |
+| Oils                 | 1,682 |           78.4% |          95.4% |
+| Brush suite          | 1,889 |           70.8% |          84.1% |
+| Bashkit suite        | 2,223 |           82.1% |          96.2% |
 
 Brush's numbers after the `$$` fix are 78.5%, 71.2% and 82.3%. The held-out rows are the honest comparison: Bashkit was tuned against Oils and its own suite.
 
@@ -53,13 +53,14 @@ Rules for climbing:
 1. **Engine on real browser workers.** This gate is mandatory before step 6 replaces Brush. Steps 2 and 3 may proceed with tested `ProcessHost` stand-ins, as approved by the owner on 2026-10-16. The interpreter runs on one async executor in one worker: every pipeline stage, subshell and background job is a task. Shell I/O never blocks; the executor parks only when no task can run, and wakes on I/O readiness, child exit or interrupt. File descriptors are a table of reference-counted endpoints: subshells and stages share open endpoints, never copies, so EOF and EPIPE follow the last close. Pipes are bounded (the proof used 32 KiB). Bounded pipes alone do not bound memory: define limits and backpressure, spilling or explicit failure at the terminal and worker queues, command captures, substitutions and accumulating utilities. Command dispatch, loops, expansions and in-process utilities run with bounded work budgets, explicit yields and interrupt checks, because a task that never waits on I/O would otherwise starve every other task. Child processes go through a process-host interface (spawn with argv, environment, cwd and descriptor bindings; wait; kill; nonblocking readiness and exit notifications), implemented on the shared runtime from plan 001 step 2. Until that lands it may use this repository's current process imports, but only after generalizing that host: today it tracks one active child and passes no arbitrary descriptor bindings, so it cannot run Bun-to-Bun pipelines or the inherited-descriptor test. Define the guest-visible broken-pipe contract with the runtime: a child killed by a closed pipe reports 141, but a guest that handles EPIPE keeps its own exit status.
 
 Step 1 includes the minimum production semantics, fixture commands and session interface these tests need (simple functions, redirects, a few builtins). Later steps broaden that implementation; steps 2 and 3 can use the native/WASI stand-ins while this browser gate remains open. Acceptance, in the browser:
-   - commit `/work/reports/browser-shell-research/pipelines.acceptance.spec.ts` under `tests/`, change it to select the new engine explicitly and assert which engine is running (Brush is still the default), then pass all sixteen tests across its seven scenarios with real `bun` children: live ticker through `grep`, more than 1 MiB in all four builtin/external pairings, Ctrl+C, `pipefail` and `PIPESTATUS`, early reader exit, state inheritance, backpressure;
-   - Ctrl+C reaches the shell while WASM is running (a shared interrupt word, not a message), interrupts the foreground job and its descendants, confirms their exits, and leaves unrelated background jobs running; shell shutdown cleans up the whole session;
-   - an always-ready background loop (`while :; do :; done &`) does not stop foreground commands from responding;
-   - a guest that handles EPIPE and exits with its own status keeps that status;
-   - a slow terminal and an accumulating consumer stay within the defined memory bounds;
-   - a non-standard descriptor (`3>&1`, `exec 4<file`) is inherited by a child;
-   - `bun dev &` returns to the prompt, keeps streaming, and the next command can `kill %1` or `wait` for it.
+
+- commit `/work/reports/browser-shell-research/pipelines.acceptance.spec.ts` under `tests/`, change it to select the new engine explicitly and assert which engine is running (Brush is still the default), then pass all sixteen tests across its seven scenarios with real `bun` children: live ticker through `grep`, more than 1 MiB in all four builtin/external pairings, Ctrl+C, `pipefail` and `PIPESTATUS`, early reader exit, state inheritance, backpressure;
+- Ctrl+C reaches the shell while WASM is running (a shared interrupt word, not a message), interrupts the foreground job and its descendants, confirms their exits, and leaves unrelated background jobs running; shell shutdown cleans up the whole session;
+- an always-ready background loop (`while :; do :; done &`) does not stop foreground commands from responding;
+- a guest that handles EPIPE and exits with its own status keeps that status;
+- a slow terminal and an accumulating consumer stay within the defined memory bounds;
+- a non-standard descriptor (`3>&1`, `exec 4<file`) is inherited by a child;
+- `bun dev &` returns to the prompt, keeps streaming, and the next command can `kill %1` or `wait` for it.
 
 2. **Scoreboard.** Add the new shell as an engine in `scripts/bash-compat.mjs`, run all three corpora, commit the fixed GNU bash observations and baseline, and wire the exact-count comparison into CI. Target-branch baseline comparison must prevent lowering the candidate baseline from concealing a regression. Expect a low first score; the point is the number. This step can use tested native/WASI process-host stand-ins. The first fixed baseline is 288/1,682 Oils, 295/1,888 Brush-suite and 445/2,222 Bashkit-suite; two fresh GNU bash nondeterminism exclusions reduce the secondary denominators. Exact category counts and case outcomes are committed in `docs/evidence/own-shell-baseline.json`. The historical Brush targets above use their earlier case sets and must be rescored under the same fixed identity before comparison. Candidate baselines must match current per-case pass membership, including gains, while target-branch comparison enforces corpus nonregression.
 
@@ -74,6 +75,7 @@ Step 1 includes the minimum production semantics, fixture commands and session i
       - Scalar one-level indirection on ordinary names (`${!v}` and the eight scalar conditional operators) (#24): Oils 345→350, Brush-suite 334→335, Bashkit-suite 539→548. Pointer and target snapshots are bounded before copying; invalid pointers fail with fatal status 1, while valid unset targets remain distinct. Arrays, namerefs, special names and generic indirect suffixes remain deferred.
       - Scalar replacement on ordinary names (`${v/p/r}`, `${v//p/r}`, `${v/#p/r}`, `${v/%p/r}`) (#25): Oils 350→379, Brush-suite 335→338, Bashkit-suite 548→584. Leftmost-longest basic-pattern search, lazy operands, typed ampersand protection, final-IFS behavior and shared raw/storage/work/field bounds are preserved; arrays, namerefs, options, locale collation and unsupported pattern forms remain deferred.
       - Scalar arithmetic, positional/scalar slices, readonly writes and read-unit error recovery (#28): Oils 380→481, Brush-suite 340→384, Bashkit-suite 595→754, with no lost cases. Boxed arithmetic futures and explicit scalar depth bounds retain native/WASI stack safety; staged shell-boundary checks preserve Bash error status before lazy evaluation.
+      - Brace lists and numeric/ASCII-letter ranges (#29): Oils 481→525, Brush-suite 384→394, Bashkit-suite 754→785, with no lost cases; brace generator seeds 1/42 match Bash on 5,318 cases each. Fused `$((`/`<((` spans end by raw parenthesis matching and are classified by `chk_arithsub`; other substitution bodies (also inside `${…}` operands and raw `$((` text) are parsed with the script and fail with status 127, strictly separated. Nested parses run after each word's scan loop (debug stack per nesting level ~21 KB→~7 KB). Brace temporaries are charged by peak storage; the default argument count is 65,536. Follow-ups owned by later units: running `UnparsedCommandSubstitution` (a non-arithmetic `$((` whose text fails to parse) at expansion with status 2 belongs to command substitution; prefix assignments on function calls (`TEMP=x f`) remain unsupported and belong to functions/locals.
       - Remaining parameter operators, pathname, tilde and brace expansion follow before command substitution. After scalar arithmetic, the next focused word unit is bounded brace lists and numeric/ASCII-letter ranges, preserving quoted punctuation and opaque expansion parts; tilde stays separate. The pinned reference is Bashkit's `crates/bashkit/src/interpreter/brace_expansion.rs`, but resource exhaustion must fail explicitly rather than silently return a literal or partial result.
    2. Command substitution and arithmetic. Scalar arithmetic is the next foundation rather than a constant-only substring implementation: offsets and lengths are arithmetic expressions, so the same bounded evaluator serves `$((...))`, `((...))`, `let` and scalar slices. Command substitution follows separately and must use bounded captures without changing streaming command execution.
    3. Control flow: `if`, `for`, `while`, `until`, `case`, `[[ ]]`, `test`, `&&`/`||`, `!`, `set -e` and its exceptions.
@@ -95,3 +97,100 @@ Step 1 includes the minimum production semantics, fixture commands and session i
 ## Out of scope here
 
 The runtime itself (plan 001 step 2 and `handoff-runtime.md`), the terminal choice, the product's look and its repository.
+
+## Follow-up: IFS snapshot storage admission
+
+Status: Approved. Fold this into the immediately ordered ANSI-C word unit below,
+before adding more allocation paths. This was found during arithmetic review and predates that PR.
+
+`Ifs::new` in `shell/engine/src/expand.rs` copies the IFS string and inserts
+characters into a `BTreeSet` without calling `Work::admit_storage`. It checks
+`max_raw` before the string copy and checkpoints character work, but those checks
+do not reserve temporary storage. The same implementation is present on main
+`2342019`; inspect it with
+`git show 2342019:shell/engine/src/expand.rs` around `impl Ifs`.
+At arithmetic head `49b255a`, the function starts at line 250. This is a
+source-confirmed accounting gap; the allocation-boundary test below has not yet
+been added or run. No crash, corpus regression, or timing claim is implied.
+
+Start with a private `expand::tests` test that creates default shared state,
+sets IFS to `:`, creates `Work::new(64, 0, 1)` and `Cancel::new()`, then calls
+`Ifs::new(&state, &cancel, 64, &mut work).now_or_never()`. Under the current code
+this path copies the string and inserts the delimiter without checking the zero
+storage allowance. Assert explicit status 2 at that boundary, then cover exact
+admission, duplicate characters, empty/default IFS, large IFS, and cancellation.
+Run the focused test through the shared queue with the pinned Rust toolchain.
+
+Fix the representation and admission together. Preserve tiny expansion budgets
+for default IFS and literal or protected words; blindly charging heap nodes on
+every word can reject cases that need no owned IFS storage. Keep literal
+protection, final-IFS updates, list separators, and Unicode delimiter semantics.
+Run all native/WASI word tests, regenerate word fixtures 1/42 independently and
+diff byte-for-byte, and require zero lost fixed-corpus cases. Own and clean any
+task-created targets and scratch under the usual lane rules.
+
+## Next word unit: ANSI-C operands and two-phase parameter extraction
+
+Status: Approved. This is the **very next unit after brace expansion merges**,
+including the IFS storage-admission follow-up above before adding allocation
+paths. It is not a CI exemption.
+
+Brace controls exposed an existing scalar-parameter bug, independent of braces.
+The first reproduction is:
+
+```bash
+printf '<%s>\n' "${u:-$'\''}"
+```
+
+Confirmed with a fresh native release build of exact main
+`5deb70ddcee9ec82e208168455a760f9544867a2`: GNU Bash 5.3.15 exits **1**
+with no stdout; main exits **0**, stdout bytes `3c273e0a` (an apostrophe field).
+The detached proof worktree and build output were removed after measurement.
+The brace lane records the same evidence in the PR. These additional operand spellings exercise the same phase:
+
+```bash
+v=SET; printf '<%s>\n' "${v:-$'\''}"
+printf '<%s>\n' "${u:-$'\x27'}"
+printf '<%s>\n' "${u:-$'\x27\x27'}"
+v=VALUE; printf '<%s>\n' "${u:-$'$v'}"
+v=SET; printf '<%s>\n' "${v:-$'}'}"
+printf '<%s>\n' "${u:-$'\x22'}"
+```
+
+Decoded apostrophes affect extraction even when the operand is unselected;
+decoded `}` can end the parameter early, decoded `$` expands, and decoded
+double quotes affect expansion-time quoting without becoming original shell
+syntax. In contrast, unquoted ANSI-C operands retain literal protection.
+
+**First step:** extend `scripts/fuzz-shell-words.mjs` to generate `$'…'` and
+decoded specials (apostrophes, braces, dollars, double quotes, escapes, empty
+text) in **every operator's operand**, both quoted and unquoted, selected and
+unselected. Existing seeds 1/42 do not reach this phase. Run Bash self-controls
+and failing-first comparisons before implementation; retain exact status and
+stdout observations, including Bash failures. No unsupported/CI exemptions.
+
+Implement general **two-phase parameter extraction**, not quote-specific
+patches or raw decoded-text insertion into the outer shell grammar. Inspect
+`shell/parser/src/parser/lexer.rs` (`read_parameter_body` and ANSI-C decoding),
+`shell/parser/src/parser/parameter_scan.rs`, parameter extraction in
+`shell/parser/src/parser/mod.rs`, and lazy operand decoding in
+`shell/engine/src/expand/operand.rs`. Keep early shell-word syntax separate
+from later extraction, preserve storage/work/raw admission and cancellation,
+regenerate all affected fixtures with independent byte comparison, and run the
+full native/WASI suites and per-case score ratchet before pushing.
+
+## Follow-up: redirect word expansion contexts
+
+Status: Approved. After the immediately ordered ANSI-C unit and the IFS
+admission fix, handle redirect-target contexts separately from scalar assignment
+RHSs. Current `interpreter.rs::redirects` calls `expand::word` (scalar), which
+intentionally suppresses brace expansion and field splitting. Reproducer:
+`echo hi >/dev/null{1,2}`. Bash 5.3.15 reports an ambiguous redirect/status 1;
+our memory filesystem instead receives a literal `/dev/null{1,2}` filename.
+Start with generator controls for redirect brace lists/ranges, quoted and
+escaped variants, parameter/IFS splitting, zero/one/multiple fields, and
+side-effect order. Do not run host-writing controls except in an owned scratch
+filesystem. Then introduce a redirect-specific expansion contract with correct
+ambiguity diagnostics, preserving scalar assignments/declarations. Confirm
+Bash results before implementation, run full native/WASI tests and exact pass
+membership ratchet, and keep zero CI exemptions.

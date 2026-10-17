@@ -36,7 +36,9 @@ impl Default for Limits {
         Self {
             source_bytes: 256 * 1024,
             expansion_bytes: 1024 * 1024,
-            arguments: 4096,
+            // Bash has no builtin argument count limit; expansion_bytes
+            // bounds memory. `{0..10000}` alone needs 10,001 arguments.
+            arguments: 65_536,
             pipeline_stages: 128,
             jobs: 128,
             function_depth: 128,
@@ -289,6 +291,9 @@ impl Session {
             Some(parser_limits.parser_timeout),
         )
         .with_execution_budget(budget.clone())
+        // The whole script is parsed before aliases it defines exist, so the
+        // top level stays lenient; substitution bodies get bash's grammar.
+        .with_strict_substitution_bodies()
         .parse_recovering();
         budget.check().map_err(|error| error.to_string())?;
         let word_error = match error {

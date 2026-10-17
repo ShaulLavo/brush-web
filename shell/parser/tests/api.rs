@@ -600,7 +600,7 @@ fn strict_separator_policy_reaches_nested_shell_bodies() {
     for source in [
         "echo $( (missing)+(2) )",
         "echo $( (echo x) echo y )",
-        "echo <((missing)+(2))",
+        "echo <( (missing)+(2) )",
     ] {
         assert!(Parser::new(source).parse().is_ok(), "{source}");
         assert!(
@@ -611,7 +611,12 @@ fn strict_separator_policy_reaches_nested_shell_bodies() {
             "{source}"
         );
     }
-    for source in ["echo $( (echo x); echo y )", "echo <((echo x); echo y)"] {
+    // A fused `<((` span is raw text until it expands, as `$((` is in bash.
+    for source in [
+        "echo $( (echo x); echo y )",
+        "echo <((echo x); echo y)",
+        "echo <((missing)+(2))",
+    ] {
         assert!(
             Parser::new(source)
                 .with_strict_command_separators()
@@ -734,5 +739,662 @@ fn substring_fields_ignore_delimiters_inside_quoted_operands() {
             if name == "v" && offset == "0" && length.as_deref() == Some(format!("${{u:-'{text}'}}").as_str())),
             "{source}: {word:?}"
         );
+    }
+}
+
+#[test]
+fn brace_punctuation_stays_literal_data_with_structural_protection() {
+    for (source, segments) in [
+        (
+            "args {'a,b',c}",
+            vec![("{", false), ("a,b", true), (",c}", false)],
+        ),
+        (
+            r#"args {"a,b",c}"#,
+            vec![("{", false), ("a,b", true), (",c}", false)],
+        ),
+        (
+            "args {a,'}'}",
+            vec![("{a,", false), ("}", true), ("}", false)],
+        ),
+        (
+            "args {'{a,b}',c}",
+            vec![("{", false), ("{a,b}", true), (",c}", false)],
+        ),
+        (
+            r"args {'a\,b',c}",
+            vec![("{", false), (r"a\,b", true), (",c}", false)],
+        ),
+        (
+            r#"args {"a\,b",c}"#,
+            vec![("{", false), (r"a\,b", true), (",c}", false)],
+        ),
+        (
+            r"args {a\,b,c}",
+            vec![("{a", false), (",", true), ("b,c}", false)],
+        ),
+        (
+            r"args {a\\,b}",
+            vec![("{a", false), ("\\", true), (",b}", false)],
+        ),
+        (
+            r"args {'\\',x}",
+            vec![("{", false), (r"\\", true), (",x}", false)],
+        ),
+        (
+            r#"args {"\\",x}"#,
+            vec![("{", false), ("\\", true), (",x}", false)],
+        ),
+        (
+            r"args \{a,b\}",
+            vec![("{", true), ("a,b", false), ("}", true)],
+        ),
+        (
+            r#"args {"'",'"'}"#,
+            vec![
+                ("{", false),
+                ("'", true),
+                (",", false),
+                ("\"", true),
+                ("}", false),
+            ],
+        ),
+        (
+            r#"args {"*?[]",x}"#,
+            vec![("{", false), ("*?[]", true), (",x}", false)],
+        ),
+    ] {
+        let word = argument(source);
+        let expected: Vec<_> = segments
+            .into_iter()
+            .flat_map(|(text, quoted)| text.chars().map(move |ch| (ch, quoted)))
+            .collect();
+        assert_eq!(literal_characters(&word), expected, "{source}: {word:?}");
+        assert!(
+            word.parts
+                .iter()
+                .all(|part| matches!(part, WordPart::Literal(_)))
+        );
+    }
+}
+
+#[test]
+fn empty_quoted_parts_survive_inside_and_beside_brace_groups() {
+    for source in [
+        "args {'',a}",
+        "args {a,''}",
+        r#"args {"",a}"#,
+        r#"args {a,""}"#,
+        "args ''{a,b}",
+        r#"args ""{a,b}"#,
+        "args {a,b}''",
+        r#"args {a,b}"""#,
+    ] {
+        let word = argument(source);
+        assert!(
+            word.parts
+                .iter()
+                .zip(&word.part_quoted)
+                .any(|(part, quoted)| {
+                    *quoted && matches!(part, WordPart::Literal(text) if text.is_empty())
+                }),
+            "{source}: {word:?}"
+        );
+        assert!(
+            literal_characters(&word).contains(&('{', false)),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn mixed_assignment_literals_do_not_decode_source_backslashes_as_glob_escapes() {
+    for (source, expected) in [
+        (r"out='a\,b'{c,d}", r"a\,b{c,d}"),
+        (r"out='a\*'b*", r"a\*b*"),
+        (r"out='\\'{a,b}", r"\\{a,b}"),
+        (r#"out="\\"{a,b}"#, r"\{a,b}"),
+        (r"out=a\\{b,c}", r"a\{b,c}"),
+    ] {
+        let script = Parser::new(source).parse().unwrap();
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected assignment: {source}");
+        };
+        let AssignmentValue::Scalar(word) = &command.assignments[0].value else {
+            panic!("expected scalar: {source}");
+        };
+        assert_eq!(word.to_string(), expected, "{source}: {word:?}");
+    }
+}
+
+#[test]
+fn brace_neighbors_do_not_change_parameter_operand_boundaries_or_quote_context() {
+    for source in ["args ${u:-{a,b}}", r#"args "${u:-{a,b}}""#] {
+        let word = argument(source);
+        assert!(
+            matches!(word.parts.as_slice(), [WordPart::ParameterExpansion {
+                name, operator: ParameterOp::UseDefault, operand, colon_variant: true,
+            }, WordPart::Literal(suffix)] if name == "u" && operand == "{a,b" && suffix == "}"),
+            "{source}: {word:?}"
+        );
+    }
+    let word = argument(r#"args {"${u:-a,b}",c}"#);
+    assert!(
+        matches!(word.parts.as_slice(), [WordPart::Literal(open),
+            WordPart::ParameterExpansion { name, operand, .. }, WordPart::Literal(tail)]
+            if open == "{" && name == "u" && operand == "a,b" && tail == ",c}"),
+        "{word:?}"
+    );
+    assert_eq!(word.part_quoted, [false, true, false]);
+}
+
+#[test]
+fn raw_words_are_retained_before_quote_and_parameter_removal() {
+    let source =
+        r#"first{a,b} '${u:-{a,b}}' ${u:-{{a,b},{c,d}}}; f() { :; }; after{c,d} > 'file{a,b}'"#;
+    let script = Parser::new(source).parse().unwrap();
+    let Command::List(list) = &script.commands[0] else {
+        panic!("expected list");
+    };
+    let Command::Simple(first) = list.first.as_ref() else {
+        panic!("expected first command");
+    };
+    assert_eq!(first.name.raw.as_deref(), Some("first{a,b}"));
+    assert_eq!(first.args[0].raw.as_deref(), Some("'${u:-{a,b}}'"));
+    assert_eq!(first.args[1].raw.as_deref(), Some("${u:-{{a,b},{c,d}}}"));
+    let Command::Simple(last) = &list.rest.last().unwrap().1 else {
+        panic!("expected final command");
+    };
+    assert_eq!(last.name.raw.as_deref(), Some("after{c,d}"));
+    assert_eq!(last.redirects[0].target.raw.as_deref(), Some("'file{a,b}'"));
+}
+
+#[test]
+fn expanded_word_api_uses_word_context_not_command_grammar() {
+    for source in [
+        "",
+        "{",
+        "}",
+        "[",
+        "]",
+        "if",
+        "then",
+        "out=value",
+        "!",
+        "#text",
+    ] {
+        let word = Parser::parse_expanded_word_with_limits(source, 16, 4096).unwrap();
+        assert_eq!(word.to_string(), source, "{source}: {word:?}");
+        assert_eq!(word.raw.as_deref(), Some(source));
+        assert!(!word.quoted, "{source}: {word:?}");
+    }
+    for source in ["one two", "a;b", "a|b", "a>b", "a\nb", "'unclosed", "$(|)"] {
+        assert!(
+            Parser::parse_expanded_word_with_limits(source, 16, 4096).is_err(),
+            "{source}"
+        );
+    }
+    assert!(Parser::parse_expanded_word_with_limits("abc", 16, 3).is_err());
+    assert!(Parser::parse_expanded_word_with_limits("\\a", 16, 3).is_err());
+    let nested = format!("{}: {}", "$(".repeat(20), ")".repeat(20));
+    assert!(Parser::parse_expanded_word_with_limits(&nested, 4, 4096).is_err());
+}
+
+#[test]
+fn expanded_word_api_distinguishes_resource_limits_from_generated_syntax() {
+    for source in ["abc", "\\a"] {
+        assert!(matches!(
+            Parser::parse_expanded_word_with_limits(source, 16, 3),
+            Err(Error::ResourceLimit(LimitExceeded::ParserFuel { .. }))
+        ));
+    }
+    // The source fits, but its literal-escape metadata needs more work.
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(r"\a", 16, 5),
+        Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
+    ));
+    // The source fits, but parsing its command body exhausts the shared work.
+    let command = "$(echo x)";
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(command, 16, command.len() + 3),
+        Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
+    ));
+    assert!(matches!(
+        Parser::with_fuel("echo x", 0).parse(),
+        Err(Error::ResourceLimit(LimitExceeded::ParserFuel {
+            used: 0,
+            limit: 0
+        }))
+    ));
+    for source in [
+        "`",
+        "'unclosed",
+        "\"unclosed",
+        "$(|)",
+        "$( [[ a == ]] )",
+        "one two",
+        "a;b",
+    ] {
+        assert!(
+            matches!(
+                Parser::parse_expanded_word_with_limits(source, 16, 4096),
+                Err(Error::Parse { .. } | Error::ShellWord { .. })
+            ),
+            "{source:?}"
+        );
+    }
+}
+
+#[test]
+fn expanded_word_api_types_ast_and_lexical_depth_limits() {
+    let command = format!("{}: {}", "$(".repeat(5), ")".repeat(5));
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(&command, 4, 4096),
+        Err(Error::ResourceLimit(LimitExceeded::AstDepth { .. }))
+    ));
+    let parameter = format!("{}value{}", "${v:-".repeat(5), "}".repeat(5));
+    for source in [parameter.clone(), format!("\"{parameter}\"")] {
+        assert!(
+            matches!(
+                Parser::parse_expanded_word_with_limits(&source, 4, 4096),
+                Err(Error::ResourceLimit(LimitExceeded::ParameterDepth))
+            ),
+            "{source}"
+        );
+    }
+    let conditional = format!("$( [[ {}x ]] )", "! ".repeat(258));
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(&conditional, 100, 20_000),
+        Err(Error::ResourceLimit(LimitExceeded::ConditionalDepth))
+    ));
+    // A syntax error in an earlier substitution cannot hide a later limit.
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(&format!("$(|){command}"), 4, 4096),
+        Err(Error::ResourceLimit(LimitExceeded::AstDepth { .. }))
+    ));
+}
+
+#[test]
+fn expanded_word_api_preserves_initial_depth_for_skipped_defaults() {
+    let source = format!("{}value{}", "${v:-".repeat(80), "}".repeat(80));
+    Parser::new(&format!("echo {source}")).parse().unwrap();
+    let word = Parser::parse_expanded_word_with_limits(
+        &source,
+        ExecutionLimits::default().max_ast_depth,
+        4096,
+    )
+    .unwrap();
+    assert_eq!(word.raw.as_deref(), Some(source.as_str()));
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(&source, 16, 4096),
+        Err(Error::ResourceLimit(LimitExceeded::ParameterDepth))
+    ));
+}
+
+#[test]
+fn expanded_word_api_shares_work_across_sibling_substitutions() {
+    // Boundary scans charge each body character once per pass (lexer and
+    // word); the rest is one child's grammar work, which siblings must share.
+    let child = "$(a;a;a;a)";
+    Parser::parse_expanded_word_with_limits(child, 16, 2 * child.len() + 3 + 20).unwrap();
+    let source = child.repeat(16);
+    assert!(matches!(
+        Parser::parse_expanded_word_with_limits(&source, 16, 2 * source.len() + 3 + 20),
+        Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
+    ));
+}
+
+#[test]
+fn expanded_word_api_keeps_substring_admission_failures_typed() {
+    let source = format!("${{v:<({})}}", ":".repeat(4100));
+    let error = Parser::parse_expanded_word_with_limits(&source, 16, 30_000).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            Error::ResourceLimit(LimitExceeded::ParameterCommandFuel)
+        ),
+        "{error}"
+    );
+    assert_eq!(
+        LimitExceeded::ParameterCommandFuel.to_string(),
+        "parser fuel exhausted in parameter command"
+    );
+    let error =
+        Parser::parse_expanded_word_with_limits("$(echo ${v:-${w:-x}>})", 2, 4096).unwrap_err();
+    assert!(
+        matches!(
+            error,
+            Error::ResourceLimit(LimitExceeded::ParameterBoundaryDepth)
+        ),
+        "{error}"
+    );
+}
+
+#[test]
+fn expanded_word_api_retains_literal_protection_and_expansion_name_boundaries() {
+    for source in [r"'a\,b'", r#""a\,b""#, r"a\,b", r"'\\'", r#""\\""#] {
+        let word = Parser::parse_expanded_word_with_limits(source, 16, 4096).unwrap();
+        let ordinary = argument(&format!("args {source}"));
+        assert_eq!(word.to_string(), ordinary.to_string(), "{source}");
+        assert_eq!(word.quoted, ordinary.quoted, "{source}");
+        let protection = |word: &Word| {
+            let has_part_quotes = word.part_quoted.iter().any(|quoted| *quoted);
+            word.parts
+                .iter()
+                .enumerate()
+                .flat_map(|(index, part)| {
+                    let quoted = if has_part_quotes {
+                        word.part_quoted[index]
+                    } else {
+                        word.quoted
+                    };
+                    let WordPart::Literal(text) = part else {
+                        panic!("expected literal")
+                    };
+                    text.chars().map(move |ch| (ch, quoted))
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(protection(&word), protection(&ordinary), "{source}");
+    }
+    let word = Parser::parse_expanded_word_with_limits(r"\`", 16, 4096).unwrap();
+    assert_eq!(word.to_string(), "`");
+    assert_eq!(word.part_quoted, [true]);
+    let word = Parser::parse_expanded_word_with_limits("$va", 16, 4096).unwrap();
+    assert!(matches!(word.parts.as_slice(), [WordPart::Variable(name)] if name == "va"));
+    let word = Parser::parse_expanded_word_with_limits(r#""$v"a"#, 16, 4096).unwrap();
+    assert!(
+        matches!(word.parts.as_slice(), [WordPart::Variable(name), WordPart::Literal(tail)]
+        if name == "v" && tail == "a")
+    );
+    assert_eq!(word.part_quoted, [true, false]);
+    for source in [r#""""#, "''"] {
+        let word = Parser::parse_expanded_word_with_limits(source, 16, 4096).unwrap();
+        assert!(word.quoted, "{source}: {word:?}");
+        assert_eq!(word.to_string(), "", "{source}");
+    }
+    let word = Parser::parse_expanded_word_with_limits(r#"""a"#, 16, 4096).unwrap();
+    assert!(word.parts.iter().zip(&word.part_quoted).any(
+        |(part, quoted)| *quoted && matches!(part, WordPart::Literal(text) if text.is_empty())
+    ));
+}
+
+#[test]
+fn ansi_control_backslash_does_not_close_an_escaped_apostrophe() {
+    for (source, expected) in [(r"$'\c\''", "\u{1c}'"), (r"$'\c\\'", "\u{1c}")] {
+        let word = Parser::parse_expanded_word_with_limits(source, 16, 4096).unwrap();
+        assert_eq!(word.to_string(), expected, "{source}: {word:?}");
+        assert!(word.quoted, "{source}: {word:?}");
+    }
+    assert!(Parser::parse_expanded_word_with_limits(r"$'\c\'", 16, 4096).is_err());
+}
+
+#[test]
+fn dollar_continuations_preserve_logical_openers_and_raw_spelling() {
+    for (source, logical) in [
+        ("$\\\n'\\''", r"$'\''"),
+        ("\"x\"$\\\n'\\''", r#""x"$'\''"#),
+        ("$\\\n{u:-a,b}", "${u:-a,b}"),
+        ("\"$\\\n{u:-a,b}\"", r#""${u:-a,b}""#),
+        ("${u:-$\\\n'\\''}", r"${u:-$'\''}"),
+        ("\"$\\\n'abc'\"", r#""$'abc'""#),
+    ] {
+        let word = Parser::parse_expanded_word_with_limits(source, 16, 4096).unwrap();
+        let control = Parser::parse_expanded_word_with_limits(logical, 16, 4096).unwrap();
+        assert_eq!(
+            format!("{:?}", word.parts),
+            format!("{:?}", control.parts),
+            "{source}"
+        );
+        assert_eq!(word.quoted, control.quoted, "{source}");
+        assert_eq!(word.raw.as_deref(), Some(source));
+    }
+}
+
+#[test]
+fn arithmetic_boundaries_stay_opaque_in_quotes_and_parameter_operands() {
+    for expression in ["1 << 2\n", "case == in", "1 + $((2 << 3\n))", "1 + ${u:-2}"] {
+        for source in [
+            format!("$(({expression})){{a,b}}"),
+            format!("\"$(({expression})){{a,b}}\""),
+            format!("${{va:-$(({expression}))}}{{a,b}}"),
+            format!("\"${{va:-$(({expression}))}}{{a,b}}\""),
+        ] {
+            let word = argument(&format!("args {source}"));
+            assert!(
+                word.parts.iter().any(|part| matches!(
+                    part,
+                    WordPart::ArithmeticExpansion(_) | WordPart::ParameterExpansion { .. }
+                )),
+                "{source}: {word:?}"
+            );
+            assert_eq!(word.raw.as_deref(), Some(source.as_str()));
+            let generated = Parser::parse_expanded_word_with_limits(&source, 100, 16384).unwrap();
+            assert_eq!(generated.raw.as_deref(), Some(source.as_str()));
+            assert!(
+                generated.parts.iter().any(|part| matches!(
+                    part,
+                    WordPart::ArithmeticExpansion(_) | WordPart::ParameterExpansion { .. }
+                )),
+                "{source}: {generated:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn ambiguous_substitutions_preserve_inactive_defaults_and_suffixes() {
+    for source in [
+        r#"v=ok; printf '<%s>\n' ${v:-$((case x in x) :;; esac) )}{a,b}"#,
+        r#"v=ok; printf '<%s>\n' "${v:-$((case x in x) :;; esac) )}{a,b}""#,
+        r#"v=ok; printf '<%s>\n' ${v:-$(echo "${u:-\${x}")}{a,b}"#,
+        r#"v=ok; printf '<%s>\n' "${v:-$(echo "${u:-\${x}")}{a,b}""#,
+    ] {
+        Parser::new(source)
+            .parse()
+            .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+    }
+    for source in [
+        "${v:-$((printf é) )}{a,b}",
+        "\"${v:-$((printf é) )}{a,b}\"",
+        r#"${v:-$(echo "${u:-\$$(printf x)}")}{a,b}"#,
+        "$((1 << 2)\\\n){a,b}",
+    ] {
+        let word = argument(&format!("args {source} suffix"));
+        assert_eq!(word.raw.as_deref(), Some(source), "{source}");
+        let generated = Parser::parse_expanded_word_with_limits(source, 100, 16384).unwrap();
+        assert_eq!(generated.raw.as_deref(), Some(source), "{source}");
+    }
+}
+
+#[test]
+fn arithmetic_command_spans_preserve_utf8_and_later_tokens() {
+    for source in [
+        "$((printf é) )",
+        "\"$((printf é) )\"",
+        "\"\"$((printf é) )",
+        "${v:-$((printf é) )}",
+        "\"${v:-$((printf é) )}\"",
+        "$( (printf é # (\n) )",
+        "\"$( (printf é # (\n) )\"",
+    ] {
+        let script = Parser::new(&format!("args é {source} suffix"))
+            .parse()
+            .unwrap();
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("{script:?}");
+        };
+        assert_eq!(command.args.len(), 3, "{source}: {command:?}");
+        assert_eq!(command.args[0].raw.as_deref(), Some("é"));
+        assert_eq!(command.args[1].raw.as_deref(), Some(source));
+        assert_eq!(command.args[2].to_string(), "suffix");
+    }
+}
+
+#[test]
+fn arithmetic_candidates_cannot_reinterpret_unmatched_raw_parens_as_comments() {
+    for candidate in ["$((printf é # (\n))", "$((# (\nprintf é) )"] {
+        for source in [
+            candidate.to_string(),
+            format!("\"{candidate}\""),
+            format!("${{v:-{candidate}}}"),
+            format!("\"${{v:-{candidate}}}\""),
+        ] {
+            assert!(
+                Parser::new(&format!("args {source} suffix"))
+                    .parse()
+                    .is_err(),
+                "{source}"
+            );
+            assert!(
+                Parser::parse_expanded_word_with_limits(&source, 100, 16384).is_err(),
+                "{source}"
+            );
+        }
+    }
+    // Three raw closes balance the lexical candidate. Its malformed command
+    // body is not eagerly parsed when the containing default is unselected.
+    for source in [
+        "${v:-$((# (\nprintf é) ) )}",
+        "\"${v:-$((# (\nprintf é) ) )}\"",
+    ] {
+        let word = argument(&format!("args {source} suffix"));
+        assert_eq!(word.raw.as_deref(), Some(source));
+    }
+}
+
+#[test]
+fn substitution_boundary_scanning_is_charged_to_parser_fuel() {
+    let source = format!("args $((printf '%s' '{}') )", "x".repeat(128));
+    let error = Parser::with_limits(&source, 100, 64).parse().unwrap_err();
+    assert!(
+        matches!(
+            error,
+            Error::ResourceLimit(LimitExceeded::ParserFuel { .. })
+        ),
+        "{error:?}"
+    );
+    let limits = ExecutionLimits {
+        max_work_units: 64,
+        ..ExecutionLimits::default()
+    };
+    assert!(matches!(
+        parse(&source, &limits),
+        Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
+    ));
+    let eof_source = format!("args $((printf '{}' # (\n)) suffix", "x".repeat(128));
+    assert!(matches!(
+        parse(&eof_source, &limits),
+        Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
+    ));
+}
+
+#[test]
+fn resolved_substitution_kind_controls_the_ast_without_rewriting_source() {
+    for source in [
+        "$((printf é) )",
+        "\"$((printf é) )\"",
+        "\"\"$((printf é) )",
+        "$( (case x in x) :;; esac) )",
+    ] {
+        let word = argument(&format!("args {source} suffix"));
+        assert!(
+            word.parts
+                .iter()
+                .any(|part| matches!(part, WordPart::CommandSubstitution(_))),
+            "{source}: {word:?}"
+        );
+        assert!(
+            !word
+                .parts
+                .iter()
+                .any(|part| matches!(part, WordPart::ArithmeticExpansion(_))),
+            "{source}: {word:?}"
+        );
+        assert_eq!(word.raw.as_deref(), Some(source));
+    }
+    for source in [
+        "$((1 << 2)\\\n)",
+        "$(\\\n(1 << 2))",
+        "\"$((1 << 2)\\\n)\"",
+        "\"\"$((1 << 2)\\\n)",
+    ] {
+        let word = argument(&format!("args {source} suffix"));
+        assert!(word.parts.iter().any(|part| matches!(part, WordPart::ArithmeticExpansion(expression) if expression == "1 << 2")), "{source}: {word:?}");
+        assert_eq!(word.raw.as_deref(), Some(source));
+    }
+}
+
+#[test]
+fn substitution_end_of_input_and_heredoc_boundaries_follow_bash() {
+    let strict = |source: &str| {
+        Parser::new(source)
+            .with_strict_substitution_bodies()
+            .parse()
+    };
+    // A redirection with no target before the end of input is bash's token
+    // error (127); an operator that waits for more input is the EOF error (2).
+    for source in [
+        "echo $(echo <",
+        "echo $(echo >",
+        "echo $(echo <<",
+        "echo <(echo <",
+        // A keyword that needs its word on the same line.
+        "echo $(case",
+        "echo <(case",
+        "echo $(for",
+        "echo $(select",
+        "echo $(function",
+        // `)` after `;;` is no pattern terminator.
+        "echo $(case x in x) :;;)",
+    ] {
+        assert!(
+            matches!(strict(source), Err(Error::ShellWord { .. })),
+            "{source}"
+        );
+    }
+    // A trailing line continuation joins the end of input: the EOF error.
+    for source in [
+        "echo $(case x",
+        "echo $(case x in",
+        "echo $(while",
+        "echo $(echo |",
+        "echo $(if true",
+        "echo $( (x)",
+        "echo $(echo <\\\n",
+        "echo $(echo >\\\n",
+        "echo $(echo <<\\\n",
+    ] {
+        assert!(
+            matches!(strict(source), Err(Error::Parse { .. })),
+            "{source}"
+        );
+    }
+    assert!(matches!(
+        strict("echo <(echo <)"),
+        Err(Error::ShellWord { .. })
+    ));
+    // Fused `<((` text is not parsed before it expands; here-documents may end
+    // at `delimiter)` and their delimiter may spell a `$(...)` word.
+    for source in [
+        "echo <((if true; then : fi))",
+        "echo $(cat <<E\nx\nE)",
+        "echo $(cat <<-E\n\tx\n\tE)",
+        "echo $(cat <<'E'\nx\nE)",
+        "echo $(cat <<$(echo E)\nx\n$(echo E)\n)",
+        // A nested `$(` in the delimiter is scanned like any substitution.
+        "echo $(cat <<$(echo \\))\nX\n$(echo \\))\n)",
+        "echo $(cat <<$(echo ${x:-)})\nX\n$(echo ${x:-)})\n)",
+        "echo $(cat <<-$(echo \\))\nX\n\t$(echo \\))\n)",
+        // A continuation inside the delimiter, and quotes in a nested `$(`.
+        "echo $(printf x <<foo\\\nbar\nfoobar\n)",
+        "echo $(printf x <<-foo\\\nbar\n\tfoobar\n)",
+        "echo $(printf x <<$(echo ')')\nx\n$(echo ')')\n)",
+        // Escaped metacharacters belong to the delimiter (`foo)`, `$(`).
+        "echo $(printf x <<foo\\)\nfoo)\n)",
+        "echo $(printf x <<-foo\\)\n\tfoo)\n)",
+        "echo $(printf x <<\\$\\(\n$(\n)",
+    ] {
+        strict(source).unwrap_or_else(|error| panic!("{source:?}: {error}"));
     }
 }

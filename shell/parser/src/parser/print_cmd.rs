@@ -955,12 +955,12 @@ mod tests {
     }
 
     #[test]
-    fn top_level_words_do_not_keep_source_text() {
-        // Only function bodies pay for recorded source text.
+    fn top_level_words_keep_source_text_for_early_brace_expansion() {
+        // Brace expansion needs the source phase before quote/parameter parsing.
         let script = Parser::new("echo 'a'").parse().expect("parses");
         let Some(Command::Simple(sc)) = script.commands.first() else {
             panic!("expected a simple command");
         };
-        assert!(sc.args[0].raw.is_none());
+        assert_eq!(sc.args[0].raw.as_deref(), Some("'a'"));
     }
 }

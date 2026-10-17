@@ -306,8 +306,9 @@ pub struct Word {
     /// fall back to `quoted` for every part.
     #[serde(default)]
     pub part_quoted: Vec<bool>,
-    /// Source text as written. Only recorded inside function definitions,
-    /// where `type`/`declare -f` print words the way bash does (as written).
+    /// Source text before quote removal and expansion parsing. Brace
+    /// expansion consumes this earlier phase, then reparses one expanded word.
+    /// Function printing also uses it to retain the original spelling.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<String>,
 }
@@ -373,6 +374,9 @@ impl fmt::Display for Word {
                 // never `Debug` (TM-INF-022).
                 WordPart::CommandSubstitution(cmd) => {
                     write!(f, "$({})", super::print_cmd::inline_commands(cmd))?
+                }
+                WordPart::UnparsedCommandSubstitution { source, .. } => {
+                    write!(f, "$({})", source)?
                 }
                 WordPart::ArithmeticExpansion(expr) => write!(f, "$(({}))", expr)?,
                 WordPart::ParameterExpansion {
@@ -511,6 +515,11 @@ pub enum WordPart {
     Variable(String),
     /// Command substitution ($(...))
     CommandSubstitution(Vec<Command>),
+    /// A `$((...) ... )` span whose text is not arithmetic, so bash runs it as
+    /// a command substitution. Bash parses that text only when the word
+    /// expands: a syntax error there is reported then, with status 2, rather
+    /// than rejecting the script. `source` is the text between `$(` and `)`.
+    UnparsedCommandSubstitution { source: String, error: String },
     /// Arithmetic expansion ($((...)))
     ArithmeticExpansion(String),
     /// Parameter expansion with operator ${var:-default}, ${var:=default}, etc.

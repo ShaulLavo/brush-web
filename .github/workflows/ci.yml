@@ -61,6 +61,8 @@ jobs:
       - run: cargo test --locked --manifest-path shell/Cargo.toml --workspace -j2 --no-fail-fast
       - run: npm run test:shell:wasi
       - run: cargo build --locked --release --manifest-path shell/Cargo.toml -p shell-engine -j2
+      - run: npm run test:fuzz-shell-braces
+      - run: npm run fuzz:shell-braces:ci -- --shell .build/shell/release/shell-engine
       - run: npm run fuzz:shell-words:ci -- --shell .build/shell/release/shell-engine
       - run: npm run fuzz:shell-arithmetic:ci -- --shell .build/shell/release/shell-engine
       - run: npm run fuzz:shell-readonly:ci -- --shell .build/shell/release/shell-engine

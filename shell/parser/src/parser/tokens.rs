@@ -21,7 +21,8 @@ pub enum Token {
     /// portion contains glob metacharacters (*, ?, [).  Semantically
     /// equivalent to QuotedWord for IFS splitting (suppressed), but the
     /// interpreter must still perform glob expansion on the result.
-    /// Example: `"$var"*.ext` or `./"$dir"/*.log`
+    /// Example: `"$var"*.ext` or `./"$dir"/*.log`. Quote ranges become
+    /// structural `Word::part_quoted` flags, never pattern escapes in data.
     QuotedGlobWord(String),
 
     /// Newline character

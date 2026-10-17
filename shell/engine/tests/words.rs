@@ -1989,9 +1989,11 @@ fn vanished_words_do_not_consume_argument_capacity() {
 
 #[test]
 fn aggregate_work_is_bounded_even_when_every_expansion_disappears() {
+    // Command work is source + expansion bytes + one step per argument slot.
     let rig = Rig::new(Limits {
         source_bytes: 256,
         expansion_bytes: 128,
+        arguments: 4096,
         ..Limits::default()
     });
     rig.variable("v", &" ".repeat(128));
@@ -2112,13 +2114,16 @@ fn selected_unsupported_operands_and_operator_targets_fail_without_dispatch() {
         "args ${1-x}",
         "args ${u:-~}",
         "args ${u:-*}",
-        "args ${u:-{a,b}}",
     ] {
         let rig = Rig::new(Limits::default());
         assert_eq!(rig.run(source), 2, "{source}");
         assert!(rig.calls.borrow().is_empty(), "{source}");
         assert!(!rig.shell.state().borrow().variables.contains_key("u"));
     }
+    // Brace expansion is supported now; bash leaves this operand's braces.
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("args ${u:-{a,b}}"), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["{a,b}"]]);
 }
 
 #[test]
@@ -4007,6 +4012,8 @@ fn cancellation_during_redirect_target_keeps_effects_and_restores_frames() {
 
 #[path = "words/arithmetic.rs"]
 mod arithmetic;
+#[path = "words/braces.rs"]
+mod braces;
 #[path = "words/indirect.rs"]
 mod indirect;
 
