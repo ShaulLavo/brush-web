@@ -2437,10 +2437,19 @@ mod tests {
             .insert("sep".into(), ":".repeat(4096));
         let cancel = Cancel::new();
         let mut work = Work::new(16_384, 8192, 1);
-        assert!(matches!(
-            Ifs::new(&state, &cancel, 64, &mut work).now_or_never(),
-            Some(Err(Error::Status(2)))
-        ));
+        // Reference admission yields before the effective value's raw bound
+        // is checked. Poll the finite operation without assuming readiness.
+        let mut bounded = Box::pin(Ifs::new(&state, &cancel, 64, &mut work));
+        let mut rejected = false;
+        for _ in 0..512 {
+            if let Some(result) = bounded.as_mut().now_or_never() {
+                assert!(matches!(result, Err(Error::Status(2))));
+                rejected = true;
+                break;
+            }
+        }
+        assert!(rejected, "bounded IFS read must reject its raw overflow");
+        drop(bounded);
         assert_eq!(work.storage_remaining, 8192);
         let mut snapshot = Box::pin(Ifs::new(&state, &cancel, 4096, &mut work));
         assert!(snapshot.as_mut().now_or_never().is_none());

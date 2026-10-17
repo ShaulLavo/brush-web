@@ -17,6 +17,7 @@ use std::{
     cell::Cell,
     future::Future,
     mem::{size_of, size_of_val},
+    ops::Deref,
     rc::Rc,
     sync::{Arc, atomic::AtomicBool},
     time::Duration,
@@ -30,13 +31,93 @@ const READER_METADATA_BYTES: usize = 4096;
 pub(super) type Frame<'a, T = Outcome> = Either<Ready<T>, LocalBoxFuture<'a, T>>;
 
 struct Shared {
-    storage: Cell<usize>,
-    parser: ExecutionBudget,
+    storage: StorageBudget,
+    source_bytes: usize,
+    probe: Option<Rc<dyn Fn() -> bool>>,
     /// Bytes retained by currently active boxed execution frames. This is an
     /// active-memory bound, so a loop may keep running after each iteration's
     /// frame has been dropped instead of spending a cumulative parser budget.
     execution: Cell<usize>,
     execution_limit: usize,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct StorageBudget(Rc<Cell<usize>>);
+
+impl StorageBudget {
+    pub(super) fn new(bytes: usize) -> Self {
+        Self(Rc::new(Cell::new(bytes)))
+    }
+
+    fn admit(&self, bytes: usize) -> Result<StorageAllocation, i32> {
+        let remaining = self.0.get().checked_sub(bytes).ok_or(2)?;
+        self.0.set(remaining);
+        Ok(StorageAllocation {
+            budget: self.clone(),
+            bytes,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct StorageAllocation {
+    budget: StorageBudget,
+    bytes: usize,
+}
+
+impl StorageAllocation {
+    fn grow(&mut self, bytes: usize) -> Result<(), i32> {
+        let total = self.bytes.checked_add(bytes).ok_or(2)?;
+        let remaining = self.budget.0.get().checked_sub(bytes).ok_or(2)?;
+        self.budget.0.set(remaining);
+        self.bytes = total;
+        Ok(())
+    }
+}
+
+impl Drop for StorageAllocation {
+    fn drop(&mut self) {
+        self.budget.0.set(self.budget.0.get() + self.bytes);
+    }
+}
+
+pub(crate) type RetainedStorage = Rc<StorageAllocation>;
+
+#[derive(Clone)]
+pub(super) struct Source {
+    text: Rc<str>,
+    storage: Option<RetainedStorage>,
+}
+
+impl Source {
+    pub(super) fn root(text: &str) -> Self {
+        Self {
+            text: Rc::from(text),
+            storage: None,
+        }
+    }
+}
+
+impl Deref for Source {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.text
+    }
+}
+
+struct JoinedSource {
+    text: String,
+    storage: StorageAllocation,
+}
+
+impl JoinedSource {
+    fn retain(self) -> Source {
+        Source {
+            text: Rc::from(self.text),
+            storage: Some(Rc::new(self.storage)),
+        }
+    }
 }
 
 pub(super) struct Allocation {
@@ -59,41 +140,58 @@ fn frame_bytes<F>(_: &impl FnOnce(Allocation) -> F) -> usize {
 #[derive(Clone)]
 pub(super) struct Scope {
     shared: Rc<Shared>,
+    retained: Option<RetainedStorage>,
     depth: usize,
     execution_depth: usize,
 }
 
 impl Scope {
-    pub(super) fn new(limits: &Limits, probe: Option<Rc<dyn Fn() -> bool>>) -> Self {
-        let parser = ExecutionBudget::new(
-            &ExecutionLimits {
-                max_input_bytes: limits.source_bytes,
-                timeout: Duration::MAX,
-                ..ExecutionLimits::default()
-            },
-            Arc::new(AtomicBool::new(false)),
-        );
-        let parser = match probe {
-            Some(probe) => parser.with_cancellation_probe(probe),
-            None => parser,
-        };
+    pub(super) fn new(
+        limits: &Limits,
+        probe: Option<Rc<dyn Fn() -> bool>>,
+        storage: StorageBudget,
+    ) -> Self {
         Self {
             shared: Rc::new(Shared {
-                storage: Cell::new(limits.expansion_bytes),
-                parser,
+                storage,
+                source_bytes: limits.source_bytes,
+                probe,
                 execution: Cell::new(0),
                 // Reuse the former execution-byte ceiling, now for live
                 // memory instead of the sum of every frame ever executed.
                 execution_limit: usize::try_from(ExecutionLimits::default().max_work_units)
                     .unwrap_or(usize::MAX),
             }),
+            retained: None,
             depth: 0,
             execution_depth: 0,
         }
     }
 
-    pub(super) fn parser_budget(&self) -> &ExecutionBudget {
-        &self.shared.parser
+    // Each input has its own parser allowance. Nested syntax within that input
+    // still shares the parser's work/fuel and cancellation state.
+    pub(super) fn parser_budget(&self) -> ExecutionBudget {
+        let parser = ExecutionBudget::new(
+            &ExecutionLimits {
+                max_input_bytes: self.shared.source_bytes,
+                timeout: Duration::MAX,
+                ..ExecutionLimits::default()
+            },
+            Arc::new(AtomicBool::new(false)),
+        );
+        match &self.shared.probe {
+            Some(probe) => parser.with_cancellation_probe(probe.clone()),
+            None => parser,
+        }
+    }
+
+    pub(super) fn retained(&self) -> Option<RetainedStorage> {
+        self.retained.clone()
+    }
+
+    pub(super) fn with_retained(mut self, retained: Option<RetainedStorage>) -> Self {
+        self.retained = retained;
+        self
     }
 
     // Fixed execution allocations are charged while their boxed futures are
@@ -139,6 +237,7 @@ impl Scope {
     pub(super) fn new_task(&self) -> Self {
         Self {
             shared: self.shared.clone(),
+            retained: self.retained.clone(),
             depth: 0,
             execution_depth: 0,
         }
@@ -164,17 +263,14 @@ impl Scope {
         })
     }
 
-    fn admit_storage(&self, bytes: usize) -> Result<(), i32> {
-        let remaining = self.shared.storage.get().checked_sub(bytes).ok_or(2)?;
-        self.shared.storage.set(remaining);
-        Ok(())
+    fn admit_storage(&self, bytes: usize) -> Result<StorageAllocation, i32> {
+        self.shared.storage.admit(bytes)
     }
 
     async fn checkpoint(&self, budget: &mut Budget, cancel: &Cancel) -> Result<(), i32> {
         if cancel.is_cancelled() {
             return Err(130);
         }
-        self.shared.parser.consume_work(1).map_err(|_| 2)?;
         budget.checkpoint(cancel).await.map_err(|_| 130)
     }
 
@@ -191,8 +287,8 @@ impl Scope {
     }
 }
 
-// Charges remain cumulative for this request, including evals that have returned.
-// Context clones keep the same allowance when jobs or substitutions outlive eval.
+// Reserve source/AST storage before growth. Its shared owner follows the reader,
+// stored functions and descendant contexts; the final owner returns admission.
 struct Shape {
     bytes: usize,
     syntax: usize,
@@ -242,11 +338,15 @@ fn join<'a>(
     args: Vec<String>,
     scope: &'a Scope,
     context: &'a Context,
-) -> Frame<'a, Result<String, i32>> {
+) -> Frame<'a, Result<JoinedSource, i32>> {
     scope.frame(join_body(args, scope, context), Err)
 }
 
-async fn join_body(args: Vec<String>, scope: &Scope, context: &Context) -> Result<String, i32> {
+async fn join_body(
+    args: Vec<String>,
+    scope: &Scope,
+    context: &Context,
+) -> Result<JoinedSource, i32> {
     let mut budget = Budget::default();
     let mut bytes = args.len().saturating_sub(1);
     for arg in &args {
@@ -256,12 +356,13 @@ async fn join_body(args: Vec<String>, scope: &Scope, context: &Context) -> Resul
     if bytes > context.limits().source_bytes {
         return Err(2);
     }
-    // String plus the later Rc<str> copy and its reference-count header.
+    // String plus the later Rc<str> copy and both reference-count headers.
     let storage = bytes
         .checked_mul(2)
-        .and_then(|bytes| bytes.checked_add(size_of::<usize>() * 2))
+        .and_then(|bytes| bytes.checked_add(size_of::<usize>() * 4))
+        .and_then(|bytes| bytes.checked_add(size_of::<StorageAllocation>()))
         .ok_or(2)?;
-    scope.admit_storage(storage)?;
+    let mut storage = scope.admit_storage(storage)?;
     let mut source = String::new();
     source.try_reserve_exact(bytes).map_err(|_| 2)?;
     let mut shape = Shape {
@@ -282,9 +383,12 @@ async fn join_body(args: Vec<String>, scope: &Scope, context: &Context) -> Resul
             source.push(ch);
         }
     }
-    scope.admit_storage(shape.storage()?)?;
+    storage.grow(shape.storage()?)?;
     scope.checkpoint(&mut budget, &context.cancel).await?;
-    Ok(source)
+    Ok(JoinedSource {
+        text: source,
+        storage,
+    })
 }
 
 /// Read admitted eval text in the current shell. Complete earlier lines and
@@ -324,17 +428,27 @@ async fn run_body(
         Ok(source) => source,
         Err(code) => return Outcome::status(code),
     };
-    let (script, failure) = match parse_shell(&source, context.limits(), evaluation.parser_budget())
-    {
+    let parser = evaluation.parser_budget();
+    let (script, failure) = match parse_shell(&source.text, context.limits(), &parser) {
         Ok(parsed) => parsed,
+        Err(_)
+            if matches!(
+                parser.check(),
+                Err(shell_parser::limits::LimitExceeded::Cancelled)
+            ) =>
+        {
+            context.cancel.cancel();
+            return Outcome::status(130);
+        }
         Err(_) => return Outcome::status(2),
     };
     if context.cancel.is_cancelled() {
         return Outcome::status(130);
     }
+    let source = source.retain();
     let context = Context {
-        source: Rc::from(source),
-        evaluation,
+        evaluation: evaluation.with_retained(source.storage.clone()),
+        source,
         ..context
     };
     // A joined reader task breaks the recursive poll/drop chain. Keep the
@@ -351,6 +465,11 @@ async fn run_body(
             context.clone(),
         ))
         .await;
+    // Discard belongs to this eval reader. Resume its next input/error, then
+    // return a status to the caller instead of discarding the caller's line.
+    if result.flow == Flow::DiscardReadUnit {
+        result.flow = Flow::Normal;
+    }
     if result.flow == Flow::Normal
         && let Some(failure) = failure
     {
@@ -367,8 +486,83 @@ mod tests {
     use super::*;
 
     #[test]
+    fn storage_growth_is_admitted_atomically_and_refunded_by_the_last_owner() {
+        let storage = StorageBudget::new(64);
+        let mut allocation = storage.admit(48).unwrap();
+        assert!(allocation.grow(17).is_err());
+        assert_eq!(storage.0.get(), 16);
+        allocation.grow(16).unwrap();
+        assert!(storage.admit(1).is_err());
+        let retained = Rc::new(allocation);
+        let limits = Limits::default();
+        let scope =
+            Scope::new(&limits, None, storage.clone()).with_retained(Some(retained.clone()));
+        let child = scope.new_task();
+        drop(retained);
+        drop(scope);
+        assert!(storage.admit(1).is_err());
+        drop(child);
+        assert_eq!(storage.0.get(), 64);
+    }
+
+    #[test]
+    fn cancelling_owned_storage_returns_admission_without_waiting_for_a_later_request() {
+        let storage = StorageBudget::new(64);
+        let allocation = storage.admit(64).unwrap();
+        let cancel = Cancel::new();
+        let body = async move {
+            let _allocation = allocation;
+            futures::future::pending::<()>().await;
+        };
+        let wait = cancel.run(body);
+        futures::pin_mut!(wait);
+        assert!(wait.as_mut().now_or_never().is_none());
+        assert_eq!(storage.0.get(), 0);
+        cancel.cancel();
+        assert!(matches!(wait.as_mut().now_or_never(), Some(Err(_))));
+        assert_eq!(storage.0.get(), 64);
+    }
+
+    #[test]
+    fn parser_work_is_shared_inside_an_input_and_fresh_for_a_later_input() {
+        let limits = Limits::default();
+        let scope = Scope::new(&limits, None, StorageBudget::new(limits.expansion_bytes));
+        let parser = scope.parser_budget();
+        parser
+            .consume_work(ExecutionLimits::default().max_work_units)
+            .unwrap();
+        assert!(parser.clone().consume_work(1).is_err());
+        assert!(parser.consume_work(0).is_err());
+        assert!(scope.parser_budget().consume_work(1).is_ok());
+    }
+
+    #[test]
+    fn fresh_parser_inputs_preserve_interrupt_probes() {
+        let limits = Limits::default();
+        let interrupted = Rc::new(Cell::new(false));
+        let probe = interrupted.clone();
+        let scope = Scope::new(
+            &limits,
+            Some(Rc::new(move || probe.get())),
+            StorageBudget::new(limits.expansion_bytes),
+        );
+        let parser = scope.parser_budget();
+        assert!(parser.consume_work(1).is_ok());
+        interrupted.set(true);
+        assert!(matches!(
+            parser.check(),
+            Err(shell_parser::limits::LimitExceeded::Cancelled)
+        ));
+        assert!(matches!(
+            scope.parser_budget().check(),
+            Err(shell_parser::limits::LimitExceeded::Cancelled)
+        ));
+    }
+
+    #[test]
     fn live_execution_admission_rejects_growth_and_releases_dropped_allocations() {
-        let scope = Scope::new(&Limits::default(), None);
+        let limits = Limits::default();
+        let scope = Scope::new(&limits, None, StorageBudget::new(limits.expansion_bytes));
         let allocation = scope.admit_execution(scope.shared.execution_limit).unwrap();
         assert!(scope.admit_execution(1).is_err());
         drop(allocation);

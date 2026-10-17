@@ -107,6 +107,34 @@ fn shutdown_and_check(rig: &Rig) {
     panic!("substitution shutdown did not finish");
 }
 
+fn drive_eval_progress(rig: &Rig, job: &JoinHandle<i32>, goal: usize) -> usize {
+    let mut progress = 0;
+    for _ in 0..100_000 {
+        rig.ex.drive(64);
+        assert!(!job.is_finished(), "eval loop stopped before interruption");
+        progress = rig.shell.state().borrow().variables["n"]
+            .parse::<usize>()
+            .unwrap();
+        if progress >= goal {
+            break;
+        }
+    }
+    progress
+}
+
+fn fill_eval_reader_storage(rig: &Rig, source: &str) -> usize {
+    let mut admitted = 0;
+    for _ in 0..64 {
+        let status = rig.run(source);
+        if status != 0 {
+            assert_eq!(status, 2, "{source}");
+            break;
+        }
+        admitted += 1;
+    }
+    admitted
+}
+
 #[test]
 fn output_streams_into_fields_with_trailing_newlines_removed() {
     check(
@@ -913,6 +941,56 @@ fn nameref_assignment_failure_discards_only_the_current_physical_read_unit() {
     );
     assert_eq!(rig.run(&next_line), 0);
     assert_eq!(rig.output.bytes(), b"<1>|<value>|<>\n");
+
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run(&format!(
+            "{setup}eval 'n1=changed; printf INNER_BAD'; printf 'AFTER:%s\\n' \"$?\"\n"
+        )),
+        0
+    );
+    assert_eq!(rig.output.bytes(), b"AFTER:1\n");
+    assert_eq!(rig.shell.state().borrow().variables["target"], "value");
+
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run(&format!(
+            "{setup}eval 'n1=changed\nfi'; printf 'AFTER:%s\\n' \"$?\"\n"
+        )),
+        0
+    );
+    assert_eq!(rig.output.bytes(), b"AFTER:2\n");
+    assert_eq!(rig.shell.state().borrow().variables["target"], "value");
+}
+
+#[test]
+fn failed_builtin_prefix_admission_restores_existing_and_absent_bindings() {
+    for (existing, budget) in [
+        (false, 64),
+        (true, 64),
+        (true, 128 * std::mem::size_of::<usize>()),
+    ] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: budget,
+            ..Limits::default()
+        });
+        if existing {
+            rig.variable("a", "before_a");
+            rig.variable("b", "before_b");
+        }
+        assert_eq!(rig.run("a=1 b=2 true"), 2);
+        let state = rig.shell.state();
+        let state = state.borrow();
+        assert_eq!(
+            state.variables.get("a").map(String::as_str),
+            existing.then_some("before_a")
+        );
+        assert_eq!(
+            state.variables.get("b").map(String::as_str),
+            existing.then_some("before_b")
+        );
+        assert!(rig.calls.borrow().is_empty());
+    }
 }
 
 #[test]
@@ -1078,24 +1156,132 @@ fn eval_inside_compound_commands_bounds_the_actual_execution_chain() {
 }
 
 #[test]
-fn successive_evals_share_cumulative_script_admission() {
+fn returned_evals_release_storage_before_later_function_calls() {
     let rig = Rig::new(Limits {
         expansion_bytes: 128 * 1024,
         function_depth: 32,
         ..Limits::default()
     });
     assert_eq!(
-        rig.run(r#"n=0; f() { eval 'n=$((n+1))'; case $? in 0) f;; *) :;; esac; }; f"#),
+        rig.run(r#"n=0; f() { eval 'n=$((n+1))'; case $n in 32) :;; *) f;; esac; }; f"#),
         0,
     );
     let progress = rig.shell.state().borrow().variables["n"]
         .parse::<usize>()
         .unwrap();
-    assert!(
-        progress > 0 && progress < 32,
-        "a fresh allowance per eval would reach the function ceiling: {progress}"
-    );
+    // Earlier evals returned before the next function call. Their discarded
+    // source/AST copies must not consume this call's live-memory admission.
+    assert_eq!(progress, 32);
+    assert_eq!(rig.run(r#"n=0; g() { eval 'n=$((n+1))'; g; }; g"#), 2);
+    assert_eq!(rig.shell.state().borrow().variables["n"], "32");
     assert_eq!(rig.run("args recovered"), 0);
+}
+
+#[test]
+fn sequential_eval_loops_cross_the_former_allowance_and_interrupt_without_killing_background() {
+    for body in ["n=$((n+1))", "eval_saved() { :; }; n=$((n+1))"] {
+        let limits = Limits::default();
+        // Every old reader reservation included at least 4096 metadata bytes.
+        // 2048 completed inputs exceed that old cumulative cap eightfold.
+        assert!(2048 * 4096 >= 8 * limits.expansion_bytes);
+        let rig = Rig::new(limits);
+        let release = register_status_gate(&rig, "status_gate", 9);
+        assert_eq!(rig.run("status_gate & background=$!"), 0);
+        rig.variable("n", "0");
+        let job = rig
+            .shell
+            .start(&format!("while :; do eval '{body}'; done"))
+            .unwrap();
+        let progress = drive_eval_progress(&rig, &job, 2048);
+        assert!(
+            progress >= 2048,
+            "eval effects stopped at {progress}: {body}"
+        );
+        rig.shell.interrupt();
+        assert_eq!(rig.finish(job), 130);
+        assert_eq!(rig.shell.background_jobs(), 1);
+        assert_eq!(rig.host.active_count(), 1);
+        release.cancel();
+        assert_eq!(rig.run(r#"wait "$background""#), 9);
+        assert_eq!(rig.run("wait; unset -f eval_saved; eval ':'"), 0);
+        shutdown_and_check(&rig);
+    }
+}
+
+#[test]
+fn eval_descendants_keep_storage_after_return_and_release_it_when_reaped() {
+    for (source, background) in [
+        ("eval 'status_gate &'", true),
+        ("eval ': <(status_gate)'", false),
+        (
+            "eval 'eval_saved() { status_gate & };' && eval_saved && unset -f eval_saved",
+            true,
+        ),
+    ] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: 128 * 1024,
+            ..Limits::default()
+        });
+        let release = register_status_gate(&rig, "status_gate", 9);
+        let admitted = fill_eval_reader_storage(&rig, source);
+        // Live reader storage fills before the independent 128-job ceiling.
+        assert!(
+            admitted > 0 && admitted < 64,
+            "admitted {admitted}: {source}"
+        );
+        rig.ex.drive(128);
+        assert_eq!(
+            rig.shell.background_jobs(),
+            if background { admitted } else { 0 }
+        );
+        assert_eq!(rig.host.active_count(), admitted);
+        release.cancel();
+        assert_eq!(rig.run("wait"), 0);
+        assert_eq!(rig.host.active_count(), 0);
+        assert_eq!(rig.host.retained_count(), 0);
+        assert_eq!(rig.run(source), 0, "reaping must return storage: {source}");
+        assert_eq!(rig.run("wait"), 0);
+        shutdown_and_check(&rig);
+    }
+}
+
+#[test]
+fn stored_eval_functions_and_isolated_snapshots_keep_their_live_storage() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 128 * 1024,
+        ..Limits::default()
+    });
+    let release = register_status_gate(&rig, "status_gate", 9);
+    let mut admitted = 0;
+    for index in 0..64 {
+        rig.variable("definition", &format!("kept{index}() {{ :; }}"));
+        let status = rig.run(r#"eval "$definition""#);
+        if status != 0 {
+            assert_eq!(status, 2);
+            break;
+        }
+        admitted += 1;
+    }
+    assert!(
+        admitted > 0 && admitted < 64,
+        "stored {admitted} definitions"
+    );
+    assert_eq!(rig.shell.state().borrow().functions.len(), admitted);
+    assert_eq!(rig.run("status_gate & background=$!"), 0);
+    let names = (0..admitted)
+        .map(|index| format!("kept{index}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert_eq!(rig.run(&format!("unset -f {names}")), 0);
+    assert!(rig.shell.state().borrow().functions.is_empty());
+    // The child snapshot still owns the same immutable bodies and admission.
+    assert_eq!(rig.run(r#"eval "$definition""#), 2);
+    release.cancel();
+    assert_eq!(rig.run(r#"wait "$background""#), 9);
+    assert_eq!(rig.run("wait"), 0);
+    assert_eq!(rig.run(r#"eval "$definition""#), 0);
+    assert_eq!(rig.run(&format!("unset -f kept{admitted}")), 0);
+    shutdown_and_check(&rig);
 }
 
 #[test]

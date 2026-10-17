@@ -59,6 +59,12 @@ pub(crate) struct LocalVariable {
 }
 
 #[derive(Clone, Debug)]
+pub struct StoredFunction {
+    pub body: Rc<Command>,
+    pub(crate) storage: Option<crate::interpreter::RetainedStorage>,
+}
+
+#[derive(Clone, Debug)]
 pub struct State {
     pub shell_name: String,
     pub variables: BTreeMap<String, String>,
@@ -68,7 +74,7 @@ pub struct State {
     pub(crate) namerefs: BTreeMap<String, String>,
     pub cwd: String,
     /// Function bodies are immutable. Isolated shells copy bindings, not ASTs.
-    pub functions: BTreeMap<String, Rc<Command>>,
+    pub functions: BTreeMap<String, StoredFunction>,
     pub status: i32,
     pub pipestatus: Vec<i32>,
     pub pipefail: bool,
@@ -733,7 +739,7 @@ impl SnapshotValue for LocalVariable {
             .saturating_add(self.nameref.snapshot_bytes())
     }
 }
-impl SnapshotValue for Rc<Command> {
+impl SnapshotValue for StoredFunction {
     fn snapshot_bytes(&self) -> usize {
         0
     }
@@ -1467,7 +1473,13 @@ mod tests {
         ));
         {
             let mut source = state.borrow_mut();
-            source.functions.insert("f".into(), body.clone());
+            source.functions.insert(
+                "f".into(),
+                StoredFunction {
+                    body: body.clone(),
+                    storage: None,
+                },
+            );
             source.variables.insert("v".into(), "caller".into());
             source.exported.insert("v".into());
             source.readonly.insert("r".into());
@@ -1481,7 +1493,7 @@ mod tests {
         let mut work = Work::new(1_000_000, 16 * 1024, 0);
         let mut child = finish_snapshot(&state, &Cancel::new(), &mut work)
             .unwrap_or_else(|_| panic!("small shared-body snapshot should fit"));
-        assert!(Rc::ptr_eq(&child.functions["f"], &body));
+        assert!(Rc::ptr_eq(&child.functions["f"].body, &body));
         assert_eq!(child.shell_name, "bash");
         assert_eq!(child.cwd, "/home/guest");
         assert_eq!(child.status, 7);
@@ -1499,7 +1511,7 @@ mod tests {
         child.cwd = "/child".into();
         let source = state.borrow();
         assert_eq!(source.variables["v"], "caller");
-        assert!(Rc::ptr_eq(&source.functions["f"], &body));
+        assert!(Rc::ptr_eq(&source.functions["f"].body, &body));
         assert!(source.exported.contains("v"));
         assert!(source.readonly.contains("r"));
         assert_eq!(source.positional, ["argument"]);

@@ -6,7 +6,7 @@ use crate::{
     expand,
     io::{self, FdTable, FileSystem, OpenOptions},
     process::{GroupId, ProcessGroup, ProcessHost, SpawnRequest},
-    state::{FunctionFrame, PrefixFrame, SharedState, State, absolute},
+    state::{FunctionFrame, PrefixFrame, SharedState, State, StoredFunction, absolute},
 };
 use futures::future::join_all;
 use shell_parser::parser::*;
@@ -17,6 +17,7 @@ use std::{
 };
 
 mod eval;
+pub(crate) use eval::RetainedStorage;
 
 #[derive(Clone, Debug)]
 pub struct Limits {
@@ -203,6 +204,7 @@ struct Core {
     host: Rc<dyn ProcessHost>,
     fs: Rc<dyn FileSystem>,
     limits: Limits,
+    eval_storage: eval::StorageBudget,
     descriptors: Descriptors,
     jobs: RefCell<BTreeMap<JobId, Job>>,
     next: Cell<u64>,
@@ -212,8 +214,9 @@ struct Core {
 #[derive(Clone)]
 pub(crate) struct Context {
     core: Rc<Core>,
-    source: Rc<str>,
+    source: eval::Source,
     pub cancel: Cancel,
+    signal: Rc<Cell<Option<i32>>>,
     pub group: GroupId,
     scope: Scope,
     parameter_error_status: i32,
@@ -221,6 +224,12 @@ pub(crate) struct Context {
     evaluation: eval::Scope,
 }
 impl Context {
+    fn stop_signal(&self) -> i32 {
+        self.signal.get().unwrap_or(2)
+    }
+    fn cancel_status(&self) -> i32 {
+        128 + self.stop_signal()
+    }
     pub(crate) fn fs(&self) -> &dyn FileSystem {
         self.core.fs.as_ref()
     }
@@ -269,6 +278,9 @@ impl Context {
             .values()
             .filter(|job| job.owner == self.scope)
         {
+            if job.signal.get().is_none() {
+                job.signal.set(Some(self.stop_signal()));
+            }
             job.cancel.cancel();
         }
         while let Some((id, join)) = self.next_job(None, true) {
@@ -298,7 +310,11 @@ impl Context {
         match finished {
             Ok(Ok(_)) => code,
             Ok(Err(_)) => 1,
-            Err(_) => processes.terminate(2).await.map(|_| 130).unwrap_or(1),
+            Err(_) => processes
+                .terminate(self.stop_signal())
+                .await
+                .map(|_| self.cancel_status())
+                .unwrap_or(1),
         }
     }
     pub(crate) async fn wait_job(&self, id: Option<JobSelector>) -> Result<i32, i32> {
@@ -430,6 +446,7 @@ impl Session {
                 executor,
                 host,
                 fs,
+                eval_storage: eval::StorageBudget::new(limits.expansion_bytes),
                 limits,
                 descriptors: Rc::new(RefCell::new(FdTable::default())),
                 jobs: RefCell::new(BTreeMap::new()),
@@ -458,6 +475,9 @@ impl Session {
     }
     pub fn interrupt(&self) {
         if let Some(job) = self.core.foreground.borrow().as_ref() {
+            if job.signal.get().is_none() {
+                job.signal.set(Some(2));
+            }
             job.cancel.cancel();
         }
     }
@@ -481,8 +501,9 @@ impl Session {
         let evaluation = eval::Scope::new(
             &self.core.limits,
             Some(Rc::new(move || parser_host.interrupted())),
+            self.core.eval_storage.clone(),
         );
-        let (script, failure) = parse_shell(source, &self.core.limits, evaluation.parser_budget())
+        let (script, failure) = parse_shell(source, &self.core.limits, &evaluation.parser_budget())
             .map_err(|error| {
                 if error == "request cancelled" {
                     StartError::Interrupted
@@ -499,10 +520,13 @@ impl Session {
         let host = self.core.host.clone();
         let cancel = Cancel::with_probe(Rc::new(move || host.interrupted()));
         let foreground_cancel = cancel.clone();
+        let signal = Rc::new(Cell::new(None));
+        let foreground_signal = signal.clone();
         let context = Context {
             core: self.core.clone(),
-            source: Rc::from(source),
+            source: eval::Source::root(source),
             cancel,
+            signal,
             group,
             scope: Scope::new(0),
             parameter_error_status: 127,
@@ -512,7 +536,8 @@ impl Session {
         let state = self.state.clone();
         let join = self.core.executor.spawn(async move {
             let _foreground = ForegroundGuard(context.core.clone());
-            let mut processes = ProcessGroup::new(context.core.host.clone(), group);
+            let mut processes = ProcessGroup::new(context.core.host.clone(), group)
+                .with_signal(context.signal.clone());
             let mut result = script_sequence(
                 script.commands,
                 script.command_end_lines,
@@ -538,7 +563,7 @@ impl Session {
             kind: JobKind::Internal,
             group,
             cancel: foreground_cancel,
-            signal: Rc::new(Cell::new(None)),
+            signal: foreground_signal,
             join: join.clone(),
             _allocation: None,
         });
@@ -552,6 +577,9 @@ impl Session {
             .borrow()
             .values()
             .map(|j| {
+                if j.signal.get().is_none() {
+                    j.signal.set(Some(2));
+                }
                 j.cancel.cancel();
                 j.join.clone()
             })
@@ -565,12 +593,16 @@ impl Session {
         join_all(jobs.into_iter().chain(foreground)).await;
         self.core.jobs.borrow_mut().clear();
         *self.core.descriptors.borrow_mut() = FdTable::default();
+        self.core.host.shutdown_io().await;
     }
 }
 impl Drop for Session {
     fn drop(&mut self) {
         self.interrupt();
         for job in self.core.jobs.borrow().values() {
+            if job.signal.get().is_none() {
+                job.signal.set(Some(2));
+            }
             job.cancel.cancel();
         }
     }
@@ -846,10 +878,13 @@ fn command_body(
         }
         Command::Function(function) => evaluation.frame(
             async move {
-                state
-                    .borrow_mut()
-                    .functions
-                    .insert(function.name, Rc::new(*function.body));
+                state.borrow_mut().functions.insert(
+                    function.name,
+                    StoredFunction {
+                        body: Rc::new(*function.body),
+                        storage: context.evaluation.retained(),
+                    },
+                );
                 Outcome::status(0)
             },
             Outcome::status,
@@ -1586,11 +1621,11 @@ async fn launch_background(
     let group = context.core.host.allocate_background_group();
     let cancel = Cancel::new();
     let signal = Rc::new(Cell::new(None));
-    let child_signal = signal.clone();
     let child_context = Context {
         core: context.core.clone(),
         source: context.source.clone(),
         cancel: cancel.clone(),
+        signal: signal.clone(),
         group,
         scope: Scope::new(context.core.allocate_id()),
         parameter_error_status: context.child_error_status(&command),
@@ -1600,13 +1635,13 @@ async fn launch_background(
     let fds = Rc::new(RefCell::new(fds.borrow().clone()));
     let parent_scope = context.scope.clone();
     let join = context.core.executor.spawn(async move {
-        let mut processes = ProcessGroup::new(child_context.core.host.clone(), group);
+        let mut processes = ProcessGroup::new(child_context.core.host.clone(), group)
+            .with_signal(child_context.signal.clone());
         let result = execute(command, child, fds, child_context.clone()).await;
         child_context.finish_scope(parent_scope).await;
-        let code = child_context
+        child_context
             .finish_group(&mut processes, result.code)
-            .await;
-        child_signal.get().map_or(code, |signal| 128 + signal)
+            .await
     });
     context.core.jobs.borrow_mut().insert(
         job,
@@ -1728,7 +1763,7 @@ impl Substitutions {
         }
         let allocation = admit_job(&self.context).map_err(admission_status)?;
         self.context.core.reap_completed_jobs();
-        let (reader, writer) = io::pipe();
+        let (reader, writer) = self.context.fs().pipe().map_err(|error| error.status())?;
         let child = state;
         let mut table = self.fds.borrow().clone();
         table.insert(1, writer);
@@ -1736,52 +1771,57 @@ impl Substitutions {
         let cancel = Cancel::new();
         let group = self.context.core.host.allocate_background_group();
         let signal = Rc::new(Cell::new(None));
-        let child_signal = signal.clone();
         let parent = self.context.cancel.clone();
+        let parent_signal = self.context.signal.clone();
+        let parent_scope = self.context.scope.clone();
         let context = Context {
             cancel: cancel.clone(),
+            signal: signal.clone(),
             group,
             parameter_error_status: 1,
             compound_child: false,
             ..self.context.isolated()
         };
         let link = cancel.clone();
+        let link_signal = signal.clone();
         let capture_complete = Cancel::new();
         let captured = capture_complete.clone();
+        let (complete, completion) = futures::channel::oneshot::channel();
         let join = self.context.core.executor.spawn(async move {
+            let mut processes = ProcessGroup::new(context.core.host.clone(), group)
+                .with_signal(context.signal.clone());
             let body = async {
                 let result = sequence(commands, child, fds, context.clone()).await;
                 // Capturing waits for actual stdout EOF, not every background
                 // job: redirected descendants may keep running after EOF.
                 if context.cancel.run(captured.cancelled()).await.is_err() {
                     context.cleanup_jobs().await;
-                } else {
-                    context.core.jobs.borrow_mut().retain(|_, job| {
-                        if job.owner != context.scope {
-                            return true;
-                        }
-                        job.kind = JobKind::Internal;
-                        !job.join.is_finished()
-                    });
                 }
-                result.code
+                context.finish_scope(parent_scope).await;
+                let code = if context.cancel.is_cancelled() {
+                    context.cancel_status()
+                } else {
+                    result.code
+                };
+                // EOF releases capture, while this registered supervisor keeps
+                // cleanup ownership of any host descendants still running.
+                let _ = complete.send(code);
+                context.finish_group(&mut processes, code).await
             };
             // The parent's cancellation reaches the body through its own
             // token; the body still unwinds normally and reports its status.
             let forward = async {
                 parent.cancelled().await;
+                if link_signal.get().is_none() {
+                    link_signal.set(Some(parent_signal.get().unwrap_or(2)));
+                }
                 link.cancel();
                 futures::future::pending::<()>().await
             };
             futures::pin_mut!(body, forward);
             match futures::future::select(body, forward).await {
-                futures::future::Either::Left((code, _)) => {
-                    child_signal.get().map_or(code, |signal| 128 + signal)
-                }
-                futures::future::Either::Right(((), body)) => {
-                    let code = body.await;
-                    child_signal.get().map_or(code, |signal| 128 + signal)
-                }
+                futures::future::Either::Left((code, _)) => code,
+                futures::future::Either::Right(((), body)) => body.await,
             }
         });
         let core = &self.context.core;
@@ -1793,7 +1833,7 @@ impl Substitutions {
                 kind: JobKind::Internal,
                 group,
                 cancel: cancel.clone(),
-                signal,
+                signal: signal.clone(),
                 join: join.clone(),
                 _allocation: Some(allocation),
             },
@@ -1804,6 +1844,9 @@ impl Substitutions {
                 cancel,
                 capture_complete,
                 join,
+                completion,
+                signal,
+                parent_signal: self.context.signal.clone(),
                 core: core.clone(),
                 id,
                 finished: false,
@@ -1855,7 +1898,7 @@ impl Substitutions {
         if core.jobs.borrow().len() >= self.context.limits().jobs {
             return Err(2);
         }
-        let (reader, writer) = io::pipe();
+        let (reader, writer) = self.context.fs().pipe().map_err(|error| error.status())?;
         let mut table = self.fds.borrow().clone();
         let parent_end = if is_input {
             table.insert(1, writer);
@@ -1869,37 +1912,39 @@ impl Substitutions {
         let cancel = Cancel::new();
         let group = core.host.allocate_background_group();
         let signal = Rc::new(Cell::new(None));
-        let child_signal = signal.clone();
         let context = Context {
             cancel: cancel.clone(),
+            signal: signal.clone(),
             group,
             parameter_error_status: 1,
             compound_child: false,
             ..self.context.isolated()
         };
         let parent = self.context.cancel.clone();
+        let parent_signal = self.context.signal.clone();
         let link = cancel.clone();
+        let link_signal = signal.clone();
         let join = core.executor.spawn(async move {
+            let mut processes = ProcessGroup::new(context.core.host.clone(), group)
+                .with_signal(context.signal.clone());
             let body = async {
                 let result = sequence(commands, child, fds, context.clone()).await;
                 let _ = context.wait_jobs(None, true).await;
                 context.cleanup_jobs().await;
-                result.code
+                context.finish_group(&mut processes, result.code).await
             };
             let forward = async {
                 parent.cancelled().await;
+                if link_signal.get().is_none() {
+                    link_signal.set(Some(parent_signal.get().unwrap_or(2)));
+                }
                 link.cancel();
                 futures::future::pending::<()>().await
             };
             futures::pin_mut!(body, forward);
             match futures::future::select(body, forward).await {
-                futures::future::Either::Left((code, _)) => {
-                    child_signal.get().map_or(code, |signal| 128 + signal)
-                }
-                futures::future::Either::Right(((), body)) => {
-                    let code = body.await;
-                    child_signal.get().map_or(code, |signal| 128 + signal)
-                }
+                futures::future::Either::Left((code, _)) => code,
+                futures::future::Either::Right(((), body)) => body.await,
             }
         });
         core.jobs.borrow_mut().insert(
@@ -1926,24 +1971,35 @@ impl Substitutions {
         &self.context.cancel
     }
 }
-/// A running substitution body. Its registered join remains owned by the
-/// session if a caller drops the capture; normal/error completion awaits it.
+/// Capture completion follows EOF. The registered join separately owns group
+/// reaping; cancellation/errors drain it before releasing the capture.
 pub(crate) struct SubstitutionTask {
     cancel: Cancel,
     capture_complete: Cancel,
     join: JoinHandle<i32>,
+    completion: futures::channel::oneshot::Receiver<i32>,
+    signal: Rc<Cell<Option<i32>>>,
+    parent_signal: Rc<Cell<Option<i32>>>,
     core: Rc<Core>,
     id: JobId,
     finished: bool,
 }
 impl SubstitutionTask {
     pub(crate) fn cancel(&self) {
+        if self.signal.get().is_none() {
+            self.signal.set(Some(self.parent_signal.get().unwrap_or(2)));
+        }
         self.cancel.cancel();
     }
     pub(crate) async fn finish(mut self) -> i32 {
         self.capture_complete.cancel();
-        let code = self.join.clone().await;
-        self.core.jobs.borrow_mut().remove(&self.id);
+        let code = (&mut self.completion).await.unwrap_or(130);
+        if self.cancel.is_cancelled() {
+            self.join.clone().await;
+        }
+        if self.join.is_finished() {
+            self.core.jobs.borrow_mut().remove(&self.id);
+        }
         self.finished = true;
         code
     }
@@ -1951,7 +2007,7 @@ impl SubstitutionTask {
 impl Drop for SubstitutionTask {
     fn drop(&mut self) {
         if !self.finished {
-            self.cancel.cancel();
+            self.cancel();
         }
     }
 }
@@ -2013,7 +2069,8 @@ struct PreparedCommand {
 }
 
 /// Prefix assignments for a builtin live for the builtin call and restore on
-/// every exit path. Admission and alias resolution finish before mutation.
+/// every exit path. The guard owns prior mutations before any later admission
+/// or alias-resolution failure can unwind the call.
 struct BuiltinPrefixFrame {
     state: SharedState,
     saved: BTreeMap<String, Option<String>>,
@@ -2028,21 +2085,34 @@ impl BuiltinPrefixFrame {
         for (name, value) in assigned {
             State::admit_assignment(&state, name, value.len(), &context.cancel, work).await?;
         }
-        let mut saved = BTreeMap::new();
+        let mut frame = Self {
+            state: state.clone(),
+            saved: BTreeMap::new(),
+        };
         {
             let mut state_ref = state.borrow_mut();
             for (name, value) in assigned {
+                work.admit_storage(name.len())?;
                 let target = state_ref.assignment_name(name.clone()).map_err(|_| 2)?;
-                work.admit_storage(
-                    std::mem::size_of::<(String, Option<String>)>()
-                        .saturating_add(target.len())
-                        .saturating_add(value.len()),
-                )?;
+                if !frame.saved.contains_key(&target) {
+                    work.admit_storage(
+                        (std::mem::size_of::<(String, Option<String>)>()
+                            + std::mem::size_of::<usize>())
+                        .saturating_mul(16),
+                    )?;
+                }
+                if !state_ref.variables.contains_key(&target) {
+                    work.admit_storage(
+                        (std::mem::size_of::<(String, String)>() + std::mem::size_of::<usize>())
+                            .saturating_mul(16),
+                    )?;
+                }
+                work.admit_storage(target.len().saturating_add(value.len()))?;
                 let previous = state_ref.variables.insert(target.clone(), value.clone());
-                saved.entry(target).or_insert(previous);
+                frame.saved.entry(target).or_insert(previous);
             }
         }
-        Ok(Self { state, saved })
+        Ok(frame)
     }
 }
 impl Drop for BuiltinPrefixFrame {
@@ -2261,12 +2331,19 @@ async fn dispatch_simple_command_body(
         let source_bytes = context.limits().source_bytes;
         let mut copy_work = expand::Work::new(source_bytes, source_bytes, 0);
         if let Err(error) =
-            crate::ast_copy::command(body.as_ref(), &context.cancel, &mut copy_work).await
+            crate::ast_copy::command(body.body.as_ref(), &context.cancel, &mut copy_work).await
         {
             return Ok(expansion_failure(error.into(), &fds, &context).await);
         }
         let _frame = FunctionFrame::enter(state.clone(), args, context.limits().function_depth)?;
-        let mut outcome = execute(body.as_ref().clone(), state, fds, context).await;
+        let context = Context {
+            evaluation: context
+                .evaluation
+                .clone()
+                .with_retained(body.storage.clone()),
+            ..context
+        };
+        let mut outcome = execute(body.body.as_ref().clone(), state, fds, context).await;
         if outcome.flow == Flow::Return {
             outcome.flow = Flow::Normal;
         }
@@ -2329,9 +2406,13 @@ async fn dispatch_simple_command_body(
     match context.cancel.run(context.core.host.wait(pid)).await {
         Ok(result) => Ok(Outcome::status(result.map_err(|_| 1)?)),
         Err(_) => {
-            context.core.host.kill(pid, 2).map_err(|_| 1)?;
+            context
+                .core
+                .host
+                .kill(pid, context.stop_signal())
+                .map_err(|_| 1)?;
             context.core.host.wait(pid).await.map_err(|_| 1)?;
-            Err(130)
+            Err(context.cancel_status())
         }
     }
 }
@@ -2594,11 +2675,13 @@ async fn redirects(
                 }
             }
             RedirectKind::HereDoc | RedirectKind::HereDocStrip | RedirectKind::HereString => {
+                work.admit_storage(io::buffered_input_metadata_bytes())?;
                 // The parser already removed `<<-` tabs; the body expanded
                 // like a double-quoted word. A here-string gains a newline.
                 let mut text = target;
                 if redirect.kind == RedirectKind::HereString {
                     work.admit_storage(1)?;
+                    text.try_reserve_exact(1).map_err(|_| 2)?;
                     text.push('\n');
                 }
                 fds.borrow_mut()

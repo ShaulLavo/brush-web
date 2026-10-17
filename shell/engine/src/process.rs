@@ -74,6 +74,12 @@ pub trait ProcessHost {
     /// Transfer cleanup ownership to the host when a caller drops its future.
     /// The host must arrange kill AND confirmed reaping without that future.
     fn abandon_group(&self, group: GroupId, signal: i32);
+    /// Collect producers with no logical reader or process owner. Call again
+    /// after session descriptors close; live peer readers remain independent.
+    /// Hosts without detached I/O have no additional work.
+    fn shutdown_io(&self) -> LocalBoxFuture<'static, ()> {
+        Box::pin(futures::future::ready(()))
+    }
 }
 
 struct Child {
@@ -324,6 +330,8 @@ pub struct ProcessGroup {
     host: Rc<dyn ProcessHost>,
     id: GroupId,
     terminated: bool,
+    signal: Option<Rc<Cell<Option<i32>>>>,
+    abandon_signal: i32,
 }
 impl ProcessGroup {
     pub fn new(host: Rc<dyn ProcessHost>, id: GroupId) -> Self {
@@ -331,7 +339,13 @@ impl ProcessGroup {
             host,
             id,
             terminated: false,
+            signal: None,
+            abandon_signal: 15,
         }
+    }
+    pub fn with_signal(mut self, signal: Rc<Cell<Option<i32>>>) -> Self {
+        self.signal = Some(signal);
+        self
     }
     /// Confirm natural completion and release cleanup ownership without a signal.
     /// If this future is dropped before completion, Drop still abandons the group.
@@ -341,6 +355,13 @@ impl ProcessGroup {
         Ok(())
     }
     pub async fn terminate(&mut self, signal: i32) -> Result<(), ProcessError> {
+        if !(1..=64).contains(&signal) {
+            return Err(ProcessError::InvalidSignal);
+        }
+        self.abandon_signal = signal;
+        if let Some(reason) = &self.signal {
+            reason.set(Some(signal));
+        }
         self.host.kill_group(self.id, signal)?;
         self.finish().await
     }
@@ -348,7 +369,13 @@ impl ProcessGroup {
 impl Drop for ProcessGroup {
     fn drop(&mut self) {
         if !self.terminated {
-            self.host.abandon_group(self.id, 15);
+            self.host.abandon_group(
+                self.id,
+                self.signal
+                    .as_ref()
+                    .and_then(|signal| signal.get())
+                    .unwrap_or(self.abandon_signal),
+            );
         }
     }
 }
