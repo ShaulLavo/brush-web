@@ -30,6 +30,9 @@ struct Fake {
     wait_job_errors: RefCell<BTreeMap<u32, i32>>,
     spawn_errors: RefCell<BTreeSet<String>>,
     interrupt: Cell<i32>,
+    interrupt_after: Cell<Option<usize>>,
+    consumed_interrupts: Cell<usize>,
+    parse_gate: Cancel,
     fs: MemoryFs,
     output: Capture,
 }
@@ -57,6 +60,9 @@ impl Fake {
             wait_job_errors: RefCell::new(BTreeMap::new()),
             spawn_errors: RefCell::new(BTreeSet::new()),
             interrupt: Cell::new(0),
+            interrupt_after: Cell::new(None),
+            consumed_interrupts: Cell::new(0),
+            parse_gate: Cancel::new(),
             fs: MemoryFs::new(4 * 1024 * 1024),
             output,
         })
@@ -119,6 +125,7 @@ impl Abi for Fake {
             },
         );
         let argv = request.argv.clone();
+        let parse_gate = self.parse_gate.clone();
         self.executor.spawn(async move {
             let run = async {
                 let output = fds.get(1).ok_or(1)?;
@@ -162,6 +169,7 @@ impl Abi for Fake {
                             .map_err(|_| 1)?;
                     }
                     "sleep" => futures::future::pending::<()>().await,
+                    "parse-gate" => parse_gate.cancelled().await,
                     _ => {}
                 }
                 Ok::<i32, i32>(0)
@@ -292,7 +300,19 @@ impl Abi for Fake {
         Ok(subscriptions.len())
     }
     fn interrupted(&self) -> i32 {
-        self.interrupt.replace(0)
+        if let Some(remaining) = self.interrupt_after.get() {
+            self.interrupt_after.set(remaining.checked_sub(1));
+            if remaining == 1 {
+                self.interrupt_after.set(None);
+                self.interrupt.set(2);
+            }
+        }
+        let signal = self.interrupt.replace(0);
+        if signal == 2 {
+            self.consumed_interrupts
+                .set(self.consumed_interrupts.get() + 1);
+        }
+        signal
     }
 }
 fn setup() -> (Executor, Rc<Fake>, Runtime) {
@@ -548,6 +568,122 @@ fn background_persists_and_foreground_interrupt_is_checked_in_budget() {
     assert_eq!(runtime.retained_count(), 0);
     assert!(fake.signals.borrow().iter().any(|(job, _, _)| *job));
 }
+
+fn drive_until_spawn(executor: &Executor, runtime: &Runtime, fake: &Fake, count: usize) {
+    for _ in 0..1000 {
+        executor.drive(64);
+        if fake.requests.borrow().len() >= count {
+            return;
+        }
+        runtime.poll(0).unwrap();
+    }
+    panic!("expected {count} runtime children");
+}
+
+fn interrupt_during_isolated_eval_parse(executor: &Executor, runtime: &Runtime, fake: &Fake) {
+    fake.parse_gate.cancel();
+    executor.drive(64);
+    runtime.poll(0).unwrap();
+    // Re-arm waiting runtime children once, then make no further reactor turns.
+    // The foreground wait can sample once; joining the background eval checks
+    // only its own token. Further host probes therefore run inside its parser.
+    fake.interrupt_after.set(Some(16));
+    for _ in 0..2000 {
+        executor.drive(64);
+        if fake.consumed_interrupts.get() != 0 {
+            assert_eq!(fake.consumed_interrupts.get(), 1);
+            assert_eq!(fake.interrupt.get(), 0, "the ABI event is consuming");
+            return;
+        }
+    }
+    panic!("the synchronous eval parser did not consume the injected ABI event");
+}
+
+#[test]
+fn background_eval_parser_routes_consuming_interrupt_to_the_current_foreground() {
+    let (executor, fake, runtime) = setup();
+    let session = runtime_session(&executor, &runtime);
+    session
+        .state()
+        .borrow_mut()
+        .variables
+        .insert("source".into(), ":; ".repeat(32));
+    assert_eq!(
+        finish(
+            &executor,
+            &runtime,
+            session
+                .start("{ parse-gate; eval \"$source\"; sleep; } &")
+                .unwrap(),
+        ),
+        0,
+    );
+    drive_until_spawn(&executor, &runtime, &fake, 1);
+    let foreground = session.start("sleep").unwrap();
+    drive_until_spawn(&executor, &runtime, &fake, 2);
+    let foreground_pid = fake.next_pid.get() - 1;
+    let foreground_job = fake.job_of(foreground_pid).unwrap();
+    assert!(!foreground.is_finished());
+    assert_eq!(fake.wait(foreground_pid), Err(AGAIN));
+    interrupt_during_isolated_eval_parse(&executor, &runtime, &fake);
+    assert_eq!(finish(&executor, &runtime, foreground), 130);
+    assert_eq!(fake.wait(foreground_pid), Ok(130));
+    drive_until_spawn(&executor, &runtime, &fake, 3);
+    assert_eq!(session.background_jobs(), 1);
+    assert_eq!(runtime.retained_count(), 1);
+    let background_pid = fake.next_pid.get() - 1;
+    assert_eq!(fake.wait(background_pid), Err(AGAIN));
+    assert_eq!(fake.requests.borrow().last().unwrap().job, -1);
+    assert!(!fake.signals.borrow().is_empty());
+    assert!(fake.signals.borrow().iter().all(|&(group, id, signal)| {
+        signal == 2
+            && id
+                == if group {
+                    foreground_job
+                } else {
+                    foreground_pid
+                }
+    }));
+    assert_eq!(finish(&executor, &runtime, session.start(":").unwrap()), 0,);
+    assert_eq!(fake.wait(background_pid), Err(AGAIN));
+    shutdown_session(&executor, &runtime, &fake, session);
+}
+
+#[test]
+fn nested_capture_eval_parser_interrupts_foreground_without_stopping_background() {
+    let (executor, fake, runtime) = setup();
+    let session = runtime_session(&executor, &runtime);
+    session
+        .state()
+        .borrow_mut()
+        .variables
+        .insert("source".into(), ":; ".repeat(32));
+    assert_eq!(
+        finish(&executor, &runtime, session.start("sleep &").unwrap()),
+        0,
+    );
+    drive_until_spawn(&executor, &runtime, &fake, 1);
+    let background_pid = fake.next_pid.get() - 1;
+    let foreground = session
+        .start(r#"x=$(x=$(parse-gate; eval "$source"); echo "$x"); echo forbidden"#)
+        .unwrap();
+    drive_until_spawn(&executor, &runtime, &fake, 2);
+    let capture_pid = fake.next_pid.get() - 1;
+    let capture_job = fake.job_of(capture_pid).unwrap();
+    interrupt_during_isolated_eval_parse(&executor, &runtime, &fake);
+    assert_eq!(finish(&executor, &runtime, foreground), 130);
+    assert_eq!(session.background_jobs(), 1);
+    assert_eq!(runtime.retained_count(), 1);
+    assert_eq!(fake.wait(background_pid), Err(AGAIN));
+    assert!(fake.output.bytes().is_empty());
+    assert!(fake.signals.borrow().iter().all(|&(group, id, signal)| {
+        signal == 2 && id == if group { capture_job } else { capture_pid }
+    }));
+    assert_eq!(finish(&executor, &runtime, session.start(":").unwrap()), 0,);
+    assert_eq!(fake.wait(background_pid), Err(AGAIN));
+    shutdown_session(&executor, &runtime, &fake, session);
+}
+
 #[test]
 fn wait_group_observes_descendants_and_abandoned_group_confirms_cleanup() {
     let (executor, fake, runtime) = setup();

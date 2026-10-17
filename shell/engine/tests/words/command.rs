@@ -1178,6 +1178,66 @@ fn returned_evals_release_storage_before_later_function_calls() {
 }
 
 #[test]
+fn deep_function_calls_preserve_function_and_execution_depth_bounds() {
+    // The top-level list consumes one execution level; each simple call
+    // and its case body consume two more. Call 127's leaf fits at level 256.
+    // Call 128 reaches 256, then rejects its case body before incrementing n.
+    // Requesting 300 cannot bypass that guard, even with function_depth 512.
+    for (function_depth, goal, status, admitted) in
+        [(127, 127, 0, 127), (127, 128, 2, 127), (512, 300, 2, 127)]
+    {
+        let rig = Rig::new(Limits {
+            function_depth,
+            ..Limits::default()
+        });
+        rig.variable("goal", &goal.to_string());
+        assert_eq!(
+            rig.run(r#"n=0; f() case $((n=n+1)) in "$goal") :;; *) f;; esac; f"#),
+            status,
+            "function limit {function_depth}, requested depth {goal}",
+        );
+        assert_eq!(
+            rig.shell.state().borrow().variables["n"],
+            admitted.to_string()
+        );
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.ex.drive(64).pending, 0);
+        assert_eq!(rig.run("args recovered"), 0);
+        assert_eq!(*rig.calls.borrow(), [vec!["recovered"]]);
+    }
+}
+
+#[test]
+fn interrupting_deep_function_tasks_restores_frames_and_drains_the_leaf() {
+    let rig = Rig::new(Limits {
+        function_depth: 512,
+        ..Limits::default()
+    });
+    let (_release, progress) = register_gated(&rig, b"unused", false);
+    let job = rig
+        .shell
+        .start("set -- caller; n=0; f() case $((n=n+1)) in 127) gated;; *) f inner;; esac; f outer")
+        .unwrap();
+    for _ in 0..2000 {
+        rig.ex.drive(64);
+        if rig.host.active_count() == 1 {
+            break;
+        }
+    }
+    assert_eq!(rig.host.active_count(), 1, "the deepest leaf must start");
+    assert_eq!(rig.shell.state().borrow().variables["n"], "127");
+    assert!(!job.is_finished());
+    assert!(!progress.get());
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert_eq!(rig.ex.drive(64).pending, 0);
+    assert_eq!(rig.host.active_count(), 0);
+    assert_eq!(rig.host.retained_count(), 0);
+    assert_eq!(rig.run(r#"args "$1" recovered"#), 0);
+    assert_eq!(*rig.calls.borrow(), [vec!["caller", "recovered"]]);
+}
+
+#[test]
 fn sequential_eval_loops_cross_the_former_allowance_and_interrupt_without_killing_background() {
     for body in ["n=$((n+1))", "eval_saved() { :; }; n=$((n+1))"] {
         let limits = Limits::default();

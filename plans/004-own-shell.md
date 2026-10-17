@@ -329,6 +329,41 @@ regressions. Run the full native/WASI suites and fixed-corpus zero-loss ratchet
 through the shared queue. Record the small reproduction/results and clean every
 task-created target, process and scratch directory under the existing lane rules.
 
+## Follow-up: Bash-scale function recursion on the WASI stack
+
+Status: Approved; scheduled for the functions/execution work after the current
+substitution unit. The inherited default `Limits::function_depth` is 128
+(`shell/engine/src/interpreter.rs`), and the separate 256 execution-depth guard
+in `shell/engine/src/interpreter/eval.rs` can reject compound function bodies
+earlier. These are compatibility limitations, not Bash-correct final limits:
+Bash has no default function nesting limit.
+
+**Observed evidence:** at `c090eb9`, CI [39048383922, native producer
+117441646576](https://github.com/ShaulLavo/brush-web/actions/runs/39048383922/job/117441646576)
+and a queued local debug reproduction abort with stack overflow in
+`command::returned_evals_release_storage_before_later_function_calls`, which
+configures only 32 calls. Reproduce with `cargo test --manifest-path
+shell/Cargo.toml -j2 -p shell-engine --test words
+command::returned_evals_release_storage_before_later_function_calls -- --exact`.
+The substitution PR owns fixing this crash with small polling/drop frames and
+unchanged limits; passing that bounded regression does not establish Bash-scale
+recursion or make the inherited caps correct.
+
+**Target:** at least 512 nested function calls must succeed under ordinary
+configuration in native and WASI execution, without enlarging the WASI/native
+stack or retaining large per-call frames. Include ordinary function bodies and
+sequential completed eval readers. Measure actual admitted call depth and
+per-level stack/frame cost. Replace accidental low nesting ceilings with an
+explicit configurable FUNCNEST-style policy and bounded live-memory admission;
+configured-depth or genuine admission exhaustion must produce a clear shell
+error and leave the session usable, never crash or silently truncate execution.
+Preserve cancellation, local/positional restoration, retained function/source
+ownership, the separate parser/eval guards and peer-background isolation. Gate
+accepted depth, one-beyond configured depth, cancellation and recovery on native
+and WASI, then replay the fixed corpora with zero lost cases. Do not claim the
+512-call target until those executions pass. This follow-up does not start the
+parked control-flow or functions unit as part of the substitution PR.
+
 ## Next word unit: ANSI-C operands and two-phase parameter extraction
 
 Status: Approved. Land command/process substitution first and restore the

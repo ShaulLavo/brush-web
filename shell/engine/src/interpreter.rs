@@ -236,6 +236,24 @@ impl Context {
     pub(crate) fn limits(&self) -> &Limits {
         &self.core.limits
     }
+    fn parser_budget(&self) -> shell_parser::limits::ExecutionBudget {
+        let core = self.core.clone();
+        let cancel = self.cancel.clone();
+        self.evaluation.parser_budget(Some(Rc::new(move || {
+            // A synchronous isolated parser may be the only running task when
+            // Ctrl+C arrives. Consume it through the current foreground owner,
+            // then test this reader's own token without canceling background.
+            let foreground = core
+                .foreground
+                .borrow()
+                .as_ref()
+                .map(|job| job.cancel.clone());
+            if let Some(foreground) = foreground {
+                foreground.is_cancelled();
+            }
+            cancel.is_cancelled()
+        })))
+    }
     fn isolated(&self) -> Self {
         Self {
             scope: Scope::new(self.core.allocate_id()),
@@ -497,14 +515,13 @@ impl Session {
         if source.len() > self.core.limits.source_bytes {
             return Err(StartError::Invalid("shell source limit exceeded".into()));
         }
-        let parser_host = self.core.host.clone();
-        let evaluation = eval::Scope::new(
-            &self.core.limits,
-            Some(Rc::new(move || parser_host.interrupted())),
-            self.core.eval_storage.clone(),
-        );
-        let (script, failure) = parse_shell(source, &self.core.limits, &evaluation.parser_budget())
-            .map_err(|error| {
+        let host = self.core.host.clone();
+        let cancel = Cancel::with_probe(Rc::new(move || host.interrupted()));
+        let parser_cancel = cancel.clone();
+        let evaluation = eval::Scope::new(&self.core.limits, self.core.eval_storage.clone());
+        let parser = evaluation.parser_budget(Some(Rc::new(move || parser_cancel.is_cancelled())));
+        let (script, failure) =
+            parse_shell(source, &self.core.limits, &parser).map_err(|error| {
                 if error == "request cancelled" {
                     StartError::Interrupted
                 } else {
@@ -517,8 +534,6 @@ impl Session {
             return Err(StartError::Invalid(message.clone()));
         }
         let group = self.core.host.allocate_group();
-        let host = self.core.host.clone();
-        let cancel = Cancel::with_probe(Rc::new(move || host.interrupted()));
         let foreground_cancel = cancel.clone();
         let signal = Rc::new(Cell::new(None));
         let foreground_signal = signal.clone();
@@ -2335,7 +2350,7 @@ async fn dispatch_simple_command_body(
         {
             return Ok(expansion_failure(error.into(), &fds, &context).await);
         }
-        let _frame = FunctionFrame::enter(state.clone(), args, context.limits().function_depth)?;
+        let frame = FunctionFrame::enter(state.clone(), args, context.limits().function_depth)?;
         let context = Context {
             evaluation: context
                 .evaluation
@@ -2343,7 +2358,27 @@ async fn dispatch_simple_command_body(
                 .with_retained(body.storage.clone()),
             ..context
         };
-        let mut outcome = execute(body.body.as_ref().clone(), state, fds, context).await;
+        // A boxed await still polls recursively. Join a separate task so both
+        // polling and dropping one call stop at its handle, with unchanged depth.
+        let task_allocation = Rc::new(
+            admit_task_metadata::<JoinHandle<Outcome>>(&context, 1).map_err(admission_status)?,
+        );
+        let allocation = task_allocation.clone();
+        let executor = context.core.executor.clone();
+        let evaluation = context.evaluation.clone();
+        let call = evaluation.frame(
+            async move {
+                let _frame = frame;
+                let _allocation = allocation;
+                execute(body.body.as_ref().clone(), state, fds, context).await
+            },
+            Outcome::status,
+        );
+        let mut outcome = match call {
+            futures::future::Either::Left(outcome) => outcome.await,
+            futures::future::Either::Right(body) => executor.spawn(body).await,
+        };
+        drop(task_allocation);
         if outcome.flow == Flow::Return {
             outcome.flow = Flow::Normal;
         }

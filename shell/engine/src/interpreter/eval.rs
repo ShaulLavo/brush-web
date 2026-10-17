@@ -33,7 +33,6 @@ pub(super) type Frame<'a, T = Outcome> = Either<Ready<T>, LocalBoxFuture<'a, T>>
 struct Shared {
     storage: StorageBudget,
     source_bytes: usize,
-    probe: Option<Rc<dyn Fn() -> bool>>,
     /// Bytes retained by currently active boxed execution frames. This is an
     /// active-memory bound, so a loop may keep running after each iteration's
     /// frame has been dropped instead of spending a cumulative parser budget.
@@ -146,16 +145,11 @@ pub(super) struct Scope {
 }
 
 impl Scope {
-    pub(super) fn new(
-        limits: &Limits,
-        probe: Option<Rc<dyn Fn() -> bool>>,
-        storage: StorageBudget,
-    ) -> Self {
+    pub(super) fn new(limits: &Limits, storage: StorageBudget) -> Self {
         Self {
             shared: Rc::new(Shared {
                 storage,
                 source_bytes: limits.source_bytes,
-                probe,
                 execution: Cell::new(0),
                 // Reuse the former execution-byte ceiling, now for live
                 // memory instead of the sum of every frame ever executed.
@@ -170,7 +164,7 @@ impl Scope {
 
     // Each input has its own parser allowance. Nested syntax within that input
     // still shares the parser's work/fuel and cancellation state.
-    pub(super) fn parser_budget(&self) -> ExecutionBudget {
+    pub(super) fn parser_budget(&self, probe: Option<Rc<dyn Fn() -> bool>>) -> ExecutionBudget {
         let parser = ExecutionBudget::new(
             &ExecutionLimits {
                 max_input_bytes: self.shared.source_bytes,
@@ -179,8 +173,8 @@ impl Scope {
             },
             Arc::new(AtomicBool::new(false)),
         );
-        match &self.shared.probe {
-            Some(probe) => parser.with_cancellation_probe(probe.clone()),
+        match probe {
+            Some(probe) => parser.with_cancellation_probe(probe),
             None => parser,
         }
     }
@@ -428,7 +422,7 @@ async fn run_body(
         Ok(source) => source,
         Err(code) => return Outcome::status(code),
     };
-    let parser = evaluation.parser_budget();
+    let parser = context.parser_budget();
     let (script, failure) = match parse_shell(&source.text, context.limits(), &parser) {
         Ok(parsed) => parsed,
         Err(_)
@@ -495,8 +489,7 @@ mod tests {
         assert!(storage.admit(1).is_err());
         let retained = Rc::new(allocation);
         let limits = Limits::default();
-        let scope =
-            Scope::new(&limits, None, storage.clone()).with_retained(Some(retained.clone()));
+        let scope = Scope::new(&limits, storage.clone()).with_retained(Some(retained.clone()));
         let child = scope.new_task();
         drop(retained);
         drop(scope);
@@ -526,27 +519,24 @@ mod tests {
     #[test]
     fn parser_work_is_shared_inside_an_input_and_fresh_for_a_later_input() {
         let limits = Limits::default();
-        let scope = Scope::new(&limits, None, StorageBudget::new(limits.expansion_bytes));
-        let parser = scope.parser_budget();
+        let scope = Scope::new(&limits, StorageBudget::new(limits.expansion_bytes));
+        let parser = scope.parser_budget(None);
         parser
             .consume_work(ExecutionLimits::default().max_work_units)
             .unwrap();
         assert!(parser.clone().consume_work(1).is_err());
         assert!(parser.consume_work(0).is_err());
-        assert!(scope.parser_budget().consume_work(1).is_ok());
+        assert!(scope.parser_budget(None).consume_work(1).is_ok());
     }
 
     #[test]
     fn fresh_parser_inputs_preserve_interrupt_probes() {
         let limits = Limits::default();
         let interrupted = Rc::new(Cell::new(false));
-        let probe = interrupted.clone();
-        let scope = Scope::new(
-            &limits,
-            Some(Rc::new(move || probe.get())),
-            StorageBudget::new(limits.expansion_bytes),
-        );
-        let parser = scope.parser_budget();
+        let observed = interrupted.clone();
+        let probe: Rc<dyn Fn() -> bool> = Rc::new(move || observed.get());
+        let scope = Scope::new(&limits, StorageBudget::new(limits.expansion_bytes));
+        let parser = scope.parser_budget(Some(probe.clone()));
         assert!(parser.consume_work(1).is_ok());
         interrupted.set(true);
         assert!(matches!(
@@ -554,7 +544,7 @@ mod tests {
             Err(shell_parser::limits::LimitExceeded::Cancelled)
         ));
         assert!(matches!(
-            scope.parser_budget().check(),
+            scope.parser_budget(Some(probe)).check(),
             Err(shell_parser::limits::LimitExceeded::Cancelled)
         ));
     }
@@ -562,7 +552,7 @@ mod tests {
     #[test]
     fn live_execution_admission_rejects_growth_and_releases_dropped_allocations() {
         let limits = Limits::default();
-        let scope = Scope::new(&limits, None, StorageBudget::new(limits.expansion_bytes));
+        let scope = Scope::new(&limits, StorageBudget::new(limits.expansion_bytes));
         let allocation = scope.admit_execution(scope.shared.execution_limit).unwrap();
         assert!(scope.admit_execution(1).is_err());
         drop(allocation);
