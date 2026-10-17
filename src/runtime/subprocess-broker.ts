@@ -3,6 +3,7 @@
 // Runnable page-side adapter. The generic process service is loaded only on first spawn;
 // blocked guest workers never have to activate a MessageChannel or a nested Worker.
 import { runtimePipeOptions } from "./limits";
+import { quiesceTerminal, revokeTerminal, type TerminalAdmission } from "./terminal-admission";
 import type {
   ChildExitEvent,
   ProcessContext,
@@ -197,6 +198,12 @@ export class SubprocessBroker {
   /** Only call after authorized fatal selection, or after the process has completed. */
   revokeRuntimeProcess(pid: number): void {
     this.runtimeRegistry?.revoke(pid);
+    const transport =
+      this.runtimeChildren.get(pid)?.transport ??
+      (this.root?.pid === pid ? this.runtimeRoot : undefined);
+    const admission = (transport?.data as { terminalAdmission?: TerminalAdmission } | undefined)
+      ?.terminalAdmission;
+    if (admission) revokeTerminal(admission);
   }
   private runtimeFilesystem(
     transport: WorkerProcessTransport,
@@ -541,11 +548,14 @@ export class SubprocessBroker {
       if (child.request.moduleCache) void caches.delete(child.request.moduleCache);
       this.runtimeChildren.delete(child.context.pid);
     };
-    if (child.acknowledged) {
+    return (child.stopping ??= (async () => {
+      const admission = (child.transport.data as { terminalAdmission: TerminalAdmission })
+        .terminalAdmission;
+      const terminalStopped = quiesceTerminal(admission);
+      if (!child.acknowledged) await this.filesystem.quiesce(child.filesystem);
+      await terminalStopped;
       stop();
-      return;
-    }
-    return (child.stopping ??= this.filesystem.quiesce(child.filesystem).then(stop));
+    })());
   }
   private stopRuntimeSafely(child: RuntimeChild): void {
     try {

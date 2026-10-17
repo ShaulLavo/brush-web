@@ -6,9 +6,16 @@
 
 import { startEngineHost } from "./engine-host.js";
 import { createBridgeTerminal } from "./runtime-terminals";
+import {
+  preserveRootPreopen,
+  preservePreopenDiscovery,
+  shellTerminalImports,
+} from "./guest-imports";
+import { createTerminalAdmission, type TerminalAdmission } from "./terminal-admission";
 import { SharedBridge, control } from "../bridge";
 import { runtimePipeOptions } from "./limits";
 import { withFileOffset } from "@bun-wasm/runtime/core/open-file";
+import { PipeEndpoint, attachPipeEndpoint } from "@bun-wasm/runtime/proc/pipes";
 import {
   FilesystemClient,
   createFilesystemIdentity,
@@ -36,6 +43,7 @@ export interface RunRequest {
   engine: Engine;
   /** Interactive root terminal; descendants inherit its descriptor tokens. */
   terminal?: SharedArrayBuffer;
+  terminalAdmission?: TerminalAdmission;
   /** Host-boundary memory sampling; telemetry is not a guest allocation quota. */
   memoryUsage?: SharedArrayBuffer;
   adapter?: "bun" | "preview1";
@@ -322,17 +330,20 @@ ctx.onmessage = async (event: MessageEvent<RunRequest>) => {
         return stream.readiness();
       },
     });
+    const inheritedInput = req.child?.runtimeStdin
+      ? attachPipeEndpoint(req.child.runtimeStdin)
+      : undefined;
     const stdio = child
       ? {
-          0: guardStream(wasiPipe(child.stdin, "read")),
+          0: inheritedInput ?? guardStream(wasiPipe(child.stdin, "read")),
           1: guardStream(wasiPipe(child.stdout, "write")),
           2: guardStream(wasiPipe(child.stderr, "write")),
         }
       : req.terminal
         ? {
-            0: createBridgeTerminal(req.terminal, 0, checkActive),
-            1: createBridgeTerminal(req.terminal, 1, checkActive),
-            2: createBridgeTerminal(req.terminal, 2, checkActive),
+            0: createBridgeTerminal(req.terminal, 0, checkActive, req.terminalAdmission),
+            1: createBridgeTerminal(req.terminal, 1, checkActive, req.terminalAdmission),
+            2: createBridgeTerminal(req.terminal, 2, checkActive, req.terminalAdmission),
           }
         : undefined;
     const post = (type: "stdout" | "stderr", data: Uint8Array) => {
@@ -384,6 +395,28 @@ ctx.onmessage = async (event: MessageEvent<RunRequest>) => {
           slot: req.child?.slot,
           token: req.child?.token,
           stdin: req.child?.pipes[0],
+          readInput:
+            req.runtimeProcess || inheritedInput
+              ? (capacity) => {
+                  checkActive();
+                  const input = wasi?.descriptors.get(0)?.resource;
+                  if (!input || (input.kind !== "pipe" && input.kind !== "terminal")) return -4;
+                  const bytes = new Uint8Array(capacity);
+                  const count = input.tryRead?.([bytes]) ?? -8;
+                  return count > 0
+                    ? bytes.subarray(0, count)
+                    : count === -6
+                      ? -2
+                      : count === -8
+                        ? -3
+                        : count;
+                }
+              : undefined,
+          inheritStdinPipe: (pid) => {
+            checkActive();
+            const input = wasi?.descriptors.get(0)?.resource;
+            return input instanceof PipeEndpoint ? input.forProcess(pid).handle() : undefined;
+          },
           revoked,
           onChildClose: (pid) =>
             ctx.postMessage({
@@ -442,6 +475,7 @@ ctx.onmessage = async (event: MessageEvent<RunRequest>) => {
       interrupted: () => subprocess?.signal(0, 0) ?? 0,
       default_signal: defaultSignal,
     };
+    let rootPreopen = 3;
     wasi = new Wasi({
       hostCallFd: HOST_CALL_FD,
       args: req.args,
@@ -464,16 +498,8 @@ ctx.onmessage = async (event: MessageEvent<RunRequest>) => {
       },
       namespaces: {
         runtime_proc: processImports,
-        ...(req.terminal
-          ? {
-              shell_terminal: {
-                phase: (phase: number) => {
-                  const bridge = new SharedBridge(req.terminal!);
-                  if (phase === 1 || phase === 2) Atomics.store(bridge.state, control.phase, phase);
-                },
-              },
-            }
-          : {}),
+        // All shell guests import this namespace. Only an interactive root owns page phase.
+        shell_terminal: shellTerminalImports(req.terminal),
       },
       trace: req.trace ? (line) => console.debug(`[wasi] ${line}`) : undefined,
     });
@@ -521,11 +547,13 @@ ctx.onmessage = async (event: MessageEvent<RunRequest>) => {
           const end = fs.beginTransfer();
           try {
             const filesystem = createProcessFilesystemIdentity(fs.connection);
+            const terminalAdmission = createTerminalAdmission();
             return {
-              data: { filesystem, pipeRegistry: pipes.registry.handle() },
+              data: { filesystem, pipeRegistry: pipes.registry.handle(), terminalAdmission },
               codec: pipes.codec(
                 createRuntimeTerminalCodec({
                   fallback: createFilesystemDescriptorCodec(fs, filesystem),
+                  exportAdmission: terminalAdmission,
                 }),
               ),
               commit: end,
@@ -542,6 +570,10 @@ ctx.onmessage = async (event: MessageEvent<RunRequest>) => {
         // A generic spawn inherits exactly its bindings, not implicit callback/EOF stdio.
         for (const fd of [0, 1, 2]) wasi.descriptors.close(fd);
       }
+      rootPreopen = preserveRootPreopen(
+        wasi.descriptors,
+        req.runtimeProcess.bindings.map((binding) => binding.fd),
+      );
       runtimeProcess.installBindings();
       const abi = new ProcessABI({
         memory: () => instance.exports.memory as WebAssembly.Memory,
@@ -566,7 +598,9 @@ ctx.onmessage = async (event: MessageEvent<RunRequest>) => {
       }
     }
     const instantiating = perfNow();
-    instance = new WebAssembly.Instance(req.module, wasi.imports(req.module));
+    const imports = wasi.imports(req.module);
+    preservePreopenDiscovery(imports, wasi.descriptors, rootPreopen);
+    instance = new WebAssembly.Instance(req.module, imports);
     ctx.postMessage({
       type: "phase",
       name: "instantiate",

@@ -89,9 +89,12 @@ they are removed, and they remain mandatory before step 6 replaces Brush:
 - **Bun-created descendants.** Runtime step **7b** will replace the historical Bun
   subprocess bridge with the shared process service. Today a shell-launched Bun
   parent is in the directory, but its `Bun.spawn` descendants are not, so shell
-  whole-job interruption cannot reach them. The full foreground-descendant and
-  independent-background browser test remains unchanged but explicitly `fixme`
-  pending 7b; this is a known failure, not passing cancellation evidence.
+  whole-job interruption cannot reach them. Nested `Bun.spawn({stdin:"inherit"})`
+  now retains a generic runtime pipe reader, but still gets EOF for a generic
+  parent's regular-file or terminal fd 0 across that legacy bridge. Direct
+  `runtime_proc` child inheritance is not affected. The full foreground-descendant
+  and independent-background browser test remains unchanged but explicitly
+  `fixme` pending 7b; this is a known failure, not passing cancellation evidence.
 - **Filesystem stall/cancellation.** Rust `Runtime::open` currently calls Preview1
   `path_open`; `FilesystemClient.call` can enter an indefinite `Atomics.wait`.
   A stalled filesystem service therefore blocks shell task progress and SIGINT

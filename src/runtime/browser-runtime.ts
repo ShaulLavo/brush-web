@@ -12,6 +12,7 @@ import { SubprocessBroker } from "./subprocess-broker";
 import type { RunRequest, WorkerMessage } from "./worker";
 import { processDirectoryCapacity } from "./limits";
 import { control } from "../bridge";
+import { attachTerminal, createTerminalAdmission, quiesceTerminal } from "./terminal-admission";
 import type { RuntimeExit, RuntimeProcess, ShellProcessOptions, ShellRuntimePeer } from "../shell";
 
 export interface BrowserRuntimeOptions {
@@ -97,7 +98,9 @@ export class BrowserRuntime implements ShellRuntimePeer {
     const state = workerProcessState(transport);
     const filesystem = this.filesystem.fork();
     const { port: _port, ...identity } = filesystem;
-    transport.data = { filesystem: identity };
+    const terminalAdmission = createTerminalAdmission();
+    attachTerminal(terminalAdmission, options.terminal.buffer);
+    transport.data = { filesystem: identity, terminalAdmission };
     const broker = new SubprocessBroker(this.filesystem, {
       canConfirmRoot: () => acknowledged,
       output: (_fd, bytes) => {
@@ -143,8 +146,10 @@ export class BrowserRuntime implements ShellRuntimePeer {
       (stopped ??= (async () => {
         clearTimeout(watcher);
         broker.revokeRuntimeProcess(state.pid);
+        const terminalStopped = quiesceTerminal(terminalAdmission);
         if (acknowledged) this.filesystem.reap(identity);
         else await this.filesystem.quiesce(identity);
+        await terminalStopped;
         worker.terminate();
       })());
     const memoryUsage = new SharedArrayBuffer(8);
@@ -168,8 +173,10 @@ export class BrowserRuntime implements ShellRuntimePeer {
           : { kind: "signaled", code: signal },
       );
       const exit = { ...result, code: winner.status };
-      Atomics.store(options.terminal.state, control.status, winner.status);
-      Atomics.store(options.terminal.state, control.phase, result.error ? 4 : 3);
+      if (Atomics.load(options.terminal.state, control.phase) !== 4) {
+        Atomics.store(options.terminal.state, control.status, winner.status);
+        Atomics.store(options.terminal.state, control.phase, result.error ? 4 : 3);
+      }
       if (result.error) rejectStarted(new Error(result.error));
       else resolveStarted();
       broker.rootExit(winner.status);
@@ -231,6 +238,7 @@ export class BrowserRuntime implements ShellRuntimePeer {
         filesystem,
         runtimeProcess: transport,
         terminal: options.terminal.buffer,
+        terminalAdmission,
         pid: state.pid,
         jobId: state.job,
         spawnBroker: true,

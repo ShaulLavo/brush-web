@@ -1,6 +1,7 @@
 // Adapted from bun-wasm web/src/subprocess.ts at 8d3d416aa9cb23718ed3487a33d0b06e8e373672.
 // Local adaptations: runtime peer imports; browser-shell worker URLs and terminal transport where noted.
 import type { Stream } from "@bun-wasm/runtime/core";
+import { attachPipeEndpoint, type PipeEndpointHandle } from "@bun-wasm/runtime/proc/pipes";
 import type { EngineNet } from "./net/host";
 import type { SlotImpls } from "./net/trampoline";
 import { ProcessIdentityAllocator } from "@bun-wasm/runtime/proc/identity";
@@ -47,6 +48,8 @@ export interface ChildTransport {
   slot: number;
   token: number;
   inheritedStdin?: boolean;
+  /** Retained generic pipe reader when Bun.spawn inherits a runtime_proc pipeline. */
+  runtimeStdin?: PipeEndpointHandle;
   pipes: SharedArrayBuffer[];
   control: SharedArrayBuffer;
 }
@@ -63,6 +66,8 @@ export interface SubprocessOptions {
   slot?: number;
   token?: number;
   stdin?: SharedArrayBuffer;
+  readInput?(capacity: number): Uint8Array | number;
+  inheritStdinPipe?(pid: number): PipeEndpointHandle | undefined;
   workerTransport?: ChildTransport;
   /** Current process dispositions and pending signals; never inherited by a new child. */
   signalState?: Int32Array | SharedArrayBuffer;
@@ -268,6 +273,11 @@ export function childTransport(transport: ChildTransport) {
       const cells = new Int32Array(transport.control, 0, 4);
       if (Atomics.load(cells, 0)) return;
       Atomics.store(cells, 1, result.status);
+      if (transport.runtimeStdin) {
+        const input = attachPipeEndpoint(transport.runtimeStdin);
+        input.revoke();
+        input.close();
+      }
       for (const [fd, pipe] of transport.pipes.entries()) {
         if (fd === 0 && transport.inheritedStdin) continue;
         new SharedPipe(pipe, transport.budget).close();
@@ -427,6 +437,7 @@ export class SubprocessHost {
     if (inheritedStdin) buffers[0] = this.options.stdin!;
     let id: number;
     let jobId: number;
+    let runtimeStdin: PipeEndpointHandle | undefined;
     try {
       id = this.identities.pid();
       if (id >= FIRST_HANDLE) throw new Error("process id space exhausted");
@@ -434,6 +445,7 @@ export class SubprocessHost {
         meta.job === 0 || meta.job === -1
           ? this.identities.job()
           : (meta.job ?? this.options.jobId ?? 1);
+      if (modes[0] === "inherit") runtimeStdin = this.options.inheritStdinPipe?.(id);
     } catch (error) {
       this.releaseSlot(slot, token);
       return this.fail(String(error), "EAGAIN");
@@ -451,6 +463,7 @@ export class SubprocessHost {
       slot,
       token,
       inheritedStdin,
+      runtimeStdin,
       pipes: buffers,
       control: new SharedArrayBuffer(16),
     };
@@ -506,7 +519,11 @@ export class SubprocessHost {
       return this.workerPipes.read(handle, cap);
     }
     if (handle === 0) {
-      const value = this.stdin ? this.stdin.read(cap) : -4;
+      const value = this.options.readInput
+        ? this.options.readInput(cap)
+        : this.stdin
+          ? this.stdin.read(cap)
+          : -4;
       this.stdinWaiting = value === AGAIN;
       if (this.stdinWaiting) this.watch();
       return value;

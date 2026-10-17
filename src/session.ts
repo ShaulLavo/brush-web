@@ -292,6 +292,10 @@ export class BrowserSession {
     if (this.profileBuffer) this.metrics.lastExecution = ExecutionProfile.read(this.profileBuffer);
     this.metrics.memoryBytes = Atomics.load(this.bridge.state, control.memory);
     const phase = Atomics.load(this.bridge.state, control.phase);
+    if (phase === 4 && this.options.engine === "own-shell") {
+      this.fail("Shared terminal failed; the session was stopped.");
+      return;
+    }
     if (phase !== this.phase && !this.bridge.cancelled()) {
       this.phase = phase;
       this.options.onState(

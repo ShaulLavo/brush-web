@@ -4,12 +4,20 @@ import { OpenDescription, type DescriptorTable, type Stream } from "@bun-wasm/ru
 import { ProcessError } from "@bun-wasm/runtime/proc/types";
 import type { WorkerDescriptorCodec } from "@bun-wasm/runtime/proc/worker-client";
 import { SharedBridge, control } from "../bridge";
+import {
+  attachTerminal,
+  createTerminalAdmission,
+  terminalSection,
+  type TerminalAdmission,
+} from "./terminal-admission";
 
 type TerminalTarget = 0 | 1 | 2;
 interface TerminalToken {
   kind: "web-terminal";
   target: TerminalTarget;
   buffer: SharedArrayBuffer;
+  admission: TerminalAdmission;
+  pid?: number;
 }
 // Descriptor remapping must preserve endpoint identity, not reinterpret its current fd number.
 const targets = new WeakMap<Stream, TerminalToken>();
@@ -19,16 +27,30 @@ export function createBridgeTerminal(
   buffer: SharedArrayBuffer,
   target: TerminalTarget,
   checkActive: () => void = () => {},
+  admission = createTerminalAdmission(),
 ): Stream {
+  attachTerminal(admission, buffer);
   const bridge = new SharedBridge(buffer);
   const notification = new Int32Array(buffer, control.wake * 4, 1);
   const tryRead = (chunks: readonly Uint8Array[]) => {
     checkActive();
-    return target === 0 ? bridge.tryRead(chunks) : -8;
+    return terminalSection(admission, () =>
+      Atomics.load(bridge.state, control.phase) === 4
+        ? -29
+        : target === 0
+          ? bridge.tryRead(chunks)
+          : -8,
+    );
   };
   const tryWrite = (chunks: readonly Uint8Array[]) => {
     checkActive();
-    return target === 0 ? -8 : bridge.tryWrite(chunks);
+    return terminalSection(admission, () =>
+      Atomics.load(bridge.state, control.phase) === 4
+        ? -29
+        : target === 0
+          ? -8
+          : bridge.tryWrite(chunks),
+    );
   };
   // Preview1 can block in a guest worker. runtime_proc uses only the immediate operations.
   const blocking = (
@@ -63,7 +85,7 @@ export function createBridgeTerminal(
       };
     },
   };
-  targets.set(stream, { kind: "web-terminal", target, buffer });
+  targets.set(stream, { kind: "web-terminal", target, buffer, admission });
   return stream;
 }
 
@@ -72,6 +94,8 @@ export interface RuntimeTerminalCodecOptions {
   descriptors?: DescriptorTable;
   output?(fd: 1 | 2, data: Uint8Array): void;
   checkActive?(): void;
+  /** One fresh admission shared by every endpoint exported to this child process. */
+  exportAdmission?: TerminalAdmission;
 }
 function terminalToken(value: unknown): TerminalToken | undefined {
   if (
@@ -85,7 +109,15 @@ function terminalToken(value: unknown): TerminalToken | undefined {
     !("target" in value) ||
     (value.target !== 0 && value.target !== 1 && value.target !== 2) ||
     !("buffer" in value) ||
-    !(value.buffer instanceof SharedArrayBuffer)
+    !(value.buffer instanceof SharedArrayBuffer) ||
+    !("admission" in value) ||
+    !value.admission ||
+    typeof value.admission !== "object" ||
+    !("state" in value.admission) ||
+    !(value.admission.state instanceof SharedArrayBuffer) ||
+    value.admission.state.byteLength !== 8 ||
+    !("buffers" in value.admission) ||
+    !Array.isArray(value.admission.buffers)
   )
     throw new TypeError("invalid browser terminal endpoint");
   return value as TerminalToken;
@@ -93,18 +125,23 @@ function terminalToken(value: unknown): TerminalToken | undefined {
 export function createRuntimeTerminalCodec(
   options: RuntimeTerminalCodecOptions,
 ): WorkerDescriptorCodec {
+  const admissions = new Map<number, TerminalAdmission>();
   return {
     export(descriptor, pid) {
       if (descriptor.resource.kind !== "terminal") return options.fallback.export(descriptor, pid);
       const token = targets.get(descriptor.resource);
       if (!token) throw new ProcessError(52, "terminal has no transferable browser endpoint");
-      return token;
+      let admission = options.exportAdmission ?? admissions.get(pid);
+      if (!admission) admissions.set(pid, (admission = createTerminalAdmission()));
+      attachTerminal(admission, token.buffer);
+      return { ...token, admission, pid };
     },
     import(value, pid) {
       const token = terminalToken(value);
       if (!token) return options.fallback.import(value, pid);
+      if (token.pid !== pid) throw new TypeError("terminal descriptor belongs to another process");
       return new OpenDescription(
-        createBridgeTerminal(token.buffer, token.target, options.checkActive),
+        createBridgeTerminal(token.buffer, token.target, options.checkActive, token.admission),
       );
     },
     discard(value) {
