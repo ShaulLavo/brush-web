@@ -445,6 +445,7 @@ async function main() {
       : new Pool(engine, jobs);
     pools.push(pool);
     const inventory = await pool.run(inventoryScript);
+    if (cancelled) return;
     inventories[engine] = inventory.stdout.toString("utf8").split("\n").filter(Boolean);
     const available = new Set(inventories[engine]);
     let done = 0;
@@ -468,11 +469,13 @@ async function main() {
           : "fail";
     });
     await pool.close();
+    if (cancelled) return;
     log(`${engine} done`);
   }
 
   const evidence = buildEvidence({ bashVersion, cases, spots, inventories, inventoryNames });
   evidence.mapfile = await probeMapfile(fullPath);
+  if (cancelled) return;
   // One line per case keeps the evidence file reviewable in diffs.
   const rows = evidence.cases.map((item) => JSON.stringify(item)).join(",\n");
   await writeFile(
@@ -1200,7 +1203,9 @@ async function captureOracle(cases, helperDirectory, bashVersion) {
     }),
   );
   const path = `${helperDirectory}:/usr/local/bin:/usr/bin:/bin`;
+  if (cancelled) return;
   const preflight = await runShell(bashPath, "printf compat-oracle-ready", path, true);
+  if (cancelled) return;
   if (preflight.status !== 0 || preflight.stdout.toString() !== "compat-oracle-ready")
     throw new Error(`Oracle sandbox preflight failed: ${preflight.stderr.toString()}`);
   await mapLimit(records, jobs, async (item) => {
@@ -1216,6 +1221,7 @@ async function captureOracle(cases, helperDirectory, bashVersion) {
     else if (!same(first, second)) item.excluded = "fresh bash oracle output is not deterministic";
     if (++done % 250 === 0) log(`fresh bash oracle: ${done}`);
   });
+  if (cancelled) return;
   const oracle = sealOracle({
     schema: 1,
     oracle: {

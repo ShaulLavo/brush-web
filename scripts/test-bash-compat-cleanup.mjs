@@ -137,10 +137,15 @@ test("live capture cancellation holds owned groups until they stop", async (t) =
   assert.deepEqual(await readdir(scratch), ["crates"]);
 });
 
-test("frozen replay awaits worker termination before removing scratch", async (t) => {
+async function workerLifetime(t, mode) {
   const owner = fixtureOwner(t);
-  const scratch = await mkdtemp(resolve(root, "compat-cleanup-frozen-"));
+  const scratch = await mkdtemp(resolve(root, `compat-cleanup-${mode}-`));
   owner.scratch = scratch;
+  if (mode === "live") {
+    const fixture = resolve(scratch, "crates/bashkit/tests/spec_cases/bash");
+    await mkdir(fixture, { recursive: true });
+    await writeFile(resolve(fixture, "ready.test.sh"), "### ready\nprintf ready\n");
+  }
   const wasm = resolve(scratch, "sleep.wasm");
   // Valid finite WASI/browser stand-in. Dispatch is held below, so no guest code executes:
   // this control exercises the shipped entrypoint and real worker lifetime, not shell semantics.
@@ -178,7 +183,10 @@ test("frozen replay awaits worker termination before removing scratch", async (t
     });
   `,
     {
-      BASH_COMPAT_MODE: "frozen",
+      BASH_COMPAT_MODE: mode,
+      BASH_COMPAT_CORPORA: "bashkit-suite",
+      BASH_COMPAT_BASHKIT_DIR: scratch,
+      BASH_COMPAT_BASH: "/usr/bin/bash",
       BASH_COMPAT_ENGINES: "own-shell",
       BASH_COMPAT_SKIP_BUILD: "1",
       BASH_COMPAT_RECORD: "1",
@@ -198,5 +206,13 @@ test("frozen replay awaits worker termination before removing scratch", async (t
   child.send("release");
   const [status] = await owner.closed;
   assert.equal(status, 143, Buffer.concat(owner.stderr).toString());
-  assert.deepEqual(await readdir(scratch), ["sleep.wasm"]);
-});
+  assert.deepEqual(
+    (await readdir(scratch)).sort(),
+    mode === "live" ? ["crates", "sleep.wasm"] : ["sleep.wasm"],
+  );
+}
+
+for (const mode of ["frozen", "live"]) {
+  test(`${mode} replay awaits worker termination before removing scratch`, (t) =>
+    workerLifetime(t, mode));
+}
