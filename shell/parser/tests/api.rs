@@ -1398,3 +1398,35 @@ fn substitution_end_of_input_and_heredoc_boundaries_follow_bash() {
         strict(source).unwrap_or_else(|error| panic!("{source:?}: {error}"));
     }
 }
+
+#[test]
+fn quoted_heredoc_delimiters_preserve_substitution_and_operand_boundaries() {
+    // Bash 5.3.15 accepts the continuation and escaped-quote controls with
+    // status 0, including an unselected default containing the process body.
+    for (delimiter, eof) in [
+        ("\"EO\\\nF\"", "EOF"),
+        ("\"E\\\"OF\"", "E\"OF"),
+        ("\"E\\\\OF\"", "E\\OF"),
+        ("\"E\\$OF\"", "E$OF"),
+        ("\"E\\`OF\"", "E`OF"),
+        ("\"E\\qOF\"", "E\\qOF"),
+        ("'E\\\"OF'", "E\\\"OF"),
+    ] {
+        let body = format!(": <<{delimiter}\nbody\n{eof}\n");
+        for source in [
+            format!("args \"$({body})\" suffix"),
+            format!("args <({body}) suffix"),
+            format!("v=guard; args \"${{v:-<({body})}}\" suffix"),
+        ] {
+            let script = Parser::new(&source)
+                .with_strict_substitution_bodies()
+                .parse()
+                .unwrap_or_else(|error| panic!("{source:?}: {error}"));
+            let Some(Command::Simple(command)) = script.commands.last() else {
+                panic!("expected trailing simple command: {source:?}");
+            };
+            assert_eq!(command.args.len(), 2, "{source:?}");
+            assert_eq!(command.args[1].to_string(), "suffix", "{source:?}");
+        }
+    }
+}

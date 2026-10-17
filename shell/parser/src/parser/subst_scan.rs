@@ -95,6 +95,12 @@ enum Mode {
         /// so quotes, escapes and nested spans cannot end it early.
         nested: Option<Box<SubstScanner>>,
     },
+    /// A backslash inside a double-quoted heredoc delimiter. Its next char
+    /// is quote-removed without ending the enclosing double quote.
+    DoubleDelimiterEscape {
+        strip_tabs: bool,
+        word: String,
+    },
     /// Inside heredoc bodies; `line` accumulates the current line.
     Body {
         line: String,
@@ -189,7 +195,6 @@ impl SubstScanner {
         self.heredoc_paren
     }
 
-
     fn process(&mut self, c: char) -> Step {
         let escaped = match self.mode {
             Mode::Escape { previous } => Some(previous),
@@ -236,8 +241,7 @@ impl SubstScanner {
             }
             Mode::Body { mut line } => {
                 if c == ')' && self.delimiter_line(&line) {
-                    self.heredoc_paren
-                        .get_or_insert(self.offset - c.len_utf8());
+                    self.heredoc_paren.get_or_insert(self.offset - c.len_utf8());
                     // Bash, in a command substitution: a line that is the
                     // delimiter followed by the closing `)` ends the
                     // here-document ("delimited by end-of-file") and the `)`
@@ -326,6 +330,10 @@ impl SubstScanner {
                     return Step::Body;
                 }
                 if let Some(q) = quote {
+                    if q == '"' && c == '\\' {
+                        self.mode = Mode::DoubleDelimiterEscape { strip_tabs, word };
+                        return Step::Body;
+                    }
                     if c != q {
                         word.push(c);
                     }
@@ -401,6 +409,28 @@ impl SubstScanner {
                     word,
                     started: true,
                     quote: None,
+                    nested: None,
+                };
+                Step::Body
+            }
+            Mode::DoubleDelimiterEscape {
+                strip_tabs,
+                mut word,
+            } => {
+                // Double quotes remove a continuation and the backslash
+                // before a quote, slash, dollar or backtick; other slashes
+                // remain literal. Single-quoted delimiters never enter here.
+                if c != '\n' {
+                    if !matches!(c, '"' | '\\' | '$' | '`') {
+                        word.push('\\');
+                    }
+                    word.push(c);
+                }
+                self.mode = Mode::Delimiter {
+                    strip_tabs,
+                    word,
+                    started: true,
+                    quote: Some('"'),
                     nested: None,
                 };
                 Step::Body
@@ -998,6 +1028,23 @@ mod tests {
         assert_eq!(body("cat <<< x) y"), Some("cat <<< x"));
         // arithmetic shift is not a heredoc
         assert_eq!(body("echo $((1<<2))) y"), Some("echo $((1<<2))"));
+    }
+
+    #[test]
+    fn quoted_heredoc_delimiters_remove_only_double_quote_escapes() {
+        for (delimiter, eof) in [
+            ("\"EO\\\nF\"", "EOF"),
+            ("\"E\\\"OF\"", "E\"OF"),
+            ("\"E\\\\OF\"", "E\\OF"),
+            ("\"E\\$OF\"", "E$OF"),
+            ("\"E\\`OF\"", "E`OF"),
+            ("\"E\\qOF\"", "E\\qOF"),
+            ("'E\\\"OF'", "E\\\"OF"),
+        ] {
+            let command = format!(": <<{delimiter}\nbody\n{eof}\n");
+            let source = format!("{command}) suffix");
+            assert_eq!(body(&source), Some(command.as_str()), "{source:?}");
+        }
     }
 
     #[test]
