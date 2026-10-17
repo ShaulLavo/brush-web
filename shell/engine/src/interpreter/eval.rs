@@ -16,7 +16,7 @@ use shell_parser::{
 use std::{
     cell::Cell,
     future::Future,
-    mem::{align_of, size_of, size_of_val},
+    mem::{size_of, size_of_val},
     rc::Rc,
     sync::{Arc, atomic::AtomicBool},
     time::Duration,
@@ -50,6 +50,10 @@ impl Drop for Allocation {
             .execution
             .set(self.shared.execution.get().saturating_sub(self.bytes));
     }
+}
+
+fn frame_bytes<F>(_: &impl FnOnce(Allocation) -> F) -> usize {
+    size_of::<F>()
 }
 
 #[derive(Clone)]
@@ -101,20 +105,22 @@ impl Scope {
         future: F,
         failure: impl FnOnce(i32) -> T,
     ) -> Frame<'a, T> {
-        // The wrapper retains F, its admission guard and an async state tag.
-        // Two alignment slots conservatively cover their padding and tag.
-        let bytes = size_of::<F>()
-            .saturating_add(size_of::<Allocation>())
-            .saturating_add(2 * align_of::<F>().max(align_of::<Allocation>()));
+        // Map stores the future once and retains its guard until completion or
+        // drop. An async wrapper can reserve both initial and suspended copies
+        // of F; size the actual combinator type before its heap allocation.
+        let frame = move |allocation: Allocation| {
+            future.map(move |value| {
+                drop(allocation);
+                value
+            })
+        };
+        let bytes = frame_bytes(&frame);
         let allocation = match self.admit_execution(bytes) {
             Ok(allocation) => allocation,
             Err(code) => return Either::Left(ready(failure(code))),
         };
-        let future = async move {
-            let _allocation = allocation;
-            future.await
-        };
-        debug_assert!(size_of_val(&future) <= bytes);
+        let future = frame(allocation);
+        debug_assert_eq!(size_of_val(&future), bytes);
         Either::Right(future.boxed_local())
     }
 
@@ -372,6 +378,16 @@ mod tests {
         drop(frame);
         assert_eq!(scope.shared.execution.get(), 0);
         assert_eq!(scope.frame(ready(7), |_| 2).now_or_never(), Some(7));
+        assert_eq!(scope.shared.execution.get(), 0);
+        let frame = scope.frame(ready([7u8; 4096]), |_| [0; 4096]);
+        let Either::Right(body) = &frame else {
+            panic!("the bounded future fits the execution allowance");
+        };
+        assert_eq!(
+            scope.shared.execution.get(),
+            size_of_val(body.as_ref().get_ref())
+        );
+        assert_eq!(frame.now_or_never(), Some([7; 4096]));
         assert_eq!(scope.shared.execution.get(), 0);
     }
 }
