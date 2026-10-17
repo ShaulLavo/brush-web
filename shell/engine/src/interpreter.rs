@@ -472,6 +472,11 @@ impl Session {
                     }
                 },
             )?;
+        if commands.is_empty()
+            && let Some(ParseFailure::Syntax { message, .. }) = failure.as_ref()
+        {
+            return Err(StartError::Invalid(message.clone()));
+        }
         let group = self.core.host.allocate_group();
         let host = self.core.host.clone();
         let cancel = Cancel::with_probe(Rc::new(move || host.interrupted()));

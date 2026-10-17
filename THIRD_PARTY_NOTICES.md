@@ -431,8 +431,10 @@ admits snapshots before copying, and preserves local/function restoration;
 it is not a snapshot-value substitute for a reference. Arrays, indexed
 references and general declaration options remain excluded. The detailed
 classification and destinations are recorded under `shellScalarState`;
-the retained MIT license is `shell/parser/LICENSE`.
-not included. No whole-output buffering is added.
+the retained MIT license is `shell/parser/LICENSE`. The eight-link read boundary,
+soft unset on acyclic overflow, distinct cycle/write rejection and focused
+8/9-link controls are original adapters measured against GNU Bash 5.3.15, not
+copied implementations. No whole-output buffering is added.
 
 The acceptance-only streaming `grep` subset in
 `shell/engine/src/builtins/grep.rs` adapts Bashkit's

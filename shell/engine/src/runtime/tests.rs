@@ -635,12 +635,14 @@ fn background_brace_sequence_kill_and_wait_cover_later_runtime_members() {
     assert_eq!(runtime.retained_count(), 0);
     assert!(runtime.0.groups.borrow().is_empty());
     assert_eq!(*fake.reaped_jobs.borrow(), vec![members[0].1, members[1].1]);
-    // Cancellation first interrupts the external command's direct-child wait.
-    // finish_group then signals both runtime jobs for descendant teardown,
+    // The explicit `kill %1` uses TERM. Shutdown then interrupts the shell
+    // task with INT and signals both runtime jobs for descendant teardown,
     // including the job whose direct child had already exited naturally.
     assert_eq!(
         *fake.signals.borrow(),
         vec![
+            (true, members[0].0, 15),
+            (true, members[1].0, 15),
             (false, members[1].0, 2),
             (true, members[0].1, 2),
             (true, members[1].1, 2),

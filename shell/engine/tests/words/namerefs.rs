@@ -233,6 +233,93 @@ fn reference_cycles_are_bounded_and_unset_under_nounset() {
 }
 
 #[test]
+fn nameref_depth_eight_resolves_but_nine_reads_as_unset_without_resource_failure() {
+    let mut source = String::from("final_target=deep_value\n");
+    for index in (1..=8).rev() {
+        let target = if index == 8 {
+            "final_target".to_owned()
+        } else {
+            format!("c{}", index + 1)
+        };
+        source.push_str(&format!("declare -n c{index}={target}\n"));
+    }
+    source.push_str(
+        "args \"$c1\" \"${c1+set}\"\nc8=changed\nargs \"$final_target\" \"$c1\"\ndeclare -n c1=final_target\nargs \"$c1\"\n",
+    );
+    check(
+        &source,
+        &[
+            &["deep_value", "set"],
+            &["changed", "changed"],
+            &["changed"],
+        ],
+    );
+
+    let mut source = String::from("final_target=deep_value\n");
+    for index in (1..=9).rev() {
+        let target = if index == 9 {
+            "final_target".to_owned()
+        } else {
+            format!("c{}", index + 1)
+        };
+        source.push_str(&format!("declare -n c{index}={target}\n"));
+    }
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(&source), 0);
+    assert_eq!(rig.run(r#"args "$c1" "${c1+set}" "${c1-default}""#), 0);
+    assert_eq!(*rig.calls.borrow(), [vec!["", "", "default"]]);
+    assert_eq!(rig.run("c1=blocked"), 1);
+    assert_eq!(rig.calls.borrow().len(), 1);
+    assert_eq!(rig.run(r#"args "$?" "$final_target" "$c1""#), 0);
+    assert_eq!(
+        *rig.calls.borrow(),
+        [vec!["", "", "default"], vec!["1", "deep_value", ""]]
+    );
+    assert_eq!(rig.run("declare -n c1=final_target"), 0);
+    assert_eq!(rig.run(r#"args "$c1""#), 0);
+    assert_eq!(
+        *rig.calls.borrow(),
+        [
+            vec!["", "", "default"],
+            vec!["1", "deep_value", ""],
+            vec!["deep_value"],
+        ]
+    );
+}
+
+#[test]
+fn nameref_depth_overflow_stays_distinct_from_cycles_under_nounset() {
+    let mut source = String::from("final_target=deep_value\n");
+    for index in (1..=9).rev() {
+        let target = if index == 9 {
+            "final_target".to_owned()
+        } else {
+            format!("c{}", index + 1)
+        };
+        source.push_str(&format!("declare -n c{index}={target}\n"));
+    }
+    source.push_str("set -u\nargs \"$c1\"\nargs forbidden\n");
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(&source), 127);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(
+        rig.errors.bytes(),
+        b"/usr/bin/bash: line 12: c1: unbound variable\n"
+    );
+
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run("declare -n a=b; declare -n b=a; set -u; args \"$a\"; args forbidden"),
+        127
+    );
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(
+        rig.errors.bytes(),
+        b"/usr/bin/bash: line 1: a: unbound variable\n"
+    );
+}
+
+#[test]
 fn unsupported_reference_shapes_do_not_create_a_binding_or_target() {
     for operand in [
         "ref=array[0]",

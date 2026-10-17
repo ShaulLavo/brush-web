@@ -14,6 +14,15 @@ use std::{
 
 pub type SharedState = Rc<RefCell<State>>;
 
+const MAX_NAMEREF_DEPTH: usize = 8;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScalarResolution<'a> {
+    Target(&'a str),
+    Cycle,
+    DepthExceeded,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct LocalVariable {
     previous: Option<String>,
@@ -152,7 +161,9 @@ impl State {
         if name == "!" {
             return self.last_async.as_deref();
         }
-        let name = self.scalar_target(name).ok().flatten()?;
+        let ScalarResolution::Target(name) = self.resolve_scalar_target(name) else {
+            return None;
+        };
         if name == "PWD" {
             return Some(&self.cwd);
         }
@@ -166,39 +177,54 @@ impl State {
         self.namerefs.contains_key(name)
     }
     pub(crate) fn shares_scalar_binding(&self, first: &str, second: &str) -> Result<bool, i32> {
-        let Some(first) = self.scalar_target(first)? else {
+        let ScalarResolution::Target(first) = self.resolve_scalar_target(first) else {
             return Ok(false);
         };
-        Ok(self.scalar_target(second)? == Some(first))
+        Ok(matches!(
+            self.resolve_scalar_target(second),
+            ScalarResolution::Target(second) if second == first
+        ))
     }
     pub(crate) fn indirect_parameter<'a>(&'a self, name: &'a str) -> Result<Option<&'a str>, i32> {
         if self.is_nameref(name) {
-            return self.scalar_target(name);
+            return Ok(match self.resolve_scalar_target(name) {
+                ScalarResolution::Target(target) => Some(target),
+                ScalarResolution::Cycle | ScalarResolution::DepthExceeded => None,
+            });
         }
         Ok(self.scalar_parameter(name))
     }
     /// Original bounded scalar adapter for Bashkit's resolve_nameref and
     /// resolve_nameref_strict (interpreter/mod.rs and declare.rs, 491c3281).
-    /// A cycle has no scalar value. An acyclic chain beyond the bound fails.
-    /// Floyd's cursor uses constant storage, including in recursive expansion.
-    pub(crate) fn scalar_target<'a>(&'a self, name: &'a str) -> Result<Option<&'a str>, i32> {
+    /// Bash treats an acyclic chain beyond eight links as an unset reference;
+    /// cycles are kept distinct so writes can reject them without becoming a
+    /// resource error. Floyd's cursor uses constant storage.
+    pub(crate) fn resolve_scalar_target<'a>(&'a self, name: &'a str) -> ScalarResolution<'a> {
         let mut current = name;
         let mut fast = Some(name);
-        for _ in 0..64 {
+        for _ in 0..MAX_NAMEREF_DEPTH {
             let Some(next) = self.namerefs.get(current) else {
-                return Ok(Some(current));
+                return ScalarResolution::Target(current);
             };
             current = next;
             fast = fast.and_then(|name| self.namerefs.get(name).map(String::as_str));
             fast = fast.and_then(|name| self.namerefs.get(name).map(String::as_str));
             if fast == Some(current) {
-                return Ok(None);
+                return ScalarResolution::Cycle;
             }
         }
         if self.namerefs.contains_key(current) {
-            return Err(2);
+            return ScalarResolution::DepthExceeded;
         }
-        Ok(Some(current))
+        ScalarResolution::Target(current)
+    }
+    /// Compatibility view for callers that only need the readable target.
+    /// Both cyclic and depth-overflow references read as unset.
+    pub(crate) fn scalar_target<'a>(&'a self, name: &'a str) -> Result<Option<&'a str>, i32> {
+        Ok(match self.resolve_scalar_target(name) {
+            ScalarResolution::Target(target) => Some(target),
+            ScalarResolution::Cycle | ScalarResolution::DepthExceeded => None,
+        })
     }
     /// Account for reference traversal without copying targets or holding a
     /// state borrow over a yield. Ordinary variables retain their prior cost.
@@ -217,7 +243,7 @@ impl State {
     fn reference_work(&self, name: &str) -> Result<usize, i32> {
         let mut current = name;
         let mut bytes = 0usize;
-        for _ in 0..64 {
+        for _ in 0..MAX_NAMEREF_DEPTH {
             let Some(next) = self.namerefs.get(current) else {
                 return Ok(bytes);
             };
@@ -227,7 +253,6 @@ impl State {
                 .ok_or(2)?;
             current = next;
         }
-        self.scalar_target(name)?;
         Ok(bytes)
     }
     /// Call before a supported scalar write. In addition to the caller's RHS
@@ -250,7 +275,7 @@ impl State {
         value_bytes: usize,
         work: &mut Work,
     ) -> Result<(), Error> {
-        let Some(target) = self.scalar_target(name)? else {
+        let ScalarResolution::Target(target) = self.resolve_scalar_target(name) else {
             return Err(1.into());
         };
         if target == name {
@@ -289,7 +314,9 @@ impl State {
         Ok(())
     }
     pub(crate) fn assignment_name(&self, name: String) -> Result<String, i32> {
-        let target = self.scalar_target(&name)?.ok_or(1)?;
+        let ScalarResolution::Target(target) = self.resolve_scalar_target(&name) else {
+            return Err(1);
+        };
         if target == name {
             return Ok(name);
         }
@@ -344,7 +371,9 @@ impl State {
     ) -> Result<String, Error> {
         Self::admit_scalar_access(state, name, cancel, work).await?;
         let state = state.borrow();
-        let target = state.scalar_target(name)?.ok_or(1)?;
+        let ScalarResolution::Target(target) = state.resolve_scalar_target(name) else {
+            return Err(1.into());
+        };
         let present = if readonly {
             state.locals.iter().any(|frame| frame.contains_key(target))
                 || state.readonly.contains(target)
@@ -372,11 +401,10 @@ impl State {
         if !self.namerefs.contains_key(name) {
             return self.unset_binding(name);
         }
-        let name = self
-            .scalar_target(name)
-            .map_err(|_| ())?
-            .ok_or(())?
-            .to_owned();
+        let name = match self.resolve_scalar_target(name) {
+            ScalarResolution::Target(name) => name.to_owned(),
+            ScalarResolution::Cycle | ScalarResolution::DepthExceeded => return Err(()),
+        };
         self.unset_binding(&name)
     }
     fn unset_binding(&mut self, name: &str) -> Result<bool, ()> {
@@ -841,21 +869,26 @@ mod tests {
     #[test]
     fn scalar_reference_depth_cycles_and_access_cancellation_use_constant_storage() {
         let mut state = State::default();
-        for index in 0..64 {
+        for index in 0..8 {
             state
                 .namerefs
                 .insert(format!("r{index}"), format!("r{}", index + 1));
         }
-        state.variables.insert("r64".into(), "value".into());
-        assert_eq!(state.scalar_target("r0"), Ok(Some("r64")));
+        state.variables.insert("r8".into(), "value".into());
+        assert_eq!(
+            state.resolve_scalar_target("r0"),
+            ScalarResolution::Target("r8")
+        );
         assert_eq!(state.scalar_parameter("r0"), Some("value"));
-        state.namerefs.insert("r63".into(), "r0".into());
-        assert_eq!(state.scalar_target("r0"), Ok(None));
-        state.namerefs.insert("r63".into(), "r64".into());
-        state.namerefs.insert("r64".into(), "end".into());
-        assert_eq!(state.scalar_target("r0"), Err(2));
+        state.namerefs.insert("r8".into(), "end".into());
+        assert_eq!(
+            state.resolve_scalar_target("r0"),
+            ScalarResolution::DepthExceeded
+        );
+        assert_eq!(state.scalar_parameter("r0"), None);
         state.namerefs.insert("r1".into(), "r0".into());
-        assert_eq!(state.scalar_target("r0"), Ok(None));
+        assert_eq!(state.resolve_scalar_target("r0"), ScalarResolution::Cycle);
+        assert_eq!(state.scalar_parameter("r0"), None);
 
         let state = State::default().shared();
         state

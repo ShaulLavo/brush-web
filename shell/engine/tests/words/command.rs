@@ -553,6 +553,21 @@ fn async_identity_expands_in_nested_operands_and_arithmetic_without_reparsing_a_
 }
 
 #[test]
+fn braced_async_identity_is_empty_before_launch_and_readable_under_nounset_after_launch() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(r#"args "$!" "${!}""#), 0);
+    assert_eq!(*rig.calls.borrow(), [vec!["", ""]]);
+
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run(r#"false & pid=$!; set -u; args "$!" "${!}" "${u:-${!}}"; wait "$pid""#),
+        1
+    );
+    let pid = rig.shell.state().borrow().variables["pid"].clone();
+    assert_eq!(*rig.calls.borrow(), [vec![pid.clone(), pid.clone(), pid]]);
+}
+
+#[test]
 fn numeric_kill_uses_only_an_async_handle_owned_by_the_current_scope() {
     let rig = Rig::new(Limits::default());
     let _release = register_status_gate(&rig, "status_gate", 0);
@@ -586,7 +601,7 @@ fn job_signal_forms_preserve_term_int_and_invalid_statuses() {
         let rig = Rig::new(Limits::default());
         let _release = register_status_gate(&rig, "status_gate", 0);
         assert_eq!(
-            rig.run(&format!("status_gate &; {kill}; wait %1; args $?")),
+            rig.run(&format!("status_gate & {kill}; wait %1; args $?")),
             0,
             "{kill}"
         );
@@ -597,7 +612,7 @@ fn job_signal_forms_preserve_term_int_and_invalid_statuses() {
     let rig = Rig::new(Limits::default());
     let _release = register_status_gate(&rig, "status_gate", 0);
     assert_eq!(
-        rig.run("status_gate &; kill -s INVALID %1; args $?; kill -TERM %1; wait %1; args $?"),
+        rig.run("status_gate & kill -s INVALID %1; args $?; kill -TERM %1; wait %1; args $?"),
         0
     );
     assert_eq!(*rig.calls.borrow(), [vec!["2"], vec!["143"]]);
@@ -620,7 +635,7 @@ fn unsupported_signals_and_signal_zero_do_not_cancel_owned_pending_jobs() {
         let _release = register_status_gate(&rig, "status_gate", 0);
         assert_eq!(
             rig.run(&format!(
-                "status_gate &; kill -s {signal} %1; args $?; kill -TERM %1; wait %1; args $?"
+                "status_gate & kill -s {signal} %1; args $?; kill -TERM %1; wait %1; args $?"
             )),
             0,
             "{signal}"
@@ -637,7 +652,7 @@ fn unsupported_signals_and_signal_zero_do_not_cancel_owned_pending_jobs() {
     let rig = Rig::new(Limits::default());
     let _release = register_status_gate(&rig, "status_gate", 0);
     assert_eq!(
-        rig.run("status_gate &; kill -0 %1; args $?; kill -TERM %1; wait %1; args $?"),
+        rig.run("status_gate & kill -0 %1; args $?; kill -TERM %1; wait %1; args $?"),
         0
     );
     assert_eq!(*rig.calls.borrow(), [vec!["0"], vec!["143"]]);

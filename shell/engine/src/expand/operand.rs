@@ -251,7 +251,10 @@ impl<'a> Scanner<'a> {
                     protected: self.protected(),
                 });
             }
-            Some('\'' | '"' | '@' | '*' | '!' | '$' | '-') => return Err(2.into()),
+            Some('!') => {
+                self.take();
+            }
+            Some('\'' | '"' | '@' | '*' | '$' | '-') => return Err(2.into()),
             _ => return Ok(self.text("$", self.protected())),
         }
         let token = self.token(start, joined, work, cancel).await?;
