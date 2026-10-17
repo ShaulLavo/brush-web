@@ -11,7 +11,8 @@ use shell_parser::parser::Command;
 const CHUNK: usize = 4096;
 /// A UTF-8 sequence split across reads carries at most three bytes over.
 const CARRY: usize = 3;
-const NULL_WARNING: &str = "/usr/bin/bash: warning: command substitution: ignored null byte in input\n";
+const NULL_WARNING: &str =
+    "/usr/bin/bash: warning: command substitution: ignored null byte in input\n";
 
 impl Expansion<'_> {
     pub(super) async fn command_substitution(
@@ -27,9 +28,7 @@ impl Expansion<'_> {
         self.segment("", protection, keeps_empty).await?;
         let scratch = CHUNK + CARRY + CHUNK;
         self.work.admit_storage(scratch)?;
-        let result = self
-            .capture(commands, state, protection, keeps_empty)
-            .await;
+        let result = self.capture(commands, state, protection, keeps_empty).await;
         self.work.release_storage(scratch);
         let code = result?;
         self.work.substitution_status = Some(code);

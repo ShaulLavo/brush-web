@@ -346,7 +346,8 @@ impl<'a> Scanner<'a> {
     ) -> Result<WordPart, Error> {
         self.skip_body(start, true, work, cancel).await?;
         let body = &self.source[start + 2..self.cursor - 1];
-        work.admit_parse(body.len().saturating_add(2), cancel).await?;
+        work.admit_parse(body.len().saturating_add(2), cancel)
+            .await?;
         admit_syntax(body, work)?;
         match backtick_part(body).map_err(|_| Error::Status(2))? {
             WordPart::CommandSubstitution(commands) => {

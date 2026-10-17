@@ -454,7 +454,12 @@ async fn parse_failure(
 /// `eval`: the arguments joined by spaces, read like a script in the
 /// current shell. A syntax error returns 2 after the complete lines before
 /// it ran; `return` and `exit` act on the caller.
-async fn eval(args: Vec<String>, state: SharedState, fds: Descriptors, context: Context) -> Outcome {
+async fn eval(
+    args: Vec<String>,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+) -> Outcome {
     let source = args.join(" ");
     let (commands, failure) = match parse_shell(&source, context.limits()) {
         Ok(parsed) => parsed,
