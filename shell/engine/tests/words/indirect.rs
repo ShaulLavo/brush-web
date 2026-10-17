@@ -145,7 +145,6 @@ fn indirect_selected_syntax_fails_closed_and_skipped_operands_stay_lazy() {
         "${!1}",
         "${!#}",
         "${!!p}",
-        "${!p:-$(args forbidden)}",
     ] {
         let rig = Rig::new(Limits::default());
         rig.variable("p", "missing");
@@ -171,6 +170,16 @@ fn indirect_selected_syntax_fails_closed_and_skipped_operands_stay_lazy() {
         assert!(rig.calls.borrow().is_empty());
         assert!(!rig.shell.state().borrow().variables.contains_key("side"));
     }
+    check(
+        r#"p=missing; args "${!p:-$(args selected; echo value)}" "${!p:-`args backtick; echo tick`}"; args "${missing-unset}"; args "${!p:=$(echo assigned)}" "$missing" "$p""#,
+        &[
+            &["selected"],
+            &["backtick"],
+            &["value", "tick"],
+            &["unset"],
+            &["assigned", "assigned", "missing"],
+        ],
+    );
     check(
         r#"p=x; x=ok; args "${!p:-${bad:?forbidden}}" "${!p:-${!bad}}" "${!p:-$(args forbidden)}" "${missing+${!bad}}" "${missing+${!p#x}}""#,
         &[&["ok", "ok", "ok", "", ""]],

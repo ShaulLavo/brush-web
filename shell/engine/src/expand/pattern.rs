@@ -14,11 +14,17 @@ struct Character {
 }
 
 #[derive(Default)]
-pub(super) struct Pattern {
+pub(crate) struct Pattern {
     chars: Vec<Character>,
     quoted_empty: bool,
+    /// Case matching selects the first field from a quoted multi-value `$@`.
+    /// Continue evaluating the remaining source, but discard its emitted text.
+    first_field_complete: bool,
 }
 impl Pattern {
+    pub(super) fn finish_first_field(&mut self) {
+        self.first_field_complete = true;
+    }
     pub(super) fn keep_empty(&mut self) {
         self.quoted_empty = true;
     }
@@ -28,6 +34,9 @@ impl Pattern {
         protection: Protection,
         work: &mut Work,
     ) -> Result<(), Error> {
+        if self.first_field_complete {
+            return Ok(());
+        }
         admit_vec_slot(&mut self.chars, work)?;
         self.chars.push(Character {
             value,
@@ -145,6 +154,31 @@ impl Pattern {
             states,
             anchor,
         })
+    }
+
+    pub(crate) async fn matches_full(
+        &mut self,
+        value: &str,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<bool, Error> {
+        let atoms = self.compile(work, cancel).await?;
+        let count = atoms.len().checked_add(1).ok_or(2)?;
+        work.admit_storage(count)?;
+        let mut states = Vec::new();
+        states
+            .try_reserve_exact(count)
+            .map_err(|_| Error::Status(2))?;
+        states.push(true);
+        for atom in &atoms {
+            work.checkpoint(cancel).await?;
+            states.push(matches!(atom, Atom::Star) && *states.last().ok_or(2)?);
+        }
+        for ch in value.chars() {
+            work.checkpoint(cancel).await?;
+            self.advance(&atoms, &mut states, ch, work, cancel).await?;
+        }
+        Ok(states[atoms.len()])
     }
     async fn atom(
         &self,

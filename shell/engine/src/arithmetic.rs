@@ -5,13 +5,14 @@
 use crate::{
     executor::Cancel,
     expand::{self, Error, Work},
-    state::SharedState,
+    state::{SharedState, State},
 };
 use futures::{
     FutureExt,
     future::{Either, LocalBoxFuture, Ready, ready},
 };
 use std::future::Future;
+use std::rc::Rc;
 
 pub(crate) type ArithmeticFuture<'a, T = i64> =
     Either<Ready<Result<T, Error>>, LocalBoxFuture<'a, Result<T, Error>>>;
@@ -51,6 +52,8 @@ struct Parser<'a> {
     cursor: usize,
     current: Token<'a>,
     next: Token<'a>,
+    cached: Option<Rc<[Token<'a>]>>,
+    cached_index: usize,
 }
 impl<'a> Parser<'a> {
     async fn new(source: &'a str, work: &mut Work, cancel: &Cancel) -> Result<Self, Error> {
@@ -59,6 +62,8 @@ impl<'a> Parser<'a> {
             cursor: 0,
             current: Token::End,
             next: Token::End,
+            cached: None,
+            cached_index: 0,
         };
         parser.current = parser.lex(work, cancel).await?;
         parser.next = parser.lex(work, cancel).await?;
@@ -121,9 +126,77 @@ impl<'a> Parser<'a> {
         }
     }
     async fn advance(&mut self, work: &mut Work, cancel: &Cancel) -> Result<(), Error> {
+        if let Some(tokens) = &self.cached {
+            self.current = self.next;
+            self.cached_index = self.cached_index.saturating_add(1);
+            self.next = tokens
+                .get(self.cached_index.saturating_add(1))
+                .copied()
+                .unwrap_or(Token::End);
+            return Ok(());
+        }
         self.current = self.next;
         self.next = self.lex(work, cancel).await?;
         Ok(())
+    }
+}
+
+pub(crate) struct Program<'a> {
+    source: &'a str,
+    tokens: Rc<[Token<'a>]>,
+}
+
+impl<'a> Program<'a> {
+    pub(crate) fn is_static(source: &str) -> bool {
+        !source.contains(['$', '"', '\\', '`'])
+    }
+
+    pub(crate) fn retained_bytes(source: &str) -> usize {
+        source
+            .len()
+            .saturating_add(1)
+            .saturating_mul(std::mem::size_of::<Token<'static>>())
+            .saturating_add(std::mem::size_of::<Self>())
+    }
+
+    pub(crate) async fn compile(
+        source: &'a str,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<Self, Error> {
+        let mut lexer = Parser {
+            source,
+            cursor: 0,
+            current: Token::End,
+            next: Token::End,
+            cached: None,
+            cached_index: 0,
+        };
+        let mut tokens = Vec::new();
+        loop {
+            let token = lexer.lex(work, cancel).await?;
+            tokens.push(token);
+            if token == Token::End {
+                break;
+            }
+        }
+        Ok(Self {
+            source,
+            tokens: Rc::from(tokens),
+        })
+    }
+
+    fn parser(&self) -> Parser<'a> {
+        let current = self.tokens.first().copied().unwrap_or(Token::End);
+        let next = self.tokens.get(1).copied().unwrap_or(Token::End);
+        Parser {
+            source: self.source,
+            cursor: 0,
+            current,
+            next,
+            cached: Some(self.tokens.clone()),
+            cached_index: 0,
+        }
     }
 }
 
@@ -151,13 +224,46 @@ pub(crate) fn evaluate<'a>(
                 return Err(2.into());
             }
             let expanded;
-            let source = if source.contains(['$', '"', '\\']) {
+            let source = if source.contains(['$', '"', '\\', '`']) {
                 expanded = expand::arithmetic_text(source, state, cancel, max, work).await?;
                 expanded.as_str()
             } else {
                 source
             };
             expression(source, state, cancel, max, work, 0).await
+        }
+        .await;
+        work.leave_arithmetic();
+        result
+    })
+}
+
+pub(crate) fn evaluate_program<'a>(
+    program: &'a Program<'a>,
+    state: &'a SharedState,
+    cancel: &'a Cancel,
+    max: usize,
+    work: &'a mut Work,
+) -> ArithmeticFuture<'a> {
+    admitted(work, move |work| async move {
+        work.enter_arithmetic()?;
+        let result = async {
+            work.checkpoint(cancel).await?;
+            if program.source.len() > max {
+                return Err(2.into());
+            }
+            let mut parser = program.parser();
+            if parser.current == Token::End {
+                return Ok(0);
+            }
+            let result = parse(&mut parser, 0, true, state, cancel, max, work, 1).await?;
+            if parser.current == Token::Unsupported {
+                return Err(2.into());
+            }
+            if parser.current != Token::End {
+                return fault("syntax error in expression", work);
+            }
+            Ok(result)
         }
         .await;
         work.leave_arithmetic();
@@ -267,7 +373,7 @@ fn parse<'a, 's: 'a>(
             } else {
                 binary(&op[..op.len() - 1], old, rhs, active, work)?
             };
-            store(name, result, active, state, max, work)?;
+            store(name, result, active, state, cancel, max, work).await?;
             result
         } else {
             unary(p, active, state, cancel, max, work, depth + 1).await?
@@ -366,7 +472,7 @@ fn unary<'a, 's: 'a>(
                 } else {
                     old.wrapping_sub(1)
                 };
-                store(name, value, active, state, max, work)?;
+                store(name, value, active, state, cancel, max, work).await?;
                 return Ok(value);
             }
             // Two unary signs when there is no identifier after the token.
@@ -408,9 +514,11 @@ fn unary<'a, 's: 'a>(
                         },
                         active,
                         state,
+                        cancel,
                         max,
                         work,
-                    )?;
+                    )
+                    .await?;
                 }
                 Ok(value)
             }
@@ -441,6 +549,7 @@ async fn read(
     if !active {
         return Ok(0);
     }
+    State::admit_scalar_access(state, name, cancel, work).await?;
     let value = {
         let s = state.borrow();
         let value = s.scalar_parameter(name).unwrap_or("");
@@ -455,11 +564,12 @@ async fn read(
     work.leave_scalar_arithmetic();
     result
 }
-fn store(
+async fn store(
     name: &str,
     value: i64,
     active: bool,
     state: &SharedState,
+    cancel: &Cancel,
     max: usize,
     work: &mut Work,
 ) -> Result<(), Error> {
@@ -474,6 +584,7 @@ fn store(
     if name.len() > max || digits > max {
         return Err(2.into());
     }
+    State::admit_assignment(state, name, digits, cancel, work).await?;
     // State insertion and an active prefix frame may both retain the value.
     work.admit_storage(name.len().saturating_mul(2).saturating_add(80 + 128))?;
     let text = value.to_string();

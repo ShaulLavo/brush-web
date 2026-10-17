@@ -2,7 +2,7 @@
 //! embedding's reactor turn calls the blocking `poll` import. Descriptors from
 //! preview1 path_open, runtime pipes and inherited stdio share one namespace.
 use crate::{
-    executor::Executor,
+    executor::{Cancel, Executor, JoinHandle},
     io::{Endpoint, FdTable, FileSystem, HostEndpoint, IoError, OpenOptions},
     process::{GroupId, ProcessError, ProcessHost, ProcessId, SpawnRequest},
 };
@@ -13,7 +13,7 @@ use std::{
     collections::BTreeMap,
     future::Future,
     pin::Pin,
-    rc::Rc,
+    rc::{Rc, Weak},
     task::{Context, Poll, Waker},
 };
 
@@ -124,6 +124,110 @@ struct Group {
     background: bool,
     closing: bool,
 }
+
+const MAX_RETAINED_PROCESSES: usize = 4096;
+const INPUT_UNIT_BYTES: usize = 4096;
+
+struct InputSlot {
+    used: Rc<Cell<usize>>,
+    units: usize,
+    bytes: usize,
+}
+impl InputSlot {
+    fn grow(&mut self, bytes: usize, children: usize) -> Result<(), ProcessError> {
+        let total = self
+            .bytes
+            .checked_add(bytes)
+            .ok_or(ProcessError::ProcessLimit)?;
+        let units = total.div_ceil(INPUT_UNIT_BYTES);
+        let extra = units - self.units;
+        if self
+            .used
+            .get()
+            .saturating_add(extra)
+            .saturating_add(children)
+            .saturating_add(1)
+            > MAX_RETAINED_PROCESSES
+        {
+            return Err(ProcessError::ProcessLimit);
+        }
+        self.used.set(self.used.get() + extra);
+        self.units = units;
+        self.bytes = total;
+        Ok(())
+    }
+    fn restore(&mut self, bytes: usize) {
+        let units = bytes.div_ceil(INPUT_UNIT_BYTES);
+        self.used.set(self.used.get() - (self.units - units));
+        self.bytes = bytes;
+        self.units = units;
+    }
+}
+impl Drop for InputSlot {
+    fn drop(&mut self) {
+        self.used.set(self.used.get() - self.units);
+    }
+}
+
+struct PreparedInput {
+    source: Endpoint,
+    reader: Endpoint,
+    cancel: Cancel,
+    future: LocalBoxFuture<'static, Result<(), IoError>>,
+    slot: InputSlot,
+    users: Vec<GroupId>,
+}
+
+struct InputPump {
+    cancel: Cancel,
+    join: JoinHandle<Result<(), IoError>>,
+    _slot: InputSlot,
+    reader: Weak<dyn HostEndpoint>,
+    users: Vec<GroupId>,
+}
+impl InputPump {
+    fn reserve_user(&mut self, group: GroupId, children: usize) -> Result<(), ProcessError> {
+        if self.users.contains(&group) || self.users.len() < self.users.capacity() {
+            return Ok(());
+        }
+        let bytes = self._slot.bytes;
+        self._slot.grow(std::mem::size_of::<GroupId>(), children)?;
+        if self.users.try_reserve_exact(1).is_err() {
+            self._slot.restore(bytes);
+            return Err(ProcessError::ProcessLimit);
+        }
+        Ok(())
+    }
+    fn unowned(&self) -> bool {
+        self.users.is_empty() && self.reader.strong_count() == 0
+    }
+}
+impl Drop for InputPump {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+    }
+}
+
+fn input_future(
+    source: Endpoint,
+    writer: Endpoint,
+    cancel: Cancel,
+) -> impl Future<Output = Result<(), IoError>> {
+    async move {
+        let mut buffer = [0; 1024];
+        loop {
+            let count = source.read_cancelled(&mut buffer, &cancel).await?;
+            if count == 0 {
+                return Ok(());
+            }
+            writer.write_all(&buffer[..count], &cancel).await?;
+        }
+    }
+}
+
+fn input_future_bytes<F>(_: &impl FnOnce(Endpoint, Endpoint, Cancel) -> F) -> usize {
+    std::mem::size_of::<F>()
+}
 struct Child {
     group: GroupId,
     status: Cell<Option<i32>>,
@@ -136,6 +240,8 @@ struct State {
     next_group: Cell<GroupId>,
     groups: RefCell<BTreeMap<GroupId, Group>>,
     children: RefCell<BTreeMap<ProcessId, Rc<Child>>>,
+    input_slots: Rc<Cell<usize>>,
+    inputs: RefCell<Vec<InputPump>>,
 }
 #[derive(Clone)]
 pub struct Runtime(Rc<State>);
@@ -149,6 +255,8 @@ impl Runtime {
             next_group: Cell::new(1),
             groups: RefCell::new(BTreeMap::new()),
             children: RefCell::new(BTreeMap::new()),
+            input_slots: Rc::new(Cell::new(0)),
+            inputs: RefCell::new(Vec::new()),
         }))
     }
     /// Own one fd binding. Endpoint clones share it; the final clone closes it.
@@ -178,6 +286,10 @@ impl Runtime {
     /// Drive only BETWEEN executor turns. With timeout 0 this never blocks;
     /// timeout -1 parks until host readiness or a signal. No task calls poll.
     pub fn poll(&self, timeout: i32) -> Result<usize, i32> {
+        self.0
+            .inputs
+            .borrow_mut()
+            .retain(|input| !input.join.is_finished());
         let subscriptions: Vec<_> = self
             .0
             .waiters
@@ -232,6 +344,75 @@ impl Runtime {
     }
     pub fn retained_count(&self) -> usize {
         self.0.children.borrow().len()
+    }
+
+    fn prepare_input(
+        &self,
+        source: &Endpoint,
+        payload: usize,
+    ) -> Result<PreparedInput, ProcessError> {
+        // Include retained payload, the concrete pump, queue/task metadata and
+        // vector slots. Input owners share the existing bounded process slots.
+        let bytes = payload
+            .checked_add(input_future_bytes(&input_future))
+            .and_then(|n| {
+                n.checked_add(INPUT_UNIT_BYTES + 16 * std::mem::size_of::<PreparedInput>())
+            })
+            .ok_or(ProcessError::ProcessLimit)?;
+        let units = bytes.div_ceil(INPUT_UNIT_BYTES);
+        let used = self
+            .0
+            .input_slots
+            .get()
+            .checked_add(units)
+            .ok_or(ProcessError::ProcessLimit)?;
+        if used.saturating_add(self.retained_count()).saturating_add(1) > MAX_RETAINED_PROCESSES {
+            return Err(ProcessError::ProcessLimit);
+        }
+        self.0.input_slots.set(used);
+        let slot = InputSlot {
+            used: self.0.input_slots.clone(),
+            units,
+            bytes,
+        };
+        let (reader, writer) = self.pipe().map_err(|_| ProcessError::Runtime(8))?;
+        let cancel = Cancel::new();
+        let mut users = Vec::new();
+        users
+            .try_reserve_exact(1)
+            .map_err(|_| ProcessError::ProcessLimit)?;
+        let future = input_future(source.buffered_source(), writer, cancel.clone());
+        Ok(PreparedInput {
+            source: source.clone(),
+            reader,
+            cancel,
+            future: future.boxed_local(),
+            slot,
+            users,
+        })
+    }
+
+    fn input_binding(
+        &self,
+        endpoint: &Endpoint,
+        inputs: &mut Vec<PreparedInput>,
+    ) -> Result<u32, ProcessError> {
+        if let Some(fd) = endpoint.runtime_fd() {
+            return Ok(fd);
+        }
+        let payload = endpoint
+            .buffered_input_bytes()
+            .ok_or(ProcessError::Runtime(8))?;
+        if let Some(input) = inputs.iter().find(|input| input.source.same_open(endpoint)) {
+            return Ok(input.reader.runtime_fd().expect("host pipe descriptor"));
+        }
+        let input = self.prepare_input(endpoint, payload)?;
+        inputs
+            .try_reserve_exact(1)
+            .map_err(|_| ProcessError::ProcessLimit)?;
+        let fd = input.reader.runtime_fd().expect("host pipe descriptor");
+        inputs.push(input);
+        Ok(fd)
     }
 }
 struct Ready {
@@ -376,7 +557,15 @@ impl ProcessHost for Runtime {
         self.take_interrupt()
     }
     fn spawn(&self, request: SpawnRequest) -> Result<ProcessId, ProcessError> {
-        if self.retained_count() >= 4096 {
+        self.0
+            .inputs
+            .borrow_mut()
+            .retain(|input| !input.join.is_finished());
+        if self
+            .retained_count()
+            .saturating_add(self.0.input_slots.get())
+            >= MAX_RETAINED_PROCESSES
+        {
             return Err(ProcessError::ProcessLimit);
         }
         // The ABI's caller is always the shell. A synthetic parent would silently
@@ -398,16 +587,35 @@ impl ProcessHost for Runtime {
             .cloned()
             .filter(|name| !name.is_empty())
             .ok_or_else(|| ProcessError::UnknownCommand(String::new()))?;
-        let fds = request
-            .fds
-            .iter()
-            .map(|(&child, endpoint)| {
+        let mut inputs = Vec::new();
+        let mut fds = Vec::new();
+        fds.try_reserve_exact(request.fds.iter().count())
+            .map_err(|_| ProcessError::ProcessLimit)?;
+        for (&child, endpoint) in request.fds.iter() {
+            fds.push(Binding {
+                child,
+                parent: self.input_binding(endpoint, &mut inputs)?,
+            });
+        }
+        self.0
+            .inputs
+            .borrow_mut()
+            .retain(|input| !input.join.is_finished());
+        self.0
+            .inputs
+            .borrow_mut()
+            .try_reserve_exact(inputs.len())
+            .map_err(|_| ProcessError::ProcessLimit)?;
+        for input in self.0.inputs.borrow_mut().iter_mut() {
+            let used = request.fds.iter().any(|(_, endpoint)| {
                 endpoint
-                    .runtime_fd()
-                    .map(|parent| Binding { child, parent })
-                    .ok_or(ProcessError::Runtime(8))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+                    .host_owner()
+                    .is_some_and(|owner| owner.ptr_eq(&input.reader))
+            });
+            if used {
+                input.reserve_user(request.group, self.retained_count())?;
+            }
+        }
         let spec = RuntimeSpawn {
             executable,
             argv: request.argv,
@@ -442,6 +650,34 @@ impl ProcessHost for Runtime {
             .unwrap()
             .runtime_jobs
             .push(runtime_job);
+        // Only a successful spawn starts writers. Failure before this point
+        // drops unpolled futures and closes both pipe ends synchronously.
+        // Cache the exported open description so later builtin/external reads
+        // and aliases share the pipe's actual read position, not pump read-ahead.
+        for input in inputs {
+            input.source.export_buffer(&input.reader);
+            let reader = input.reader.host_owner().expect("host input reader");
+            let mut users = input.users;
+            users.push(request.group);
+            let pump = InputPump {
+                cancel: input.cancel,
+                join: self.0.executor.spawn(input.future),
+                _slot: input.slot,
+                reader,
+                users,
+            };
+            self.0.inputs.borrow_mut().push(pump);
+        }
+        for input in self.0.inputs.borrow_mut().iter_mut() {
+            let used = request.fds.iter().any(|(_, endpoint)| {
+                endpoint
+                    .host_owner()
+                    .is_some_and(|owner| owner.ptr_eq(&input.reader))
+            });
+            if used && !input.users.contains(&request.group) {
+                input.users.push(request.group);
+            }
+        }
         self.0.children.borrow_mut().insert(
             pid as u64,
             Rc::new(Child {
@@ -527,6 +763,30 @@ impl ProcessHost for Runtime {
                         if let Some(error) = error {
                             return Err(error);
                         }
+                        runtime
+                            .0
+                            .inputs
+                            .borrow_mut()
+                            .retain(|input| !input.join.is_finished());
+                        for input in runtime.0.inputs.borrow_mut().iter_mut() {
+                            input.users.retain(|owner| *owner != group);
+                        }
+                        runtime.shutdown_io().await;
+                        let children = runtime
+                            .0
+                            .children
+                            .borrow()
+                            .values()
+                            .any(|child| child.group == group);
+                        let jobs = runtime
+                            .0
+                            .groups
+                            .borrow()
+                            .get(&group)
+                            .is_some_and(|group| !group.runtime_jobs.is_empty());
+                        if children || jobs {
+                            continue;
+                        }
                         runtime.0.groups.borrow_mut().remove(&group);
                         return Ok(());
                     };
@@ -564,6 +824,29 @@ impl ProcessHost for Runtime {
         self.0.executor.spawn(async move {
             let _ = wait.await;
         });
+    }
+    fn shutdown_io(&self) -> LocalBoxFuture<'static, ()> {
+        let runtime = self.clone();
+        async move {
+            loop {
+                let input = {
+                    let mut inputs = runtime.0.inputs.borrow_mut();
+                    inputs
+                        .iter()
+                        .position(InputPump::unowned)
+                        .map(|index| inputs.swap_remove(index))
+                };
+                let Some(input) = input else { break };
+                input.cancel.cancel();
+                let _ = input.join.clone().await;
+            }
+            runtime
+                .0
+                .inputs
+                .borrow_mut()
+                .retain(|input| !input.join.is_finished());
+        }
+        .boxed_local()
     }
 }
 

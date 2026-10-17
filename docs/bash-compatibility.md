@@ -449,6 +449,37 @@ never as a literal fallback or a partially expanded command. Native and WASI
 regressions cover deep nesting, cancellation, source words above 4 KiB, and
 independent storage and output budgets.
 
+## Command and process substitution boundaries
+
+`npm run fuzz:shell-substitutions -- --shell /path/to/native/shell-engine`
+compares a bounded matrix against GNU Bash 5.3.15 with `bash -c SCRIPT`. Each
+seed has 600 generated cases, 16 fixed controls and 2,520 boundary cases. Run
+seeds 1 and 42, or use `--self-control` for two independent Bash processes.
+The matrix crosses plain and double quoted words, set and unset
+`${v:-...}` operands, arithmetic, nested `$(...)` and guarded `<(...)` contexts
+with fused and spaced `$(`, `$( (`, `$((`, `<(` and `<((` openers. It includes
+plain, quoted, escaped and dash here-documents, metacharacter delimiters,
+continuations, missing delimiters, multiple here-documents, case pattern
+terminators, closed syntax errors, and every requested unterminated redirect,
+keyword, list, quote, comment and nested-substitution boundary. One, two and
+three closing-parenthesis variants remain separate observations.
+
+Only stdout bytes and exit status decide a match. Stderr is diagnostic. An
+`UNSUPPORTED` result is allowed only when Bash succeeds and the candidate exits
+2 with empty stdout because substitutions or compound commands are not
+executable yet. A Bash-accepted parse that the candidate rejects, and status 127
+instead of 2, are `MISMATCH`. Mismatches are structurally shrunk while retaining
+their boundary shape and written to `brush-web-subst-mismatches.json` beside
+the run directory (or `FUZZ_SUBST_MISMATCHES`). The run cleans its directory
+under `FUZZ_SUBST_SCRATCH`, `RUNNER_TEMP` or the OS temporary directory and never
+builds a shell binary. `--record` requires zero mismatches; replay invokes no
+Bash and validates the generator hash and every regenerated case.
+
+```sh
+npm run fuzz:shell-substitutions -- --shell /path/to/native/shell-engine --seed 1
+npm run fuzz:shell-substitutions -- --shell /path/to/native/shell-engine --seed 42
+npm run fuzz:shell-substitutions:ci -- --shell /path/to/native/shell-engine
+```
 ### Runtime integration utility and prefix slice
 
 The [CI replay at `7d1f730`](https://github.com/ShaulLavo/brush-web/actions/runs/39027801280)

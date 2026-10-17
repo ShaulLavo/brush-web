@@ -56,10 +56,11 @@ numbers, browser worker transport or shared-memory layout are frozen here.
 | Accumulating test consumer | 64 KiB capture, explicit failure (not unbounded collection) |
 | Memory filesystem | Caller supplies total data ceiling; growth fails |
 | Source input | 256 KiB per invocation plus parser depth, fuel, work and time limits |
-| Expanded command | 1 MiB, at most 4,096 fields including command name and assignments |
+| Expanded command | 1 MiB, at most 65,536 fields including command name and assignments |
 | Expansion work | Per command: source-byte + expansion-byte + argument capacity in character/part/element steps; cooperative yield every 64 steps; intermediate word bytes also capped at 1 MiB |
 | `read` line | 64 KiB, explicit failure |
 | Pipeline / jobs / function nesting | 128 stages / 128 retained jobs / 128 function frames |
+| Eval readers / execution chain | 16 active readers / 256 execution levels, shared admission and explicit rejection |
 
 A terminal is a bounded endpoint drained by the host, not a result string appended
 until exit. The standalone harness drains it **between** executor turns. The real
@@ -70,7 +71,7 @@ a local pipe test does not establish browser memory bounds.
 
 Supported for the gate: literal/quoted words, ordinary variables and positional
 parameters, `$?`, `PIPESTATUS`, scalar assignments, function definitions/calls,
-AND/OR lists, background lists, brace groups, subshells, `while`, pipelines,
+AND/OR lists, background lists, brace groups, subshells, `while`, `case` (`;;`, `;&`, `;;&`, quote-aware patterns), pipelines,
 `pipefail`, `!`, file/append/input and descriptor-duplication redirects, and a few
 streaming/state builtins. The first word area adds quote-aware fields for literals,
 ordinary variables, positional parameters and `PIPESTATUS`, including IFS splitting,
@@ -97,7 +98,7 @@ Quotes, final IFS splitting, lazy operands, persistent writes and child containm
 use the existing machinery. Pointer/value snapshots share command storage/work
 before copying; scans and identifier validation yield and check cancellation.
 There is no target-string reparse. Positional/special pointers and targets,
-arrays/namerefs, prefix listing, options and all generic indirect suffixes
+arrays, general nameref operations, prefix listing, options and all generic indirect suffixes
 (including trim, case, replacement and substring) remain status 2 unsupported.
 Subscript-bearing target strings are rejected without interpreting their contents.
 Supported indirect results can appear inside existing lazy operands, trim
@@ -133,7 +134,7 @@ unquoted text uses final IFS. Assignment, declaration and redirect contexts
 retain scalar behavior. Matching allocates no candidate strings or range list;
 search, snapshots, replacement retention and output share command bounds and
 cancellation checkpoints. Exhaustion fails with status 2 before dispatch;
-cancellation returns 130. Arrays, namerefs, option changes, byte locales and
+cancellation returns 130. Arrays, option changes, byte locales and
 locale collation are outside this subset. Selected unsupported syntax fails
 closed. Empty patterns are inert except first-replacement empty anchors;
 global empty matches advance without revisiting the end of nonempty input.
@@ -168,12 +169,47 @@ Process-substitution lookalikes are checked as shell grammar without executing t
 Arithmetic parsing,
 recursive evaluation, snapshots and character scans share the command's bounded
 storage/work accounting and cancellation checkpoints. Arrays, subscript arithmetic,
-namerefs and command substitution remain outside this scalar arithmetic subset.
+and indexed references remain outside this scalar arithmetic subset; command substitutions in
+arithmetic text run like any other (see below).
 Nested scalar operands have an explicit depth limit of 16, exercised through the
 deepest accepted level in both native and WASI tests.
-Other parameter operators, pathname globbing, command substitution, arrays, traps,
-aliases, `lastpipe`, directory validation and full utility option coverage are not
-implemented. Whole-script parsing retains the original separator policy. Captured
+Command substitution (`$(...)`, backticks, non-arithmetic `$((...))`) runs the
+body as its own executor task over a copy of the shell state, with stdout on a
+fresh bounded pipe. The expansion reads that pipe as it fills and streams the text
+into its fields; only a count of trailing newlines is held back, and the 4 KiB read
+and flush buffers are charged to the command's storage while they live. Output
+counts against the expansion byte bound like any other expansion text. NUL bytes
+are dropped with Bash's warning; output that is not UTF-8 fails with status 2,
+since byte-valued strings are not represented yet. `$?` takes each substitution's
+status as soon as it ends, and a command left with no words takes the last one's.
+Interrupts reach the body through its own cancel token, and an expansion error
+cancels the body. Backtick bodies and non-arithmetic `$((` text that do not parse
+report the syntax error and give status 2 at expansion, as Bash does. Each body is
+a separate task, so nesting adds no native or WASM stack depth.
+Process substitution (`<(...)`, `>(...)`) starts the body as a job of the current
+shell scope, opens its end of the pipe in the command's own descriptor table at the
+highest free descriptor from 63 down, and expands to `/dev/fd/N`. Redirections and
+`cat` resolve `/dev/fd/N`, `/dev/stdin`, `/dev/stdout` and `/dev/stderr` through
+the descriptor table; executing `/dev/fd/N` fails with 126. Here-documents,
+here-strings, `&>` and `<>` redirect through read-only in-memory endpoints or the
+filesystem. Internal substitution tasks do not consume visible job numbers.
+`eval` reads its joined arguments like a script in the current shell, using shared
+source/parser/AST admission and explicit reader/execution depth bounds. Joined
+executor tasks and outlined futures keep accepted nesting off the recursive
+native/WASI poll stack; limits are not enlarged to accommodate it.
+`unset` removes variables (revealing a calling function's shadowed value) and
+functions. A syntax error in a script or an `eval` string runs the complete lines
+before it, then reports status 2 (127 for a substitution body), as Bash's reader does.
+`set` accepts positional operands and `set --` clearing, preserves quoted empty
+values and restores function arguments on return or cancellation. Ordinary
+identifier scalar namerefs (`declare -n`, `typeset -n`, `local -n`) retain live
+target metadata: scalar reads, presence checks and supported writes follow later
+target changes, while `${!ref}` returns the target name. Resolution is bounded
+and cycle-aware; unset targets remain unset under nounset. Local reference
+bindings and admitted isolated snapshots preserve restoration and isolation.
+Arrays, indexed references and general declaration options remain unsupported.
+Other parameter operators, pathname globbing, arrays, traps, aliases, `lastpipe`,
+directory validation and full utility option coverage are not implemented. Whole-script parsing retains the original separator policy. Captured
 shell bodies used by substring boundary validation explicitly request
 `Parser::with_strict_command_separators`; nested parsers inherit that policy.
 Unsupported AST forms return status 2. Utility names/format options here are not

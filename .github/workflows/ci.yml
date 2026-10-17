@@ -58,14 +58,34 @@ jobs:
           workspaces: shell -> ../.build/shell
       - run: node scripts/check-shell-parser.mjs
       - run: cargo fmt --manifest-path shell/Cargo.toml --all --check
-      - run: cargo test --locked --manifest-path shell/Cargo.toml --workspace -j2 --no-fail-fast
-      - run: npm run test:shell:wasi
-      - run: cargo build --locked --release --manifest-path shell/Cargo.toml -p shell-engine -j2
+      - name: Native shell tests
+        run: cargo test --locked --manifest-path shell/Cargo.toml --workspace -j2 --no-fail-fast
+      - name: WASI shell tests and size
+        run: npm run test:shell:wasi
+        env:
+          CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime run -W max-memory-size=268435456
+      - name: Native shell CLI
+        run: cargo build --locked --release --manifest-path shell/Cargo.toml -p shell-engine -j2
+      - name: Record native shell CLI receipts
+        run: |
+          sha256sum .build/shell/release/shell-engine > .build/shell/cli-sha256.txt
+          git rev-parse HEAD > .build/shell/cli-source.txt
+      - name: Upload native shell CLI
+        uses: actions/upload-artifact@v4
+        with:
+          name: shell-cli-${{ github.sha }}
+          path: |
+            .build/shell/release/shell-engine
+            .build/shell/cli-sha256.txt
+            .build/shell/cli-source.txt
+          retention-days: 3
       - run: npm run test:fuzz-shell-braces
       - run: npm run fuzz:shell-braces:ci -- --shell .build/shell/release/shell-engine
       - run: npm run fuzz:shell-words:ci -- --shell .build/shell/release/shell-engine
       - run: npm run fuzz:shell-arithmetic:ci -- --shell .build/shell/release/shell-engine
       - run: npm run fuzz:shell-readonly:ci -- --shell .build/shell/release/shell-engine
+      - run: npm run test:fuzz-shell-substitutions
+      - run: npm run fuzz:shell-substitutions:ci -- --shell .build/shell/release/shell-engine
       - run: node scripts/fuzz-shell-parse-boundaries.mjs --shell .build/shell/release/shell-engine --replay scripts/fixtures/shell-parse-boundaries.json
 
   own-shell-compatibility:

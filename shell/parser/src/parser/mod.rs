@@ -275,6 +275,15 @@ impl<'a> Parser<'a> {
         self
     }
 
+    /// Validate captured command text with substitution grammar, including
+    /// here-document delimiters followed by a closing parenthesis.
+    pub fn with_substitution_body(mut self) -> Self {
+        self.strict_command_separators = true;
+        self.strict_substitution_bodies = true;
+        self.lexer.set_substitution_body(true);
+        self
+    }
+
     fn set_options(&mut self, options: ParseOptions) {
         self.lexer.set_track_plain(options.aliases.is_some());
         self.lexer.set_extglob_bang(options.extglob);
@@ -445,6 +454,97 @@ impl<'a> Parser<'a> {
         Ok(word)
     }
 
+    /// Parse one already-admitted, boundary-scanned `$(...)` token from lazy
+    /// operand text into the part a word would hold: a command substitution,
+    /// an arithmetic `$((...))`, or a `$((` span bash parses only when it
+    /// expands. Bodies use bash's substitution grammar. Work is bounded by
+    /// `max_fuel`, depth by `max_depth`.
+    pub fn parse_substitution_token_with_limits(
+        input: &str,
+        max_depth: usize,
+        max_fuel: usize,
+    ) -> Result<WordPart> {
+        let budget = crate::limits::ExecutionBudget::new(
+            &crate::limits::ExecutionLimits {
+                max_work_units: u64::try_from(max_fuel).unwrap_or(u64::MAX),
+                timeout: Duration::MAX,
+                ..crate::limits::ExecutionLimits::default()
+            },
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let parser = Parser::with_limits("", max_depth, max_fuel)
+            .with_execution_budget(budget.clone())
+            .with_strict_substitution_bodies();
+        let mut chars = WordChars::new(input, &[]);
+        if chars.next() != Some('$') || chars.next() != Some('(') {
+            return Err(parser.error("expected command substitution token"));
+        }
+        let part = match parser.read_word_substitution(&mut chars)? {
+            WordSubstitution::Arithmetic { expression, nested } => {
+                for body in nested {
+                    parser.validate_parameter_command(&body)?;
+                }
+                WordPart::ArithmeticExpansion(expression)
+            }
+            WordSubstitution::Command {
+                body,
+                fused,
+                nested,
+            } => {
+                for body in nested {
+                    parser.validate_parameter_command(&body)?;
+                }
+                match parser.parse_substitution_body(&body) {
+                    Ok(script) => WordPart::CommandSubstitution(script.commands),
+                    Err(error) => substitution_error(body, fused, error, 1)?,
+                }
+            }
+        };
+        budget.check()?;
+        if chars.next().is_some() {
+            return Err(parser.error("expected one command substitution"));
+        }
+        if let Some(error) = parser.deferred_error.take() {
+            return Err(error);
+        }
+        Ok(part)
+    }
+
+    /// Parse a backtick body after its backslashes were processed. Bash
+    /// parses it only when it expands: a syntax error becomes an unparsed
+    /// substitution that reports itself and exits 2 in the child.
+    pub fn parse_backtick_body_with_limits(
+        body: &str,
+        max_depth: usize,
+        max_fuel: usize,
+    ) -> Result<WordPart> {
+        let budget = crate::limits::ExecutionBudget::new(
+            &crate::limits::ExecutionLimits {
+                max_work_units: u64::try_from(max_fuel).unwrap_or(u64::MAX),
+                timeout: Duration::MAX,
+                ..crate::limits::ExecutionLimits::default()
+            },
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let parser = Parser::with_limits("", max_depth, max_fuel)
+            .with_execution_budget(budget.clone())
+            .with_strict_substitution_bodies();
+        let part = match parser.parse_substitution_body(body) {
+            Ok(script) => WordPart::CommandSubstitution(script.commands),
+            Err(error @ Error::ResourceLimit(_)) => return Err(error),
+            Err(Error::Parse { message, .. }) => WordPart::UnparsedCommandSubstitution {
+                source: body.to_string(),
+                error: message,
+            },
+            Err(Error::ShellWord { line }) => WordPart::UnparsedCommandSubstitution {
+                source: body.to_string(),
+                error: format!("syntax error while looking for matching `)' at line {line}"),
+            },
+        };
+        budget.check()?;
+        Ok(part)
+    }
+
     /// Parse one already-admitted `${...}` token, retaining its enclosing
     /// operand context. Unlike a whole word this token has no quote markers.
     pub fn parse_parameter_token_with_limits(
@@ -490,6 +590,55 @@ impl<'a> Parser<'a> {
     pub fn parse_heredoc_body_with_limits(input: &str, max_depth: usize, max_fuel: usize) -> Word {
         let parser = Parser::with_limits(input, max_depth, max_fuel);
         parser.parse_word(heredoc_body_escapes(input))
+    }
+
+    fn parse_heredoc_word(&self, content: &str) -> Result<Word> {
+        self.tick_units(content.len())?;
+        let mut word: Option<Word> = None;
+        for piece in heredoc_body_parts(content) {
+            let next = match piece {
+                HeredocPiece::Text(text) => self.parse_word(text),
+                HeredocPiece::Backtick { body, closed } => {
+                    let part = self.parse_backtick_body_shared(&body, closed)?;
+                    Word {
+                        parts: vec![part],
+                        quoted: false,
+                        has_unquoted_glob: false,
+                        part_quoted: vec![false],
+                        raw: None,
+                    }
+                }
+            };
+            if let Some(word) = &mut word {
+                word.append_word(next);
+            } else {
+                word = Some(next);
+            }
+        }
+        Ok(word.unwrap_or_else(|| Word::literal("")))
+    }
+
+    fn parse_backtick_body_shared(&self, body: &str, closed: bool) -> Result<WordPart> {
+        // Match the typed lazy backtick path: valid bodies become command
+        // substitutions, while syntax failures stay deferred to expansion.
+        if !closed {
+            return Ok(WordPart::UnparsedCommandSubstitution {
+                source: body.to_string(),
+                error: "no closing backtick".to_string(),
+            });
+        }
+        match self.parse_substitution_body(body) {
+            Ok(script) => Ok(WordPart::CommandSubstitution(script.commands)),
+            Err(error @ Error::ResourceLimit(_)) => Err(error),
+            Err(Error::Parse { message, .. }) => Ok(WordPart::UnparsedCommandSubstitution {
+                source: body.to_string(),
+                error: message,
+            }),
+            Err(Error::ShellWord { line }) => Ok(WordPart::UnparsedCommandSubstitution {
+                source: body.to_string(),
+                error: format!("syntax error while looking for matching `)' at line {line}"),
+            }),
+        }
     }
 
     /// Prompt reparses must charge the same request budget as their caller.
@@ -713,7 +862,7 @@ impl<'a> Parser<'a> {
     /// syntax error (status 127); only the open body running out of input is
     /// the plain EOF error (status 2).
     #[inline(never)]
-    fn classify_substitution_text(&self, body: &str, closed: bool) -> Result<()> {
+    pub(super) fn classify_substitution_text(&self, body: &str, closed: bool) -> Result<()> {
         // Bash's reader ends the open text with a newline before the end of
         // input: `$(echo <` is a token error (127), `$(echo |` waits (2).
         let text;
@@ -882,9 +1031,7 @@ impl<'a> Parser<'a> {
         {
             return Err(self.error("unexpected token"));
         }
-        if !parsed
-            && self.current_token.is_some()
-            && self.current_span.start.offset == start_offset
+        if !parsed && self.current_token.is_some() && self.current_span.start.offset == start_offset
         {
             return Err(self.error("unexpected token"));
         }
@@ -1814,16 +1961,47 @@ impl<'a> Parser<'a> {
             }
         };
         self.advance();
-
-        // Expect 'in' keyword
-        if !self.is_keyword("in") {
-            self.pop_depth();
-            return Err(Error::parse("expected 'in' in select".to_string()));
-        }
-        self.advance(); // consume 'in'
-
-        // Parse word list until a list terminator (newline/;)
+        // Bash's grammar matches `for`: newlines may come before `in`, and
+        // without `in` the list is `"$@"` (`select i; do`, `select i NL do`).
+        self.skip_newlines()?;
         let mut words = Vec::new();
+        if !self.is_keyword("in") {
+            if matches!(self.current_token, Some(tokens::Token::Semicolon)) {
+                self.advance();
+            }
+            words.push(Word {
+                parts: vec![WordPart::Variable("@".to_string())],
+                quoted: true,
+                has_unquoted_glob: false,
+                part_quoted: Vec::new(),
+                raw: Some("\"$@\"".to_string()),
+            });
+        } else {
+            self.advance(); // consume 'in'
+            self.parse_select_words(&mut words)?;
+        }
+
+        self.skip_newlines()?;
+
+        let body = match self.parse_for_body() {
+            Ok(body) => body,
+            Err(e) => {
+                self.pop_depth();
+                return Err(e);
+            }
+        };
+
+        self.pop_depth();
+        Ok(CompoundCommand::Select(SelectCommand {
+            variable,
+            words,
+            body,
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// The `in` word list of a `select`, through its list terminator.
+    fn parse_select_words(&mut self, words: &mut Vec<Word>) -> Result<()> {
         loop {
             match &self.current_token {
                 // `do`/`done` are reserved words only in command position.
@@ -1863,32 +2041,7 @@ impl<'a> Parser<'a> {
                 _ => break,
             }
         }
-
-        self.skip_newlines()?;
-
-        // Expect 'do'
-        self.expect_keyword("do")?;
-        self.skip_newlines()?;
-
-        // Parse body
-        let body = self.parse_compound_list("done")?;
-
-        // Bash requires at least one command in loop body
-        if body.is_empty() {
-            self.pop_depth();
-            return Err(self.error("syntax error: empty select loop body"));
-        }
-
-        // Expect 'done'
-        self.expect_keyword("done")?;
-
-        self.pop_depth();
-        Ok(CompoundCommand::Select(SelectCommand {
-            variable,
-            words,
-            body,
-            span: start_span.merge(self.current_span),
-        }))
+        Ok(())
     }
 
     /// Parse C-style arithmetic for loop inner: for ((init; cond; step)); do body; done
@@ -2188,6 +2341,11 @@ impl<'a> Parser<'a> {
                 }
             }
 
+            if patterns.is_empty() {
+                self.pop_depth();
+                return Err(self.error("expected case pattern"));
+            }
+
             // Expect )
             if !matches!(self.current_token, Some(tokens::Token::RightParen)) {
                 self.pop_depth();
@@ -2196,14 +2354,21 @@ impl<'a> Parser<'a> {
             self.advance();
             self.skip_newlines()?;
 
-            // Parse commands until ;; or esac
+            // Parse commands until ;; or esac. A token that cannot start a
+            // command must fail here rather than spinning forever: malformed
+            // case bodies inside a substitution are reported by the child as
+            // status 127, not as parser fuel exhaustion (status 2).
             let mut commands = Vec::new();
             while !self.is_case_terminator()
                 && !self.is_keyword("esac")
                 && self.current_token.is_some()
             {
-                if let Some(cmd) = self.parse_command_list()? {
-                    commands.push(*cmd);
+                match self.parse_command_list()? {
+                    Some(cmd) => commands.push(*cmd),
+                    None => {
+                        self.pop_depth();
+                        return Err(self.error("unexpected token"));
+                    }
                 }
                 self.skip_newlines()?;
             }
@@ -2408,9 +2573,21 @@ impl<'a> Parser<'a> {
             ) {
                 break;
             }
-            if let Some(cmd) = self.parse_command_list()? {
-                commands.push(*cmd);
+            match self.parse_command_list()? {
+                Some(cmd) => commands.push(*cmd),
+                // A token no command can start with (`;`, `do`, `then`):
+                // bash stops there instead of skipping it.
+                None => {
+                    self.pop_depth();
+                    return Err(self.error("unexpected token"));
+                }
             }
+        }
+
+        // Bash requires at least one command: `( )` stops at the `)`.
+        if commands.is_empty() && self.current_token.is_some() {
+            self.pop_depth();
+            return Err(self.error("syntax error: empty subshell"));
         }
 
         if matches!(self.current_token, Some(tokens::Token::DoubleRightParen)) {
@@ -2439,8 +2616,12 @@ impl<'a> Parser<'a> {
             if matches!(self.current_token, Some(tokens::Token::RightBrace)) {
                 break;
             }
-            if let Some(cmd) = self.parse_command_list()? {
-                commands.push(*cmd);
+            match self.parse_command_list()? {
+                Some(cmd) => commands.push(*cmd),
+                None => {
+                    self.pop_depth();
+                    return Err(self.error("unexpected token"));
+                }
             }
         }
 
@@ -3568,7 +3749,7 @@ impl<'a> Parser<'a> {
         let mut target = if quoted {
             Word::quoted_literal(content.clone())
         } else {
-            self.parse_word(heredoc_body_escapes(&content))
+            self.parse_heredoc_word(&content)?
         };
         target.raw = Some(content);
 
@@ -3731,8 +3912,7 @@ impl<'a> Parser<'a> {
             | Some(tokens::Token::HereDocFd(..)) => {
                 // Words and redirects may follow on the same line
                 // (`cat <<A <<B`, `paste - <<A 3<<B`, `cat <<A file`).
-                let fd_var = if matches!(self.current_token, Some(tokens::Token::HereDocFd(..)))
-                {
+                let fd_var = if matches!(self.current_token, Some(tokens::Token::HereDocFd(..))) {
                     None
                 } else {
                     Self::pop_fd_var(&mut parts.words)
@@ -3794,6 +3974,13 @@ impl<'a> Parser<'a> {
             // `echo a(b)`, `foo $x() {`: a `(` after a command word is a
             // syntax error in bash, not the start of a subshell.
             Some(tokens::Token::LeftParen) if !parts.words.is_empty() => {
+                return Err(self.error("unexpected token"));
+            }
+            Some(tokens::Token::DoubleLeftParen)
+                if parts.words.iter().any(|word| !alias_candidate(word))
+                    || !parts.assignments.is_empty()
+                    || self.strict_command_separators =>
+            {
                 return Err(self.error("unexpected token"));
             }
             Some(tokens::Token::Newline)
@@ -4341,6 +4528,7 @@ impl<'a> Parser<'a> {
                 if direct && !scanned {
                     // Same end-of-input rules as an unterminated `$(`.
                     self.classify_unterminated_token(true)?;
+                    self.current_token = None;
                     return Err(self.error("unexpected EOF while looking for matching `)'"));
                 }
                 // A fused `<((` span is raw text until it expands (bash).
@@ -4399,6 +4587,23 @@ impl<'a> Parser<'a> {
                     }
                 }
 
+                // Bash quirk: in a fused `<((` span whose here-document ends
+                // on its delimiter's line (`EOF))`), the substitution text
+                // stops at that first `)`; the rest of the span stays in the
+                // word as text and the child parses the shorter body.
+                let mut tail = None;
+                if fused
+                    && let Some(cut) = self
+                        .input
+                        .get(body_start_offset..body_end_offset)
+                        .and_then(fused_heredoc_cut)
+                {
+                    tail = self
+                        .input
+                        .get(body_start_offset + cut + 1..body_end_offset + 1)
+                        .map(str::to_string);
+                    body_end_offset = body_start_offset + cut;
+                }
                 let body_len = body_end_offset.saturating_sub(body_start_offset);
                 self.tick_units(body_len)?;
 
@@ -4430,13 +4635,18 @@ impl<'a> Parser<'a> {
                     inner_parser.strict_command_separators =
                         self.strict_command_separators || self.strict_substitution_bodies;
                     inner_parser.strict_substitution_bodies = self.strict_substitution_bodies;
+                    inner_parser.lexer.set_substitution_body(true);
                     inner_parser.current_depth = self.current_depth + 1;
                     inner_parser.started_at = self.started_at;
                     let mut commands = Vec::new();
                     let result = inner_parser
                         .parse_script_into(&mut commands)
                         .map(|()| commands.into_iter().map(|(cmd, _)| cmd).collect::<Vec<_>>());
-                    let raw = Some(format!("{}({cmd_src})", if is_input { '<' } else { '>' }));
+                    let raw = Some(format!(
+                        "{}({cmd_src}){}",
+                        if is_input { '<' } else { '>' },
+                        tail.as_deref().unwrap_or("")
+                    ));
                     (result, inner_parser.fuel.get(), raw)
                 };
                 let (parse_result, remaining_fuel, raw) = inner_result;
@@ -4444,7 +4654,28 @@ impl<'a> Parser<'a> {
                 let commands = match parse_result {
                     Ok(commands) => commands,
                     Err(err @ Error::ResourceLimit(_)) => return Err(err),
-                    Err(_) if fused => Vec::new(),
+                    // The shortened body fails in the child, not the parent.
+                    Err(_) if tail.is_some() => {
+                        let body = self
+                            .input
+                            .get(body_start_offset..body_end_offset)
+                            .unwrap_or("");
+                        self.deferred_child_error(body)?
+                    }
+                    Err(_) if fused => {
+                        let source = self
+                            .input
+                            .get(body_start_offset..body_end_offset)
+                            .unwrap_or("")
+                            .to_string();
+                        return Ok(Word {
+                            parts: vec![WordPart::UnparsedProcessSubstitution { source, is_input }],
+                            quoted: false,
+                            has_unquoted_glob: false,
+                            part_quoted: Vec::new(),
+                            raw,
+                        });
+                    }
                     // Bash parses the body with the script and exits 127.
                     Err(_) if self.strict_substitution_bodies => {
                         return Err(Error::ShellWord { line: start_line });
@@ -4453,8 +4684,10 @@ impl<'a> Parser<'a> {
                     Err(_) => Vec::new(),
                 };
 
+                let mut parts = vec![WordPart::ProcessSubstitution { commands, is_input }];
+                parts.extend(tail.map(WordPart::Literal));
                 Ok(Word {
-                    parts: vec![WordPart::ProcessSubstitution { commands, is_input }],
+                    parts,
                     quoted: false,
                     has_unquoted_glob: false,
                     part_quoted: Vec::new(),
@@ -4536,6 +4769,7 @@ impl<'a> Parser<'a> {
         parser.strict_command_separators =
             self.strict_command_separators || self.strict_substitution_bodies;
         parser.strict_substitution_bodies = self.strict_substitution_bodies;
+        parser.lexer.set_substitution_body(true);
         // `$( )` spans count from the outer word's line, so `$LINENO` and
         // error line numbers inside it match bash.
         let shift = self.current_span.start.line.saturating_sub(1);
@@ -4567,12 +4801,9 @@ impl<'a> Parser<'a> {
         }
         // ${VAR} format with possible parameter expansion
         chars.next(); // consume '{'
-        if let Err(error) = self.parameter_shell_bodies(
-            chars,
-            in_quoted_segment,
-            pattern_context,
-            operand_bodies,
-        ) {
+        if let Err(error) =
+            self.parameter_shell_bodies(chars, in_quoted_segment, pattern_context, operand_bodies)
+        {
             let first = self.deferred_error.take();
             self.deferred_error.set(first.or(Some(error)));
         }
@@ -4626,7 +4857,7 @@ impl<'a> Parser<'a> {
                     push_part!(WordPart::Length(var_name));
                 }
             }
-        } else if chars.peek() == Some(&'!') {
+        } else if chars.peek() == Some(&'!') && !bang_parameter_operator(chars) {
             // Check for ${!arr[@]} or ${!arr[*]} - array indices
             // or ${!var} - indirect expansion
             chars.next(); // consume '!'
@@ -4786,7 +5017,7 @@ impl<'a> Parser<'a> {
             // ${?...}, ${$...}
             if var_name.is_empty()
                 && let Some(&c) = chars.peek()
-                && matches!(c, '@' | '*' | '-' | '?' | '$' | '#')
+                && matches!(c, '@' | '*' | '-' | '?' | '$' | '#' | '!')
             {
                 var_name.push(chars.next().unwrap());
             }
@@ -5425,6 +5656,18 @@ impl<'a> Parser<'a> {
         present
     }
 
+    /// Commands that report `body`'s syntax error when they run, as a child
+    /// process parsing it would (the same `eval` form deferred backtick
+    /// bodies use).
+    #[inline(never)]
+    fn deferred_child_error(&self, body: &str) -> Result<Vec<Command>> {
+        let text = format!("eval {}", single_quote(body));
+        let mut parser = self.nested_parser(&text)?;
+        let script = parser.parse_inner()?;
+        self.fuel.set(self.fuel.get().min(parser.fuel.get()));
+        Ok(script.commands)
+    }
+
     /// Parse the recorded `$(...)` bodies in source order. Keep this frame
     /// small: it is the word-level link of every nested substitution parse.
     #[inline(never)]
@@ -5433,7 +5676,9 @@ impl<'a> Parser<'a> {
         for pending in std::mem::take(&mut scanned.pending) {
             let result = match pending.index {
                 Some(_) => self.parse_substitution_body(&pending.body).map(Some),
-                None => self.validate_parameter_command(&pending.body).map(|()| None),
+                None => self
+                    .validate_parameter_command(&pending.body)
+                    .map(|()| None),
             };
             self.place_substitution(scanned, pending, result, &mut replaced_later_error);
         }
@@ -5441,7 +5686,10 @@ impl<'a> Parser<'a> {
 
     #[inline(never)]
     fn parse_substitution_body(&self, body: &str) -> Result<Script> {
-        self.nested_parser(body)?.parse_inner()
+        let mut parser = self.nested_parser(body)?;
+        let result = parser.parse_inner();
+        self.fuel.set(self.fuel.get().min(parser.fuel.get()));
+        result
     }
 
     #[inline(never)]
@@ -5535,6 +5783,10 @@ impl<'a> Parser<'a> {
                             out.extend(chars.next());
                             self.copy_replace_substitution(chars, &mut out);
                         }
+                        Step::Process => {
+                            out.extend(chars.next());
+                            self.copy_process_substitution(chars, &mut out);
+                        }
                         _ => {}
                     }
                 }
@@ -5600,6 +5852,68 @@ impl<'a> Parser<'a> {
             }
         }
         Ok((scanner.offset(), false))
+    }
+
+    /// Copy a `<(...)` or `>(...)` body (after its `(`) into operand text the
+    /// way bash stores it: the parsed command printed back, with a space
+    /// before a leading `(`. A fused `<((` span, an unterminated body or one
+    /// that does not parse is copied as written (its error is reported by
+    /// the operand's body validation).
+    #[inline(never)]
+    fn copy_process_substitution(&self, chars: &mut WordChars<'_>, out: &mut String) {
+        let mut scanner = subst_scan::SubstScanner::new();
+        let (end, closed) = match self.scan_word_substitution(&mut scanner, chars) {
+            Ok(found) => found,
+            Err(err) => {
+                let first = self.deferred_error.take();
+                self.deferred_error.set(first.or(Some(err)));
+                return;
+            }
+        };
+        let mut body = String::new();
+        let mut consumed = 0;
+        while consumed < end {
+            let Some(c) = chars.next() else {
+                break;
+            };
+            consumed += c.len_utf8();
+            body.push(c);
+        }
+        if !closed || scanner.arithmetic_start().is_some() {
+            out.push_str(&body);
+            return;
+        }
+        body.pop();
+        match self.parse_substitution_body(&body) {
+            Ok(script) => {
+                let printed = match print_cmd::comsub_commands_bounded(
+                    &script.commands,
+                    &self.fuel,
+                    self.max_fuel,
+                    self.execution_budget.as_ref(),
+                ) {
+                    Ok(printed) => printed,
+                    Err(error) => {
+                        let first = self.deferred_error.take();
+                        self.deferred_error.set(first.or(Some(error)));
+                        out.push_str(&body);
+                        out.push(')');
+                        return;
+                    }
+                };
+                if printed.starts_with('(') {
+                    out.push(' ');
+                }
+                out.push_str(&printed);
+            }
+            Err(error @ Error::ResourceLimit(_)) => {
+                let first = self.deferred_error.take();
+                self.deferred_error.set(first.or(Some(error)));
+                out.push_str(&body);
+            }
+            Err(_) => out.push_str(&body),
+        }
+        out.push(')');
     }
 
     fn copy_replace_substitution(&self, chars: &mut WordChars<'_>, out: &mut String) {
@@ -5726,6 +6040,23 @@ fn finish_scanned_word(scanned: Box<ScannedWord>, preserve_empty: bool) -> Word 
         saw_quote_marker,
         in_quoted_segment,
     )
+}
+
+/// Offset in a fused `<((` body of the first `)` that ends a here-document
+/// on its delimiter's line, when command grammar reads the body.
+fn fused_heredoc_cut(body: &str) -> Option<usize> {
+    let mut scanner = subst_scan::SubstScanner::new();
+    // A blank first keeps the leading `(` a subshell, as command text.
+    scanner.feed(' ');
+    for c in body.chars().chain(std::iter::once(')')) {
+        if scanner.feed(c) == subst_scan::Step::Close {
+            break;
+        }
+    }
+    scanner
+        .heredoc_paren()
+        .map(|offset| offset - 1)
+        .filter(|&cut| cut < body.len())
 }
 
 /// Bash parses a non-arithmetic `$((` span only when it expands, so its
@@ -5918,6 +6249,13 @@ struct SimpleWordToken {
     is_glob_quoted: bool,
 }
 
+/// An unquoted literal word may name an alias read later.
+fn alias_candidate(word: &Word) -> bool {
+    !word.quoted
+        && !word.part_quoted.iter().any(|quoted| *quoted)
+        && matches!(word.parts.as_slice(), [WordPart::Literal(_)])
+}
+
 /// A declaration builtin, `let` or `eval` named directly as the command.
 fn is_declaration_command(words: &[Word]) -> bool {
     words.first().is_some_and(|w0| {
@@ -6012,6 +6350,25 @@ fn empty_background(span: Span) -> (ListOperator, Command) {
             assignments: vec![],
             span,
         }),
+    )
+}
+
+fn bang_parameter_operator(chars: &mut WordChars<'_>) -> bool {
+    let mut lookahead = chars.clone();
+    lookahead.next();
+    if matches!(
+        lookahead.peek(),
+        Some(&'-') | Some(&'=') | Some(&'+') | Some(&'?')
+    ) {
+        return true;
+    }
+    if lookahead.peek() != Some(&':') {
+        return false;
+    }
+    lookahead.next();
+    matches!(
+        lookahead.peek(),
+        Some(&'-') | Some(&'=') | Some(&'+') | Some(&'?')
     )
 }
 
@@ -6411,6 +6768,94 @@ fn split_arith_for_parts(body: &str) -> Vec<String> {
 /// `(( ... ))` like `let "..."`).
 pub(crate) fn arith_exec_text(raw: &str) -> String {
     raw.trim().chars().filter(|&c| c != '"').collect()
+}
+
+enum HeredocPiece {
+    Text(String),
+    Backtick { body: String, closed: bool },
+}
+
+fn heredoc_body_parts(content: &str) -> Vec<HeredocPiece> {
+    let mut pieces = Vec::new();
+    let mut text = String::new();
+    let flush = |pieces: &mut Vec<HeredocPiece>, text: &mut String| {
+        if !text.is_empty() {
+            pieces.push(HeredocPiece::Text(std::mem::take(text)));
+        }
+    };
+    let mut chars = content.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.peek() {
+                Some('$' | '`' | '\\') => {
+                    text.push('\x00');
+                    text.push(chars.next().unwrap_or_default());
+                }
+                Some('\n') => {
+                    chars.next();
+                }
+                _ => text.push('\\'),
+            },
+            '$' if chars.peek() == Some(&'\'') => {
+                text.push('\x00');
+                text.push('$');
+            }
+            '$' if matches!(chars.peek(), Some('(' | '{')) => {
+                text.push('$');
+                let open = chars.next().unwrap_or_default();
+                text.push(open);
+                let close = if open == '(' { ')' } else { '}' };
+                let mut depth = 1usize;
+                while let Some(ch) = chars.next() {
+                    if ch == '\\' && chars.peek() == Some(&'\n') {
+                        chars.next();
+                        continue;
+                    }
+                    text.push(ch);
+                    if ch == '\\' {
+                        if let Some(next) = chars.next() {
+                            text.push(next);
+                        }
+                    } else if ch == open {
+                        depth += 1;
+                    } else if ch == close {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                }
+            }
+            '`' => {
+                flush(&mut pieces, &mut text);
+                let mut body = String::new();
+                let mut closed = false;
+                while let Some(ch) = chars.next() {
+                    if ch == '`' {
+                        closed = true;
+                        break;
+                    }
+                    if ch == '\\' {
+                        match chars.next() {
+                            Some(next @ ('$' | '`' | '\\')) => body.push(next),
+                            Some('\n') => {}
+                            Some(next) => {
+                                body.push('\\');
+                                body.push(next);
+                            }
+                            None => body.push('\\'),
+                        }
+                    } else {
+                        body.push(ch);
+                    }
+                }
+                pieces.push(HeredocPiece::Backtick { body, closed });
+            }
+            _ => text.push(c),
+        }
+    }
+    flush(&mut pieces, &mut text);
+    pieces
 }
 
 /// Backslash handling in an unquoted heredoc body, as in double quotes but

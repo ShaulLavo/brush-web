@@ -4,7 +4,7 @@ use futures::future::LocalBoxFuture;
 use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet, VecDeque},
-    rc::Rc,
+    rc::{Rc, Weak},
 };
 
 /// Runtime-backed open descriptions implement notification-driven operations.
@@ -106,11 +106,38 @@ struct FileOpen {
     offset: Cell<usize>,
     options: OpenOptions,
 }
+struct BufferedInput {
+    data: Vec<u8>,
+    offset: Cell<usize>,
+}
+pub(crate) fn buffered_input_metadata_bytes() -> usize {
+    std::mem::size_of::<Open>()
+        + std::mem::size_of::<BufferedInput>()
+        + 4 * std::mem::size_of::<usize>()
+}
+impl BufferedInput {
+    fn read(&self, output: &mut [u8]) -> usize {
+        let start = self.offset.get();
+        let count = output
+            .len()
+            .min(PIPE_CAPACITY)
+            .min(self.data.len().saturating_sub(start));
+        output[..count].copy_from_slice(&self.data[start..start + count]);
+        self.offset.set(start + count);
+        count
+    }
+}
 enum Open {
     PipeRead(Rc<Pipe>),
     PipeWrite(Rc<Pipe>),
     File(FileOpen),
     Capture(Rc<CaptureState>),
+    /// Read-only bytes (here-documents and here-strings), shared offset.
+    Bytes {
+        data: Rc<BufferedInput>,
+        exported: RefCell<Option<Rc<dyn HostEndpoint>>>,
+    },
+    BytesSource(Rc<BufferedInput>),
     Host(Rc<dyn HostEndpoint>),
     Null,
 }
@@ -149,9 +176,42 @@ pub fn pipe() -> (Endpoint, Endpoint) {
     )
 }
 impl Endpoint {
+    pub(crate) fn host_owner(&self) -> Option<Weak<dyn HostEndpoint>> {
+        match self.0.as_ref() {
+            Open::Host(host) => Some(Rc::downgrade(host)),
+            Open::Bytes { exported, .. } => exported.borrow().as_ref().map(Rc::downgrade),
+            _ => None,
+        }
+    }
+    pub(crate) fn buffered_input_bytes(&self) -> Option<usize> {
+        match self.0.as_ref() {
+            Open::Bytes { data, .. } => Some(data.data.capacity()),
+            _ => None,
+        }
+    }
+    pub(crate) fn same_open(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+    pub(crate) fn buffered_source(&self) -> Self {
+        let Open::Bytes { data, .. } = self.0.as_ref() else {
+            unreachable!("buffered input source")
+        };
+        Self(Rc::new(Open::BytesSource(data.clone())))
+    }
+    pub(crate) fn export_buffer(&self, reader: &Self) {
+        let (Open::Bytes { exported, .. }, Open::Host(host)) = (self.0.as_ref(), reader.0.as_ref())
+        else {
+            unreachable!("buffered input exported through a host pipe")
+        };
+        *exported.borrow_mut() = Some(host.clone());
+    }
     pub fn runtime_fd(&self) -> Option<u32> {
         match self.0.as_ref() {
             Open::Host(host) => host.runtime_fd(),
+            Open::Bytes { exported, .. } => exported
+                .borrow()
+                .as_ref()
+                .and_then(|host| host.runtime_fd()),
             _ => None,
         }
     }
@@ -160,6 +220,17 @@ impl Endpoint {
     }
     pub fn host(endpoint: Rc<dyn HostEndpoint>) -> Self {
         Self(Rc::new(Open::Host(endpoint)))
+    }
+    /// A read-only endpoint over owned bytes, like bash's here-document
+    /// files. Duplicates share the read offset.
+    pub fn bytes(data: Vec<u8>) -> Self {
+        Self(Rc::new(Open::Bytes {
+            data: Rc::new(BufferedInput {
+                data,
+                offset: Cell::new(0),
+            }),
+            exported: RefCell::new(None),
+        }))
     }
     pub async fn read(&self, output: &mut [u8]) -> Result<usize, IoError> {
         if output.is_empty() {
@@ -204,6 +275,14 @@ impl Endpoint {
                 Ok(count)
             }
             Open::Host(endpoint) => endpoint.read(output).await,
+            Open::Bytes { data, exported } => {
+                let host = exported.borrow().clone();
+                match host {
+                    Some(host) => host.read(output).await,
+                    None => Ok(data.read(output)),
+                }
+            }
+            Open::BytesSource(data) => Ok(data.read(output)),
             Open::Null => Ok(0),
             _ => Err(IoError::BadDescriptor),
         }

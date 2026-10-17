@@ -1,6 +1,6 @@
 {
   "name": "brush-web",
-  "version": "0.0.31",
+  "version": "0.0.33",
   "private": true,
   "type": "module",
   "exports": {
@@ -45,13 +45,16 @@
     "compat:shell": "BASH_COMPAT_MODE=frozen BASH_COMPAT_ENGINES=own-shell node scripts/bash-compat.mjs",
     "fuzz:shell-braces": "node scripts/fuzz-shell-braces.mjs",
     "test:fuzz-shell-braces": "node --test scripts/test-fuzz-shell-braces.mjs",
+    "fuzz:shell-substitutions": "node scripts/fuzz-shell-substitution-boundaries.mjs",
+    "test:fuzz-shell-substitutions": "node --test scripts/test-fuzz-shell-substitution-boundaries.mjs",
     "fuzz:shell-words": "node scripts/fuzz-shell-words.mjs",
     "fuzz:shell-words:ci": "node scripts/fuzz-shell-words.mjs --replay scripts/fixtures/shell-words-seed-1.json --replay scripts/fixtures/shell-words-seed-42.json",
     "fuzz:shell-arithmetic": "node scripts/fuzz-shell-arithmetic.mjs",
     "fuzz:shell-arithmetic:ci": "node scripts/fuzz-shell-arithmetic.mjs --replay scripts/fixtures/shell-arithmetic-seed-7.json --replay scripts/fixtures/shell-arithmetic-seed-314.json",
     "fuzz:shell-readonly": "node scripts/fuzz-shell-readonly.mjs",
     "fuzz:shell-readonly:ci": "node scripts/fuzz-shell-readonly.mjs --replay scripts/fixtures/shell-readonly-seed-17.json",
-    "fuzz:shell-braces:ci": "node scripts/fuzz-shell-braces.mjs --replay scripts/fixtures/shell-braces-seed-1.json --replay scripts/fixtures/shell-braces-seed-42.json"
+    "fuzz:shell-braces:ci": "node scripts/fuzz-shell-braces.mjs --replay scripts/fixtures/shell-braces-seed-1.json --replay scripts/fixtures/shell-braces-seed-42.json",
+    "fuzz:shell-substitutions:ci": "node scripts/fuzz-shell-substitution-boundaries.mjs --replay scripts/fixtures/shell-substitutions-seed-1.json --replay scripts/fixtures/shell-substitutions-seed-42.json"
   },
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "0.4.2",

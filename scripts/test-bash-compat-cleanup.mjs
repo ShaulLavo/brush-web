@@ -217,14 +217,16 @@ for (const mode of ["frozen", "live"]) {
     workerLifetime(t, mode));
 }
 
-test("record-only frozen cancellation during oracle loading starts no worker", async (t) => {
+test("record-only frozen cancellation during oracle loading starts no build or worker", async (t) => {
   const owner = fixtureOwner(t);
   owner.scratch = await mkdtemp(resolve(root, "compat-cleanup-loading-"));
   const child = owner.start(
     `
     const fs = await import("node:fs/promises");
     const threads = await import("node:worker_threads");
+    const processes = await import("node:child_process");
     const { syncBuiltinESMExports } = await import("node:module");
+    const execFileSync = processes.default.execFileSync;
     const readFile = fs.default.readFile;
     let held = false;
     let release;
@@ -238,7 +240,12 @@ test("record-only frozen cancellation during oracle loading starts no worker", a
       }
       return result;
     };
-    // A dispatch spy only: no fake teardown or guest execution substitutes for production.
+    // Dispatch spies only: keep build enabled so removing the pre-build guard fails this control.
+    // No fake teardown or guest execution substitutes for production.
+    processes.default.execFileSync = function (command, ...args) {
+      if (command === "cargo") throw Error("build started after cancellation");
+      return execFileSync(command, ...args);
+    };
     threads.default.Worker = class {
       constructor() { throw Error("worker created after cancellation"); }
     };
@@ -249,7 +256,7 @@ test("record-only frozen cancellation during oracle loading starts no worker", a
       BASH_COMPAT_MODE: "frozen",
       BASH_COMPAT_CORPORA: undefined,
       BASH_COMPAT_ENGINES: "own-shell",
-      BASH_COMPAT_SKIP_BUILD: "1",
+      BASH_COMPAT_SKIP_BUILD: "0",
       BASH_COMPAT_RECORD: "1",
       BASH_COMPAT_JOBS: "1",
       BASH_COMPAT_TIMEOUT_MS: "10000",

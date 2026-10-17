@@ -1183,6 +1183,34 @@ fn arithmetic_boundaries_stay_opaque_in_quotes_and_parameter_operands() {
 }
 
 #[test]
+fn arithmetic_expansion_source_preserves_dollar_quote_boundaries() {
+    for expression in [
+        r#"0 + "$"((1+2))"#,
+        r#"0 + "\$"((1+2))"#,
+        r"0 + \$((1+2))",
+        r#"0 + "$((1+2))""#,
+    ] {
+        let token = format!("$(({expression}))");
+        let part = Parser::parse_substitution_token_with_limits(&token, 100, 16384).unwrap();
+        assert!(matches!(&part, WordPart::ArithmeticExpansion(source) if source == expression));
+        for source in [token.clone(), format!("\"{token}\"")] {
+            let word = argument(&format!("args {source}"));
+            assert!(
+                matches!(word.parts.as_slice(), [WordPart::ArithmeticExpansion(text)] if text == expression),
+                "{source}: {word:?}"
+            );
+            let generated = Parser::parse_expanded_word_with_limits(&source, 100, 16384).unwrap();
+            assert!(
+                matches!(generated.parts.as_slice(), [WordPart::ArithmeticExpansion(text)] if text == expression),
+                "{source}: {generated:?}"
+            );
+            assert_eq!(word.raw.as_deref(), Some(source.as_str()));
+            assert_eq!(generated.raw.as_deref(), Some(source.as_str()));
+        }
+    }
+}
+
+#[test]
 fn ambiguous_substitutions_preserve_inactive_defaults_and_suffixes() {
     for source in [
         r#"v=ok; printf '<%s>\n' ${v:-$((case x in x) :;; esac) )}{a,b}"#,
@@ -1397,4 +1425,137 @@ fn substitution_end_of_input_and_heredoc_boundaries_follow_bash() {
     ] {
         strict(source).unwrap_or_else(|error| panic!("{source:?}: {error}"));
     }
+}
+
+#[test]
+fn captured_body_validation_uses_substitution_heredoc_boundaries() {
+    for source in ["(: <<EOF\nbody\nEOF)", "(: <<-EOF\n\tbody\n\tEOF)"] {
+        Parser::new(source)
+            .with_substitution_body()
+            .parse()
+            .unwrap_or_else(|error| panic!("{source:?}: {error}"));
+        assert!(
+            Parser::new(source)
+                .with_strict_command_separators()
+                .parse()
+                .is_err(),
+            "ordinary script grammar keeps the delimiter distinct: {source:?}"
+        );
+    }
+}
+
+fn trailing_simple_command(script: &Script) -> &shell_parser::parser::SimpleCommand {
+    let mut command = script.commands.last().expect("the script has a command");
+    while let Command::List(list) = command {
+        command = list
+            .rest
+            .last()
+            .map_or(list.first.as_ref(), |(_, command)| command);
+    }
+    let Command::Simple(command) = command else {
+        panic!("expected trailing simple command");
+    };
+    command
+}
+
+#[test]
+fn quoted_heredoc_delimiters_preserve_substitution_and_operand_boundaries() {
+    // Bash 5.3.15 accepts the continuation and escaped-quote controls with
+    // status 0, including an unselected default containing the process body.
+    for (delimiter, eof) in [
+        ("\"EO\\\nF\"", "EOF"),
+        ("\"E\\\"OF\"", "E\"OF"),
+        ("\"E\\\\OF\"", "E\\OF"),
+        ("\"E\\$OF\"", "E$OF"),
+        ("\"E\\`OF\"", "E`OF"),
+        ("\"E\\qOF\"", "E\\qOF"),
+        ("'E\\\"OF'", "E\\\"OF"),
+    ] {
+        let body = format!(": <<{delimiter}\nbody\n{eof}\n");
+        for source in [
+            format!("args \"$({body})\" suffix"),
+            format!("args <({body}) suffix"),
+            format!("v=guard; args \"${{v:-<({body})}}\" suffix"),
+        ] {
+            let script = Parser::new(&source)
+                .with_strict_substitution_bodies()
+                .parse()
+                .unwrap_or_else(|error| panic!("{source:?}: {error}"));
+            let command = trailing_simple_command(&script);
+            assert_eq!(command.name.to_string(), "args", "{source:?}");
+            assert_eq!(command.args.len(), 2, "{source:?}");
+            assert_eq!(command.args[1].to_string(), "suffix", "{source:?}");
+        }
+    }
+}
+
+#[test]
+fn heredoc_backticks_keep_typed_deferred_substitutions() {
+    for (body, expected) in [
+        ("(printf x)", "command"),
+        ("printf '('", "command"),
+        ("fi", "deferred"),
+    ] {
+        let source = format!("cat <<EOF\n`{body}`\nEOF\n");
+        let script = Parser::new(&source)
+            .parse()
+            .unwrap_or_else(|error| panic!("{source:?}: {error}"));
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple heredoc command: {source:?}");
+        };
+        let target = &command.redirects[0].target;
+        match (expected, target.parts.first()) {
+            ("command", Some(WordPart::CommandSubstitution(_))) => {}
+            ("command", other) => panic!("expected typed command substitution: {other:?}"),
+            ("deferred", Some(WordPart::UnparsedCommandSubstitution { source, .. })) => {
+                assert_eq!(source.as_str(), body);
+            }
+            ("deferred", other) => panic!("expected deferred backtick body: {other:?}"),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn process_substitution_printer_charges_flat_elif_output() {
+    let mut source = String::from("echo \"${unset:-<(if false; then :;");
+    for _ in 0..256 {
+        source.push_str(" elif false; then :;");
+    }
+    source.push_str(" fi)}\"\n");
+    let result = Parser::new(&source).parse();
+    assert!(
+        matches!(
+            &result,
+            Err(Error::ResourceLimit(LimitExceeded::ParserFuel { .. }))
+        ),
+        "flat elif printing must consume the parser budget: {result:?}"
+    );
+}
+
+#[test]
+fn last_async_lazy_operators_are_scalar_nodes_and_named_bang_targets_stay_indirect() {
+    for (operator, expected) in [
+        ("-", ParameterOp::UseDefault),
+        ("+", ParameterOp::UseReplacement),
+        ("=", ParameterOp::AssignDefault),
+        ("?", ParameterOp::Error),
+    ] {
+        for colon in [false, true] {
+            let colon_text = if colon { ":" } else { "" };
+            let token = format!("${{!{colon_text}{operator}operand}}");
+            let part =
+                Parser::parse_parameter_token_with_limits(&token, 16, 1024, true, false).unwrap();
+            assert!(
+                matches!(part, WordPart::ParameterExpansion {
+                name, operator, operand, colon_variant,
+            } if name == "!" && operator == expected && operand == "operand" && colon_variant == colon),
+                "{token}"
+            );
+        }
+    }
+    let word = argument("echo \"${!pointer+operand}\"");
+    assert!(
+        matches!(&word.parts[0], WordPart::IndirectExpansion { name, operator: Some(ParameterOp::UseReplacement), .. } if name == "pointer")
+    );
 }

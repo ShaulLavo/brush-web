@@ -268,6 +268,84 @@
         "classification": "Original changes to the owned substitution scanner, lexer and parser; semantics from GNU Bash 5.3 parse.y (parse_comsub, parse_matched_pair with P_ARITH) and subst.c (chk_arithsub), observed against /usr/bin/bash 5.3.15; no upstream code copied. Parser base remains everruns/bashkit crates/bashkit/src/parser at 491c3281f668b76d64b15210b8f5d7bf97244be0.",
         "change": "Replace the arithmetic-to-command replay with bash's model: a fused $(( or <(( span ends by raw parenthesis matching (quotes and nested $( respected; ${ is plain text inside it), and only then is classified as arithmetic (final inner close plus chk_arithsub balance) or as command text. Command-classified fused bodies that fail to parse become WordPart::UnparsedCommandSubstitution instead of rejecting the script. Every other $( and <( body, including bodies inside ${...} operands and nested in raw $(( text, is parsed with the script; its syntax error is Error::ShellWord (status 127). An unterminated span is 127 when bash's parse of the bodies it already read, or of the outermost open command frame, stops at a token, and the EOF error (2) otherwise. Parser::with_strict_substitution_bodies parses substitution bodies with strict separators while a whole-script top level stays lenient. Nested substitution parses run after each word's scan loop returns, and grammar functions on the recursive path keep temporaries in out-of-line helpers (debug per-level stack about 21 KB to 7 KB). Lexer substitution scanning is charged one work unit per character.",
         "reason": "The brace generator's boundary matrix (closing-count variants) showed bash rejects or accepts these spans by raw paren matching and reports comsub syntax errors with status 127; the replay accepted comment-hidden parentheses. A stricter hard-depth test overflowed the 2 MiB debug test stack before the AST cap."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/ast.rs",
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/print_cmd.rs",
+          "shell/parser/src/parser/raw.rs",
+          "shell/parser/src/parser/subst_scan.rs",
+          "shell/parser/src/parser/substring.rs"
+        ],
+        "classification": "Original changes to the owned parser for command and process substitution; semantics from GNU Bash 5.3 parse.y (parse_comsub, parse_matched_pair with P_DOLBRACE/LEX_GTLT, print_comsub) and subst.c (extract_process_subst via xparse_dolparen), observed against /usr/bin/bash 5.3.15; no upstream code copied. Parser base remains everruns/bashkit crates/bashkit/src/parser at 491c3281f668b76d64b15210b8f5d7bf97244be0.",
+        "change": "Add Parser::parse_substitution_token_with_limits and parse_backtick_body_with_limits so the engine parses $(...) tokens and backtick bodies found in lazy operand text with the word reader's own classification. Scan <( and >( bodies in every ${...} operand at parse time (not only substring operands) and store them printed back as bash does (comsub_commands, which keeps a case statement's first clause on its case line). The substitution boundary scanner opens a frame for <( and >( after a single angle bracket, so a fused <(( span is raw paren-matched like $((. A fused <((/>(( body that is not a command list becomes WordPart::UnparsedProcessSubstitution instead of an empty substitution. Unterminated operand spans report bash's EOF error (2) unless the open command text stops at a token (127). Here-documents read inside substitution bodies end at a line that is the delimiter followed by ')'. A line continuation in a here-document delimiter joins it instead of quoting a newline. Subshells and brace groups stop at a token no command can start with instead of looping until fuel runs out, and an empty subshell is a syntax error. Backtick bodies whose converted $(...) text would not close at its own ')' (here-documents, quotes) are deferred like unparsable bodies. select accepts newlines before in, no in list (\"$@\") and a { } body, like for.",
+        "reason": "The substitution-boundary generator (scripts/fuzz-shell-substitution-boundaries.mjs) compared against Bash 5.3.15 once command substitution executed: these were the parse-time differences in its mismatch classes, including parser fuel exhaustion on '( ; )'."
+      },
+      {
+        "paths": ["shell/parser/src/parser/mod.rs"],
+        "classification": "Original parser safety correction in the owned Bashkit-derived parser; no upstream implementation copied.",
+        "change": "Reject a case-body token that cannot start a command instead of retrying the same token until parser fuel exhaustion.",
+        "reason": "Malformed case bodies nested in command or process substitutions must report the child syntax status (127) rather than a resource-limit status (2), while preserving the explicit parser budget for genuinely large input."
+      },
+      {
+        "paths": ["shell/parser/src/parser/subst_scan.rs", "shell/parser/tests/api.rs"],
+        "classification": "Original quoted-heredoc delimiter correction and regression tests in the owned substitution scanner; observed against GNU Bash 5.3.15, with no upstream implementation copied. Parser base remains everruns/bashkit crates/bashkit/src/parser at 491c3281f668b76d64b15210b8f5d7bf97244be0.",
+        "change": "Track a pending backslash inside a double-quoted here-document delimiter without closing the quote. Drop backslash-newline continuations and quote-remove backslashes before double quotes, backslashes, dollars and backticks, while preserving non-special backslashes and every single-quoted character. Add scanner and strict parser API controls for command and process substitutions, including unselected parameter defaults and following-word boundaries.",
+        "reason": "The raw delimiter helper already removed double-quoted continuations, but the substitution boundary scanner retained them or ended a quote at an escaped double quote. Valid Bash substitutions therefore appeared unterminated before the parser could consume their delimiter. Preserve the existing shared scanner, resource accounting and syntax-status classification rather than allowing a special-case failure."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/parameter_scan.rs",
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/substring.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/print_cmd.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original shared parameter-boundary correction in the owned Bashkit-derived parser, observed against GNU Bash 5.3.15; no upstream implementation copied.",
+        "change": "Keep backtick bodies opaque to surrounding parameter quote and brace matching. Expose process-substitution boundaries from the shared parameter scanner so the lexer, syntax validator and operand extractor skip the same quote, heredoc and fused spans. Retain child parser fuel in the parent and preserve typed resource errors when producing printed process-substitution operands. Expose captured-body validation with substitution heredoc grammar, reject empty case patterns, and retain EOF token state when an unterminated process body is classified. Preserve fused process tails and normalize printed heredoc delimiter continuations. Following-word controls inspect the final simple command inside a retained command list. Existing upstream assertions remain intact.",
+        "reason": "The substitution generator exposed backtick body braces and quotes closing lazy defaults, heredoc delimiter quotes escaping the process body during lexing, and nested process bodies receiving inconsistent boundary handling. All callers now use the same scanner without matching script text or exempting Bash failure statuses."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/subst_scan.rs",
+          "shell/engine/tests/words/command.rs"
+        ],
+        "classification": "Original boundary corrections in the owned parser. GNU Bash 5.3 subst.c was read to confirm arithmetic classification semantics and all controls use Bash 5.3.15; no upstream implementation copied.",
+        "change": "Apply raw arithmetic parenthesis checks after filtering comments with the existing structural command scanner, retaining backtick and case-pattern parentheses. Reject arithmetic-command openers after words that aliases cannot remove, while preserving unresolved unquoted alias chains. Recognize locale-quoted segments when a word continues after a closing quote. Add engine controls for arithmetic containing command comments and selected operands with protected dollars.",
+        "reason": "The brace generator exposed comment parentheses changing arithmetic classification, quoted dollar boundaries changing selected operand meaning, and protected arithmetic lookalikes being accepted as a later command. The fixes preserve the full generator matrices and strict Bash failure-status comparison."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/print_cmd.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original changes to the owned Bashkit-derived parser; no upstream implementation copied. Semantics follow GNU Bash 5.3.15.",
+        "change": "Share parser fuel and request work with process-substitution operand printing, including nested reconstructed commands, and bound printed bytes before growth. Print flat elif vectors iteratively rather than recursing through sibling branches. Keep function-body borrows independent of the printer budget lifetime. Parse unquoted heredoc backticks through the typed backtick path: literal parenthesized bodies remain commands, and malformed bodies defer failure until expansion. Add parenthesized/malformed heredoc backtick and flat-elif printing-budget regressions.",
+        "reason": "Independent source review found process-substitution operand reconstruction could allocate or recurse outside parser limits, including for unselected parameter defaults. Rewriting heredoc backticks as dollar-parenthesis text could instead select arithmetic syntax or fail too early. The repairs preserve typed semantics and use shared bounded parse/print admission without changing upstream assertions."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/tests/api.rs",
+          "shell/engine/src/expand.rs",
+          "shell/engine/src/expand/operand.rs",
+          "shell/engine/tests/words/command.rs"
+        ],
+        "classification": "Original typed special-parameter operator correction in the owned parser/engine adapter; GNU Bash 5.3.15 used only to confirm `${!}` and `${!+word}` semantics.",
+        "change": "Parse direct lazy operators on the last-async special parameter through the existing special-scalar ParameterExpansion grammar instead of an empty indirect expansion. Evaluate default, alternative, assignment-default and error forms through the admitted scalar parameter path. Reject assignment to a missing special parameter after selected operand effects, without creating a variable. Preserve empty-before-launch behavior, nested operands, nounset and named indirection. Add direct typed parser API and shared native/WASI engine controls; retain all upstream assertions.",
+        "reason": "The parser already represented `${!}` as a special typed read but routed `${!+word}` through indirect expansion, causing a valid unset special parameter to fail with status 2. Keeping the operator on the typed `!` scalar avoids string matching and preserves the existing indirect grammar for `${!name}`."
+      },
+      {
+        "paths": ["shell/parser/tests/api.rs"],
+        "classification": "Original parser API regression controls for retained arithmetic source protection. No parser implementation, upstream assertion or upstream pin changed; no additional upstream implementation consulted or copied.",
+        "change": "Require ordinary word parsing, generated-word reparsing and the direct substitution-token API to preserve quotes and backslashes around a protected dollar in ArithmeticExpansion source. Pair the protected spellings with a genuinely active quoted nested arithmetic expansion.",
+        "reason": "The brace seed 1/42 acceptance failures retained the correct arithmetic source in the parser but lost its protection in the engine's later operand scanner. These controls keep that parser/engine contract explicit without changing the shared boundary grammar or accepting source-text special cases. The engine repair is classified under shellArithmetic.protectedSourceReview."
       }
     ],
     "removedUpstreamTests": [
@@ -367,6 +445,17 @@
       "shell/engine/src/builtins.rs"
     ],
     "testDestinations": ["shell/engine/tests/words.rs"],
+    "casePatternAdapter": {
+      "classification": "Original case-pattern positional adapter and GNU Bash C.UTF-8 regression controls; no additional upstream implementation or tests copied.",
+      "paths": [
+        "shell/engine/src/expand.rs",
+        "shell/engine/src/expand/operand.rs",
+        "shell/engine/src/expand/pattern.rs",
+        "shell/engine/src/expand/case_pattern.rs"
+      ],
+      "change": "Borrow retained raw pattern spelling after an initial cooperative checkpoint; synthetic words without raw text fail explicitly instead of using quote-losing Display. A case-only scanner mode admits direct bare/braced positional @/* reads without widening general scalar operand syntax. Positional elements retain wildcard quote protection, join scalar @ with spaces and scalar * with the first IFS character, and preserve GNU Bash's first-field selection for quoted multi-value @ under unset/nonempty IFS. Later source still expands and enforces shared limits even when its pattern text is discarded. Positional snapshots are checked and storage-admitted before copying. Helper-local controls cover unset/nonempty/empty IFS, quotes, multiple/empty values, suffix side effects, pre-cancel, raw borrowing, explicit unsupported synthetic ASTs, matcher work/storage exhaustion and no body dispatch after failure.",
+      "verification": "Focused direct GNU Bash C.UTF-8 controls, rustfmt and diff checks only in the helper lane. Native, seed and WASI verification remains coordinator-owned; no engine test pass is claimed by this metadata."
+    },
     "strategy": "Adapt quote-aware literal/basic variable/positional/PIPESTATUS fields, IFS rules, scalar contexts and command-name promotion into the original streaming engine. Structural protection replaces sentinel strings. Declaration syntax requires an unquoted literal command and assignment prefix; retained raw spelling rejects escapes lost by token decoding, using only continuation removal from normalize_raw_word. An original bounded engine adapter uses the unchanged public Lexer raw-capture API for top-level declaration words not retained by the parser; quoted-at words trim leading mixed-IFS delimiters as verified with GNU Bash, diverging from upstream where needed. Cooperative Budget work, intermediate byte/element bounds and aggregate command field/byte limits reject overflow instead of truncating. No parser modifications, general parameter operators, globbing, substitutions, mapfile or output buffering are ported."
   },
   "shellParameterDefaults": {
@@ -771,6 +860,18 @@
       "shell/engine/src/expand/positional.rs"
     ],
     "strategy": "Stream tokens over borrowed source, parse with bounded async precedence climbing, admit exact boxed future frames and all scalar snapshots/storage before growth, and share command Work across arithmetic and expansions. Every unbounded lexing, digit, parse, snapshot, substring and recursion loop checkpoints cancellation and cooperative Budget. Exponentiation uses at most63 wrapping-squaring steps. Recursive scalar cycles are arithmetic domain errors; parser depth/work/storage exhaustion remains status2 and cancellation130. Writes immediately use State::assign_parameter rather than the upstream overlay, preserving completed effects across errors/cancellation and respecting prefix frames. Shell dollar expansion precedes arithmetic evaluation; let receives already shell-expanded arguments and never expands literal dollars twice. Domain/syntax errors abort expansion environments with status1; (( )) and let retain ordinary status1 without aborting later commands. Nested expansion errors preserve fatal control. Scalar slices resolve source before arithmetic, skip expressions for unset values, skip length when start is out of range, and use signed bounded range calculations. UTF-8 locales count scalar characters; C/POSIX count bytes, rejecting output that cannot be represented as valid UTF-8. Source snapshots do not spend emitted-output bytes. An original admitted shell-grammar validation adapter reproduces Bash slice-word <(...)/>(...) lexical boundary checks without executing substitutions. GNU Bash5.3 observations correct upstream eager slice lengths and compound assignment self-write ordering. Original tests cover semantics, admission, explicit failures, cooperative cancellation and retained state. Review regressions preserve terminating recursive identifiers by pairing active names with the generation of actual scalar value changes; unchanged assignments do not hide cycles. Arithmetic and substring writes invalidate enclosing IFS caches. Nested arithmetic scanning treats selected or skipped braced operands as opaque lexical regions, and selected substrings accept the same scalar positional/special targets as top-level slices. Original native/WASI depth regressions exercise each recursive scalar form through the deepest accepted level and its first explicit resource rejection. Positional @ slices preserve empty fields, include configurable shell_name at offset zero, and admit each selected element before copying. Arithmetic and readonly expansion failures discard the current read unit and resume at the next top-level newline. Special scalar substring snapshots admit decimal storage before formatting. Scalar operand depth is explicitly capped at 16 and exercised through its boundary on native and WASI.",
+    "protectedSourceReview": {
+      "classification": "Original arithmetic-source scanner context and focused regression controls in the owned engine adapter; no additional upstream implementation consulted or copied. Existing Bashkit parser/arithmetic attribution and all pins remain unchanged.",
+      "paths": [
+        "shell/engine/src/expand.rs",
+        "shell/engine/src/expand/operand.rs",
+        "shell/engine/tests/words/arithmetic.rs",
+        "shell/parser/tests/api.rs"
+      ],
+      "change": "Give arithmetic textual expansion its own operand-scanner context. A dollar followed by its closing double quote remains literal, so later quote removal cannot activate an adjacent arithmetic opener. Retain the existing quote-joining rule for selected outer-double-quoted parameter operands, genuine nested expansions, source/capture storage admission, per-character Work checkpoints, cancellation and depth limits.",
+      "controls": "Add shared native/WASI controls for protected-dollar syntax errors in unquoted and double-quoted arithmetic expansions, escaped variants, absence of nested assignment effects, no dispatch/output, exact status 1 and next-submission recovery. Positive controls retain active quoted nested arithmetic, completed writes and the existing parameter-operand quote rule. Arithmetic commands retain nonfatal status 1 and execute the following command. Parser API controls require exact original expression source through all three parsing entry points.",
+      "verification": "Source-prepared only. Coordinator-owned exact 8dd11b8 CLI brace seed 1/42 reports each contain two status/stdout mismatches for protected double-quoted dollars in arithmetic. No candidate build, native/WASI tests, CLI sweep, browser, score or timing acceptance has run for this repair. Local verification is installed-toolchain rustfmt and static JSON/diff checks only. Generators, fixtures, scripts, plans, limits, timeouts and stack sizes are unchanged by this repair."
+    },
     "excluded": [
       "arrays and subscripts",
       "command/process substitution execution",
@@ -801,6 +902,182 @@
     ],
     "strategy": "Run brace lists and signed, padded numeric/ASCII-letter ranges before parameter-name parsing and field splitting. Unlike the upstream AST placeholder/cloning implementation, borrow raw source spans, preserve quoted/escaped syntax structurally, reparse admitted generated words, and use iterative cooperative expansion. Invalid enclosing groups stay literal while children expand. Every growing vector/string and parser temporary is storage-admitted; raw output is charged only when emitted and shared across variants. Limits fail explicitly, never return literal or partial results. Original GNU Bash 5.3.15 differential generators and engine resource/deep-nesting tests verify behavior. Removed lexical line continuations join range fragments and dollar-opened opaque constructs without normalizing protected quote bodies. Use the original shared substitution scanner for all opaque dollar-parenthesis bodies, distinguishing arithmetic from command grammar and incrementally replaying ambiguous fallback syntax. Checkpoint and storage-admit every source, replay and EOF step so inactive comments, heredocs and case patterns cannot expose brace punctuation or hide uncancellable work. Preserve the initial parser nesting ceiling when reparsing generated words; iterative opaque scanning adds no smaller lexical cap."
   },
+  "shellSubstitutions": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "classification": "Original asynchronous streaming adapters and GNU Bash 5.3.15 regression controls; existing Bashkit-derived parser and expansion foundations retained, no additional upstream interpreter implementation copied.",
+    "referenceSources": [
+      "crates/bashkit/src/interpreter/expansion.rs",
+      "crates/bashkit/src/parser/mod.rs",
+      "crates/bashkit/src/parser/print_cmd.rs"
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/ast_copy.rs",
+      "shell/engine/src/interpreter.rs",
+      "shell/engine/src/interpreter/eval.rs",
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/expand/command.rs",
+      "shell/engine/src/expand/operand.rs",
+      "shell/engine/src/expand/case_pattern.rs",
+      "shell/engine/src/io.rs",
+      "shell/engine/src/state.rs",
+      "shell/engine/src/builtins.rs"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words/command.rs",
+      "shell/engine/tests/words/case.rs",
+      "shell/engine/tests/words/nounset.rs",
+      "scripts/fuzz-shell-substitution-boundaries.mjs",
+      "scripts/test-fuzz-shell-substitution-boundaries.mjs",
+      "scripts/fixtures/shell-substitutions-seed-1.json",
+      "scripts/fixtures/shell-substitutions-seed-42.json",
+      "scripts/test-shell-wasi.mjs"
+    ],
+    "strategy": "Execute typed command substitutions, backticks and non-arithmetic fused substitutions with bounded captures over live pipes; execute process substitutions through owned descriptors instead of captured text. Admit state/AST snapshots and temporary storage before growth; share work and cancellation, preserve trailing-newline removal and status semantics, and retain asynchronous descendants until scoped cleanup. Here-documents/here-strings, eval, unset, scalar nounset and case execution provide the general execution prerequisites. External/unnamed heredoc readers isolate shell effects; builtin readers retain completed parameter effects. Eval source, parser work, AST copies and active execution/read depth share explicit admission; outlined futures and joined executor tasks avoid native/WASI recursive poll-stack growth without enlarging limits. Internal task identities are separate from visible job numbers. Last async handles for background jobs and process substitutions are scoped shell metadata; numeric waits and percent-job selectors remain distinct, and wait-all returns zero. Completed process-substitution records remain explicitly waitable within the retained-job cap. Parser grammar, printing and typed-backtick repairs are separately classified under shellParser.changeLog. Generator results and full native/WASI acceptance are recorded only after actual final-source execution. Signal controls classify signal 0 as a non-destructive owned-job existence check, support HUP, INT, QUIT, KILL and TERM termination through scoped synthetic job groups, and reject stop/continue, child-status, user, alarm, pipe and other unsupported actions before mutation. Out-of-range numbers are invalid. TERM controls compare wait status directly against Bash. Noninteractive Bash INT controls compare the kill-command result while reaping a finite job because asynchronous Bash jobs ignore SIGINT; native and WASI ProcessHost controls cover requested signal 2 and wait status 130. The signal implementation and controls are original runtime integration. Special ! scalar spellings, including ${!} and nested/default operand reads, are handled by the existing typed operand scanner and state parameter path; the regression controls are original.",
+    "excluded": [
+      "coprocesses",
+      "arrays and indexed namerefs",
+      "complete ANSI-C operand cursor",
+      "guest filesystem aliases for process-substitution /dev/fd paths (stdin redirection uses the real runtime)",
+      "complete asynchronous POSIX signal-mask inheritance"
+    ],
+    "runtimeRepair": {
+      "classification": "Original runtime/evaluation and test repairs using the existing local adapters; no additional Bashkit or GNU Bash implementation copied. Finite GNU Bash 5.3.15 builtin-only probes establish scalar-operator, wait-history and physical-reader recovery semantics.",
+      "paths": [
+        "shell/engine/src/interpreter.rs",
+        "shell/engine/src/interpreter/eval.rs",
+        "shell/engine/src/expand.rs",
+        "shell/engine/src/expand/operand.rs",
+        "shell/engine/tests/words/command.rs",
+        "shell/engine/tests/words/nounset.rs"
+      ],
+      "readers": "All external/unnamed heredocs in one command share one admitted isolated state snapshot. Correct the earlier multi-heredoc expectation to first followed by caller unset, as observed in GNU Bash. Reader failures remain command-local; builtin/function reader effects remain in the current shell.",
+      "waitHistory": "An explicitly waited numeric handle retains its completed join result in the already admitted bounded job record while losing percent-job membership. No-argument wait clears remembered statuses and returns zero. Launch pressure evicts oldest completed handles without allocating scratch or evicting pending children; retained completion cannot be signalled or resurrected. Scope ownership and process-substitution handles use the same lifecycle.",
+      "assignmentFailure": "Translate the existing state resolver depth-overflow result into typed read-unit failure at scalar write admission. Keep cycle failure distinct and preserve pre-growth admission, target value and prefix restoration. Carry parser command-end lines into root/eval readers for same-line discard and next-physical-line recovery.",
+      "executionAccounting": "Charge boxed future wrappers and task/job metadata as live allocations, released on completion, cancellation, drop or record eviction. Retain the former 100000000-byte execution admission ceiling without increasing any configured limit or stack. Separate this live-memory counter from cumulative parser work so repeated loop dispatch, pipelines, subshells and substitutions yield/poll cancellation indefinitely without exhausting elapsed-work fuel. Loop AST copies are admitted cooperatively before cloning. Parser input/fuel, source/AST/storage admission and 16-reader/256-execution depth controls remain intact. Size the concrete mapped future before boxing rather than estimating an async wrapper layout; retain the admission guard in the completion closure and verify exact retained bytes for a large ready future. The initial wrapper estimate failed the native debug assertion in run 39042416066 and is not acceptance evidence.",
+      "verification": "At the source-prepared handoff these controls were unrun. Final native/WASI/browser, differential, score and size acceptance is tracked separately in docs/evidence/own-shell-substitutions.json and the final PR receipt.",
+      "evalLiveStorage": {
+        "classification": "Original live eval-storage and per-input parser admission correction using the existing engine/parser APIs; no additional Bashkit or GNU Bash implementation consulted or copied.",
+        "paths": [
+          "shell/engine/src/interpreter/eval.rs",
+          "shell/engine/src/interpreter.rs",
+          "shell/engine/src/state.rs",
+          "shell/engine/tests/words/command.rs"
+        ],
+        "semanticCorrection": "Returned eval inputs must release discarded source/AST storage and must not spend a lifetime parser-work counter. Replace the earlier successive_evals_share_cumulative_script_admission expectation, which required rejection from historical copies, with completed-eval reuse and the unchanged explicit function-depth bound. Existing 16/17 reader, 256/257 execution, deepest cancellation, source-size and pre-growth resource assertions remain intact.",
+        "storage": "One session-wide budget retains the existing expansion_bytes ceiling across submissions. Stack-owned reservations admit joined text, the later Rc text copy, lease metadata and conservative parser/AST/task storage before growth. Shared leases follow source text and parsed readers, immutable stored function bodies, snapshots, active function calls and descendant contexts. The final owner returns admission; failed growth, preparation, cancellation, replacement and unset release only discarded data. StoredFunction carries the immutable Rc body and its source lease; snapshot metadata remains admitted and pointer-sharing assertions are retained through the body field.",
+        "work": "Eval joining yields and polls cancellation through cooperative Budget checkpoints. Each new root/eval input receives a fresh parser budget; nested syntax within that input still shares parser fuel, work and cancellation through the existing APIs. Source-byte limits, parser operation/timeout/depth limits, live execution allocations and recursion ceilings are unchanged. Typed parser cancellation in eval is retained as status 130.",
+        "controls": "Add shared native/WASI controls requiring at least 2048 actual eval effects before interrupt 130 with an unrelated background child alive, including replacement of a stored eval function. The former minimum 4096-byte reader reservation makes that eight times the old default cumulative allowance. Bounded controls exercise live storage rejection and recovery for background/process substitutions, functions and child snapshots. Private controls cover atomic growth, final-owner release, cancellation cleanup, per-input parser work and interrupt probes. The existing concrete mapped-future and large-ready-future assertions are preserved.",
+        "verification": "At source handoff, a finite GNU Bash 5.3.15 builtin-only control completed 2048 eval/function replacement iterations with status 0 under a 3-second subprocess timeout; candidate acceptance was still unrun. Final measured acceptance is tracked separately in docs/evidence/own-shell-substitutions.json and the final PR receipt."
+      },
+      "runtimeBoundaryReview": {
+        "classification": "Original repairs to the owned Rust engine/runtime adapter following source review of cffbbf9. No upstream implementation copied or consulted. Runtime unit controls use the production Runtime ProcessHost/FileSystem through a strict injected ABI; actual browser Bun acceptance is tracked separately from these injected-ABI controls.",
+        "paths": [
+          "shell/engine/src/interpreter.rs",
+          "shell/engine/src/interpreter/eval.rs",
+          "shell/engine/src/io.rs",
+          "shell/engine/src/process.rs",
+          "shell/engine/src/runtime.rs",
+          "shell/engine/src/runtime/tests.rs",
+          "shell/engine/src/expand.rs",
+          "shell/engine/tests/words/command.rs"
+        ],
+        "findings": "Accept source findings 1, 2, 4, 5 and 6. Finding 3 is covered by evalLiveStorage. Finding 7 belongs to coordinator script checkpoint d835491; this repair changes no scripts, harness, browser tests or evidence.",
+        "descriptors": "Create command/process substitution pipes through the active FileSystem. Export buffered heredoc/here-string inputs through host pipes at Runtime spawn, with no writer started before successful spawn and job discovery. Stream bounded chunks after the reader exists, preserving payload ownership and admitting the concrete pump, retained bytes and metadata before boxing. Charge pumps against the existing 4096 process-resource slots in 4096-byte units, including retained payload and metadata, rather than adding an unbounded task queue. A cached host read description preserves aliases and sequential builtin/external read position despite writer read-ahead. Runtime tracks logical reader owners and using groups; only producers with no reader or live group user are canceled/drained. Session shutdown closes descriptors before draining orphaned I/O, preserving peers sharing the host. Here-string newline growth reserves exact capacity; buffered endpoint metadata is charged before allocation.",
+        "groups": "Every substitution group has a ProcessGroup cleanup owner. Capture status is published at actual stdout EOF separately from the registered group supervisor join, so redirected/outliving descendants do not block capture completion. The supervisor remains owned and bounded until wait_group confirms teardown, including builtin-only empty groups. Process substitutions also confirm their group. Cancellation/error paths await cleanup; dropped guards hand off signal-aware reaping to the host.",
+        "signals": "Share each owned job signal reason with execution, child cancellation and ProcessGroup teardown/drop. Default kill remains TERM15, explicit INT remains 2, and Ctrl-C/shutdown default to INT without replacing an already requested reason. Propagate the reason into nested captures and process substitutions before setting cancellation. Preserve completed join outcomes and scoped numeric/percent selectors. Runtime controls gate on an actual spawned child and require both direct-child and group requests to contain only the requested signal, plus wait143/130. The former fixture expectation of TERM followed by INT is corrected while retaining early/late member and cleanup assertions.",
+        "readerAndRollback": "Eval consumes its own DiscardReadUnit before handling trailing reader errors and returning status to the caller. Bounded GNU Bash 5.3.15 builtin-only probes under three-second subprocess timeouts observed AFTER:1 for an inner assignment discard and AFTER:2 for the following eval syntax error, both caller status0. The builtin-prefix restoration guard owns prior mutations before later fallible admission or alias resolution, with saved/variable map nodes and copied text admitted before growth. Native/WASI controls cover absent/existing bindings and tiny admission failure.",
+        "ifsScheduling": "The raw-bound IFS control now polls the finite cooperatively suspended admission through a bounded number of turns, still requiring exact Status2 and unchanged 8192-byte storage. The existing cancellation Status130, raw size and binding/nameref assertions remain intact; readiness after one poll is no longer incorrectly required.",
+        "verification": "At source handoff only static formatting/diff/provenance checks and the identified finite Bash reader probes had run. Final native/WASI/browser, differential, compatibility and size acceptance is tracked separately in docs/evidence/own-shell-substitutions.json and the final PR receipt."
+      },
+      "generatorSignalStatusReview": {
+        "classification": "Original typed signal-error status correction and native/WASI controls in the owned builtin adapter. No additional upstream implementation consulted or copied; fixed generators/fixtures and upstream pins are unchanged.",
+        "paths": ["shell/engine/src/builtins.rs", "shell/engine/tests/words/command.rs"],
+        "evidence": "The coordinator's diagnostic-finite-loop.json uses the exact 8dd11b8 CLI producer. Its completed background-loop controls observe Bash kill=1 versus candidate kill=2 for -s INVALID; the original two-second acceptance timed out before revealing this status mismatch. The diagnostic's larger timeout is diagnostic-only and does not change acceptance.",
+        "change": "Preserve typed Invalid, Unsupported and Usage failures through kill argument parsing instead of flattening them into diagnostic strings and returning 2 for all failures. Unknown signal names and out-of-range numeric signals return 1 without mutation; known unsupported actions and malformed argument usage retain explicit status 2. Existing diagnostic text, supported actions, scoped selectors and cleanup remain unchanged.",
+        "controls": "Correct the prior local invalid-name and out-of-range expectations from 2 to the Bash status 1 while retaining exact diagnostics, TERM 143, INT 130 and all active/retained child assertions. Keep every valid-but-unsupported expectation at 2. Add finite background-loop controls for separated/attached -s, direct invalid names and out-of-range numbers, requiring kill 1, successful wait 0, isolated parent state and no pending tasks/processes. The fixed million-iteration CLI control and its 2000ms timeout remain untouched.",
+        "verification": "Source-prepared only; no candidate compilation or execution for this correction. Coordinator measurements show the prior exact CLI completes one million iterations in 2864ms background and 3109ms foreground, so the throughput blocker remains open. Source inspection identifies repeated loop AST admission/copies, command dispatch yields and boxed arithmetic parsing as profiling targets; this status repair makes no performance claim and changes none of those paths. All compiled native/WASI/CLI/browser/generator/score/timing acceptance remains coordinator-owned."
+      },
+      "loopArithmeticReplay": {
+        "classification": "Original borrowed typed-AST replay, shared command-completion adapter and focused native/WASI regression controls in the owned interpreter. No additional upstream implementation consulted or copied; all parser/arithmetic attribution and upstream pins remain unchanged.",
+        "paths": [
+          "shell/engine/src/interpreter.rs",
+          "shell/engine/tests/words/arithmetic.rs",
+          "shell/engine/tests/words/command.rs"
+        ],
+        "evidence": "The coordinator reports the exact cafc69f CLI completes one million iterations in 2981ms foreground and 2800ms background. The independent source diagnosis counts repeated condition/body AST admission and copying plus six execution dispatch frames per replay; these are operation counts, not measured cost attribution. The preceding semantic repair already passes coordinator-owned native and finite CLI controls, including invalid signal 1 and protected-dollar rejection.",
+        "change": "When a retained loop condition or body is one typed arithmetic command without redirects, borrow its source and evaluate it through one concrete admitted replay frame. Eliminate that replay's transient AST copy/admission walk and intermediate sequence/compound/redirect dispatch frames. Continue using the existing complete arithmetic evaluator. Other typed commands, multi-command lists and redirected arithmetic retain the existing admitted owned route. Selection depends only on AST variants and redirect ownership, never expression text; no parser, arithmetic grammar, cache, driver or scheduler is added.",
+        "contracts": "Replay performs the same execution-depth descent, pre-cancel checks and mandatory initial yield as execute. It normalizes the compound context, creates command-local descriptor ownership and fresh substitution-capable Work, and retains the original evaluator's storage/fuel/depth/cancellation checks. Borrowed text remains owned by the retained loop AST and its surrounding source lease. Shared completion records status and PIPESTATUS identically for replay and ordinary execution. The concrete replay allocation is admitted before boxing and refunded on completion/drop; no allowance accumulates across iterations. Production limits, workloads, timeouts and stacks remain unchanged.",
+        "controls": "Add native/WASI word controls comparing arithmetic leaves with mixed/redirected owned forms, status propagation, command substitutions, durable writes, ordinary arithmetic errors and fatal nested-expansion read-unit recovery. A sustained arithmetic loop must complete at least 8192 real increments, yield to a peer, cancel with 130, preserve an unrelated background child, reap cleanly and recover. Private controls require exact execution depth 256 success and 257 rejection before effects, status/PIPESTATUS updates, live frame rejection/refund/drop behavior, command storage rejection, compound-child error context and pre-cancel handling. Existing exact32/deep127, eval16/17, execution256/257, protected-dollar, invalid-signal and Runtime ABI controls are unchanged.",
+        "verification": "At author handoff only installed-toolchain rustfmt and static source/JSON/provenance checks had run. Coordinator-owned canonical build admission then passed the complete native workspace (107 engine library, 396 words, 188 parser library, 59 parser API and every other target), the release CLI build and all finite Bash/CLI status/stdout controls. One bounded diagnostic observation measured the unchanged million-iteration background job at 1846ms versus 2800ms before replay; foreground measured 2082ms versus 2981ms. These single-run experimental observations are not headline performance claims or acceptance: the larger diagnostic observation window does not change the generator's fixed 2000ms bound. Exact-head CI artifact qualification, live differential sweeps, WASI/browser verification and zero-loss compatibility ratchet remain required and are recorded separately in docs/evidence/own-shell-substitutions.json and the final PR receipt. Production limits, workload, timeouts, release profile and stacks remain unchanged."
+      },
+      "functionStackAndInterruptOwnership": {
+        "classification": "Original repairs and regression controls in the owned Rust executor/interpreter/runtime adapters following the c090eb9 native stack abort and independent interrupt-ownership review. No upstream implementation consulted or copied; all upstream pins and existing assertions remain unchanged.",
+        "paths": [
+          "shell/engine/src/interpreter.rs",
+          "shell/engine/src/interpreter/eval.rs",
+          "shell/engine/src/runtime/tests.rs",
+          "shell/engine/tests/words/command.rs"
+        ],
+        "functionFrames": "A boxed future does not break recursive polling: function dispatch directly awaited execute, retaining the whole caller poll chain and its frames. Run each function body as an admitted joined executor task, preserving the caller's evaluation and execution-depth counters. The concrete task future owns the positional/local restoration guard and retained function body/source lease. The caller and task share the admitted metadata guard until both task completion and join reaping; command AST copies retain existing pre-copy Work admission. A JoinHandle neither polls nor owns the child's future, so nested calls add no recursive native/WASI poll or drop chain. Keep live execution bytes, function-depth configuration, source/storage limits and stack sizes unchanged.",
+        "interruptOwnership": "Remove the raw consuming host probe from shared eval Scope state. Initial parsing latches interrupts through the new foreground cancellation token before job creation. Each eval input installs a context-owned parser probe that first samples the current foreground token, then checks its own cancellation token. Background or capture parsing can therefore deliver Ctrl+C to the current foreground even after the background job's original foreground has returned, without treating that event as cancellation of an unrelated background reader. Foreground eval retains synchronous parser interruption, existing pre-cancel checks, sticky parser cancellation and status 130; capture forwarding still owns descendant signal propagation and cleanup.",
+        "controls": "Preserve the exact 32-call returned-eval success and function-depth rejection/recovery regression. Add common native/WASI controls for accepted 127-call execution, exact configured function-depth rejection, and a 300-call request with per-test function_depth 512 that must return status 2 after exactly 127 executed bodies under the unchanged 256 execution-depth guard: the top-level list uses one level, each function call and case body use two, call 127's leaf fits at 256 and call 128's case body is rejected before its counter increment. Add interruption at a gated 127-call leaf with positional-frame restoration, zero pending tasks/processes and recovery. Inject a single consuming Runtime ABI interrupt during isolated synchronous eval parsing while a foreground child waits, requiring foreground child/status 130, background survival and recovery. A nested-capture variant requires foreground 130 and preservation of an unrelated background child. Gate children and reactor turns bound the injection to parser probes rather than Session::interrupt(). Existing 16/17 reader, 256/257 execution, storage, descriptor, requested-signal and lifecycle controls are retained.",
+        "verification": "The immutable c090eb9 CI producer log records the original native words stack abort. At the author's source-only handoff, only installed-toolchain rustfmt, JSON/pin comparisons and diff checks had run. The coordinator's queued native workspace subsequently passed all targets, including the unchanged 32-call regression, 127-call success/cancellation, exact execution-depth rejection and both consuming ABI interrupt controls. That first compiled run corrected the new depth expectation from 128 to 127 executed bodies using the explicit list/call/case depth calculation; no existing assertion or production limit changed. Exact-head CI, WASI, browser, differential, compatibility and size acceptance is recorded separately in docs/evidence/own-shell-substitutions.json and the final PR receipt. No scripts, browser controls, limits, versions or upstream pins are changed by this source repair."
+      }
+    }
+  },
+  "shellScalarState": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "classification": "Original bounded scalar-state semantic-reference adapters; test cases adapted separately from the pinned MIT Bashkit corpus.",
+    "referenceSources": [
+      "crates/bashkit/src/builtins/vars.rs",
+      "crates/bashkit/src/interpreter/mod.rs",
+      "crates/bashkit/src/interpreter/declare.rs",
+      "crates/bashkit/src/interpreter/expansion.rs"
+    ],
+    "testSources": [
+      "crates/bashkit/tests/spec_cases/bash/word-split.test.sh",
+      "crates/bashkit/tests/spec_cases/bash/nameref.test.sh"
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/state.rs",
+      "shell/engine/src/builtins.rs",
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/expand/indirect.rs",
+      "shell/engine/src/arithmetic.rs",
+      "shell/engine/src/interpreter.rs",
+      "shell/engine/src/expand/case_pattern.rs",
+      "shell/engine/src/expand/positional.rs",
+      "shell/engine/src/expand/ifs.rs"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words/set_positionals.rs",
+      "shell/engine/tests/words/namerefs.rs",
+      "shell/engine/tests/words/scalar_refs.rs"
+    ],
+    "strategy": "Implement positional set operands, explicit clearing and function restoration; retain quoted empty values and validate options. Store genuine ordinary-identifier scalar reference metadata, follow live target mutations, resolve supported reads/presence/writes through one bounded cycle-aware interface, restore local bindings and admit saved metadata in shared snapshots. Resource, cancellation and restoration matrices are original controls. Preserve strict nounset and correct wait-all status rather than restoring accidental earlier corpus passes. Scalar references and positional state are substitution-unit zero-loss prerequisites, not a port of the blocking interpreter. Supported export/readonly attributes resolve the actual target; effective IFS references govern splitting, positional joins, protection and patterns. Custom IFS snapshots and overflow nodes are admitted before growth, common delimiters stay inline, and alias writes invalidate cached separators. These generic follow-up adapters and all new boundary tests are original, not copied upstream code. The resolver follows at most eight scalar-reference links; a ninth acyclic link reads as unset while nounset remains fatal, and unresolved writes/attributes fail without mutation. Cycles are classified separately using constant-storage cursors. The eight/nine-link read, presence, write, retargeting and nounset boundaries are original GNU Bash 5.3.15 controls, semantically referencing interpreter/mod.rs and interpreter/declare.rs at the pinned Bashkit revision; no upstream implementation was copied.",
+    "excluded": [
+      "array/subscript references",
+      "general declaration options",
+      "integer declarations"
+    ],
+    "ifsRepair": {
+      "classification": "Original semantic-reference adapter for GNU Bash 5.3.15 IFS classification, positional joins, scoped resolution, and admitted restoration. No additional upstream implementation copied. Existing Bashkit attribution at 491c3281f668b76d64b15210b8f5d7bf97244be0 remains unchanged.",
+      "paths": [
+        "shell/engine/src/state.rs",
+        "shell/engine/src/builtins.rs",
+        "shell/engine/src/expand.rs",
+        "shell/engine/src/expand/ifs.rs",
+        "shell/engine/src/expand/case_pattern.rs",
+        "shell/engine/tests/words/scalar_refs.rs"
+      ],
+      "strategy": "Keep fixed-size positional-join and IFS byte-classification state separate from live scalar values and field splitting. Prepare cached classification cooperatively before mutation or snapshot, preserve scoped reference binding and restore prefix/function state without unadmitted copies. Quoted/scalar star joins and case-pattern star consumers use the admitted separator state. Finite GNU Bash controls distinguish target writes, local shadows, explicit IFS changes, function return, arithmetic effects, empty/unset targets and ordinary alias writes. Unstable exploratory Bash mutation output is not encoded as expected behavior.",
+      "verification": "Source/static controls prepared; exact-head native/WASI/browser and differential acceptance remain pending."
+    }
+  },
   "shellAcceptanceUtilities": {
     "repository": "https://github.com/everruns/bashkit",
     "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
@@ -825,10 +1102,7 @@
       "shell/engine/src/runtime.rs",
       "shell/engine/src/runtime/wasi.rs"
     ],
-    "testDestinations": [
-      "shell/engine/tests/streaming.rs",
-      "shell/engine/src/runtime/tests.rs"
-    ],
+    "testDestinations": ["shell/engine/tests/streaming.rs", "shell/engine/src/runtime/tests.rs"],
     "strategy": "Port only the grep behaviors needed by step 1 acceptance. Read descriptors in 8 KiB chunks, retain at most min(Limits.line_bytes, 64 KiB) per record, write selected records immediately with descriptor backpressure, and checkpoint cancellation while reading/scanning. Pattern input is at most 4096 bytes; the linear-time regex crate has 256 KiB compiled-program and DFA-cache limits and nesting limit 64. An original small BRE translator supplies unescaped literal versus escaped operator rules and preserves caret/dollar anchors only at BRE branch boundaries, including escaped groups and alternation (GNU grep oracle regressions); do not import Bashkit grep_pattern, backtracking engines, whole-file reads, output buffers or the bug25 buffering architecture. Preserve record bytes including CR, NUL and invalid UTF-8 instead of binary-file suppression. Multiple operands get filename prefixes; count is per input; -q stops at the first selected record. Original mkdir and -p resolve against shell cwd and use FileSystem plus preview1 path_create_directory/path_filestat_get, validating an existing directory rather than accepting files. The memory filesystem tracks bounded directory metadata. Runtime metadata calls share the explicitly deferred synchronous-filesystem stall/cancellation limitation; there is no compatibility fallback. General utilities remain plan 004 step 4.",
     "excluded": [
       "grep long options, -e/-f, recursive traversal, context and binary-file classification",

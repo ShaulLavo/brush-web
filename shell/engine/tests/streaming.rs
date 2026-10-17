@@ -513,7 +513,7 @@ fn always_ready_background_loop_cannot_starve_foreground() {
     assert_eq!(r.run("while :; do :; done & echo FOREGROUND"), 0);
     assert_eq!(r.text(), "FOREGROUND\n");
     assert_eq!(r.shell.background_jobs(), 1);
-    assert_eq!(r.run("kill %1; wait %1"), 130);
+    assert_eq!(r.run("kill %1; wait %1"), 143);
     assert_eq!(r.shell.background_jobs(), 0);
 }
 #[test]
@@ -532,7 +532,7 @@ fn foreground_interrupt_leaves_background_alive_and_controllable() {
     r.shell.interrupt();
     assert_eq!(r.finish(job), 130);
     assert_eq!(r.host.active_count(), 1);
-    assert_eq!(r.run("kill %1; wait %1"), 130);
+    assert_eq!(r.run("kill %1; wait %1"), 143);
     assert_eq!(r.host.active_count(), 0);
 }
 #[test]
@@ -625,7 +625,7 @@ fn isolated_job_builtins_cannot_wait_for_or_kill_parent_jobs() {
         assert_eq!(r.run(script), status, "{script}");
         assert_eq!(r.host.active_count(), 1, "{script}");
         assert_eq!(r.shell.background_jobs(), 1, "{script}");
-        assert_eq!(r.run("kill %1; wait %1"), 130);
+        assert_eq!(r.run("kill %1; wait %1"), 143);
         assert_eq!(r.host.retained_count(), 0);
     }
 }
@@ -804,7 +804,7 @@ fn isolated_foreground_interrupt_reaps_its_background_but_not_roots() {
     assert_eq!(r.host.active_count(), 1);
     assert_eq!(r.host.retained_count(), 1);
     assert_eq!(r.shell.background_jobs(), 1);
-    assert_eq!(r.run("kill %1; wait %1"), 130);
+    assert_eq!(r.run("kill %1; wait %1"), 143);
     assert_eq!(r.host.active_count(), 0);
     assert_eq!(r.host.retained_count(), 0);
 }

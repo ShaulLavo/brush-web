@@ -35,18 +35,9 @@ impl Parser<'_> {
             pattern,
             self.max_depth.saturating_sub(self.current_depth),
         );
-        let mut angle = false;
         while let Some(c) = chars.next() {
             self.tick()?;
             if chars.literal() {
-                angle = false;
-                continue;
-            }
-            angle = matches!(c, '<' | '>') && !angle;
-            if angle && scanner.substring_unquoted() && chars.peek() == Some(&'(') {
-                chars.next();
-                self.read_parameter_command(&mut chars, bodies, true)?;
-                angle = false;
                 continue;
             }
             if self.parameter_boundary_step(&mut scanner, &mut chars, c, bodies)? {
@@ -63,6 +54,7 @@ impl Parser<'_> {
         c: char,
         bodies: &mut Vec<String>,
     ) -> Result<bool> {
+        let slice = scanner.substring_unquoted();
         match scanner.feed(c, chars.peek().copied()) {
             Step::Closed => Ok(true),
             Step::Escape | Step::Open => {
@@ -72,6 +64,11 @@ impl Parser<'_> {
             Step::Command => {
                 chars.next();
                 self.read_parameter_command(chars, bodies, false)?;
+                Ok(false)
+            }
+            Step::Process => {
+                chars.next();
+                self.read_parameter_command(chars, bodies, slice)?;
                 Ok(false)
             }
             Step::Limit => Err(self.limit_error(LimitExceeded::ParameterBoundaryDepth)),
@@ -119,9 +116,15 @@ impl Parser<'_> {
                 break;
             }
         }
-        let end = end.ok_or(Error::ShellWord {
-            line: self.current_span.start.line,
-        })?;
+        let Some(end) = end else {
+            // Bash reads a fused span as raw text, so running out of input
+            // is its EOF error (2). Command text is parsed as far as it goes:
+            // stopping at a token is a substitution syntax error (127).
+            if scanner.arithmetic_start().is_none() {
+                self.classify_substitution_text(source, false)?;
+            }
+            return Err(self.error("unexpected EOF while looking for matching `)'"));
+        };
         while chars.remaining().len() >= source.len() - end {
             self.tick()?;
             chars.next();
@@ -146,6 +149,7 @@ impl Parser<'_> {
             Default::default(),
         ));
         parser.strict_command_separators = true;
+        parser.lexer.set_substitution_body(true);
         parser.current_depth = self.current_depth + 1;
         parser.started_at = self.started_at;
         if let Some(budget) = &self.execution_budget {

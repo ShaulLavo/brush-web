@@ -100,6 +100,43 @@ fn recursive_scalars_and_dollar_preexpansion_have_distinct_order() {
 }
 
 #[test]
+fn protected_dollars_do_not_become_arithmetic_expansion_openers() {
+    for expression in [
+        r#"0 + "$"((1+2))"#,
+        r#"0 + "$"((n=9))"#,
+        r#"0 + "\$"((n=9))"#,
+        r"0 + \$((n=9))",
+    ] {
+        for word in [
+            format!("$(({expression}))"),
+            format!("\"$(({expression}))\""),
+        ] {
+            let rig = Rig::new(Limits::default());
+            let source = format!("n=0; args {word}; args after");
+            assert_eq!(rig.run(&source), 1, "{source}");
+            assert!(rig.calls.borrow().is_empty(), "{source}");
+            assert!(rig.output.bytes().is_empty(), "{source}");
+            assert!(!rig.errors.bytes().is_empty(), "{source}");
+            assert_eq!(rig.shell.state().borrow().variables["n"], "0", "{source}");
+            assert_eq!(rig.run(r#"args "$n" recovered"#), 0);
+            assert_eq!(*rig.calls.borrow(), [vec!["0", "recovered"]]);
+        }
+    }
+}
+
+#[test]
+fn arithmetic_keeps_active_openers_and_parameter_operand_quote_rules() {
+    check(
+        r#"n=0; args $((0 + "$((n=3))")) "$n" "$((0 + "$((1+2))"))" "${unused:-"$"((1+2))}""#,
+        &[&["3", "3", "3", "3"]],
+    );
+    check(
+        r#"n=0; ((0 + "$"((n=9)))); args "$?" "$n" recovered"#,
+        &[&["1", "0", "recovered"]],
+    );
+}
+
+#[test]
 fn arithmetic_commands_and_let_errors_do_not_abort_following_commands() {
     let rig = Rig::new(Limits::default());
     assert_eq!(rig.run("x=0; ((x=9,1/0)); args \"$?\" \"$x\"; let 'x=4,08' 'x=99'; args \"$?\" \"$x\"; let 0 'x=3'; args \"$?\" \"$x\""), 0);
@@ -109,6 +146,64 @@ fn arithmetic_commands_and_let_errors_do_not_abort_following_commands() {
     );
     assert_eq!(rig.run("x=1; let 'x=2,$x'; args \"$?\" \"$x\""), 0);
     assert_eq!(*rig.calls.borrow().last().unwrap(), ["1", "2"]);
+}
+
+#[test]
+fn loop_arithmetic_replay_preserves_status_and_owned_command_forms() {
+    for (condition, body) in [
+        ("((i < 4))", "((i += 1))"),
+        (":; ((i < 4))", ":; ((i += 1))"),
+        ("((i < 4)) 2>/dev/null", "((i += 1)) >replay-output"),
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(
+            rig.run(&format!(
+                "i=0; while {condition}; do {body}; done; args \"$i\" \"$?\" \"${{PIPESTATUS[@]}}\""
+            )),
+            0,
+        );
+        assert_eq!(*rig.calls.borrow(), [vec!["4", "0", "0"]]);
+        assert!(rig.output.bytes().is_empty());
+        assert!(rig.errors.bytes().is_empty());
+    }
+    check(
+        r#"i=0; false; while ((seen=$?, i < 1)); do ((i+=1, body=$?, 1)); done; args "$seen" "$body" "$?" "${PIPESTATUS[@]}""#,
+        &[&["0", "0", "0", "0"]],
+    );
+}
+
+#[test]
+fn invalid_loop_body_is_parsed_after_the_side_effecting_condition() {
+    // GNU Bash 5.3.15: i=2 and the body arithmetic syntax error leaves status 1.
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run(r#"i=0; while ((i++ < 1)); do ((1+)); done; args "$i" "$?""#),
+        0
+    );
+    assert_eq!(*rig.calls.borrow(), [vec!["2", "1"]]);
+    assert!(!rig.errors.bytes().is_empty());
+}
+
+#[test]
+fn loop_arithmetic_replay_retains_substitutions_and_read_unit_failures() {
+    check(
+        r#"i=0; while ((i < $(printf 3))); do ((i += $(printf 1))); done; args "$i" "$?" "${PIPESTATUS[@]}""#,
+        &[&["3", "0", "0"]],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run(r#"i=0; while ((i < 1)); do ((i=9,1/0)); done; args "$?" "$i" "${PIPESTATUS[@]}""#),
+        0,
+    );
+    assert_eq!(*rig.calls.borrow(), [vec!["1", "9", "1"]]);
+    assert!(!rig.errors.bytes().is_empty());
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run("i=0; while ((i < 1)); do ((i += $((1/0)))); done; args forbidden\nargs \"$?\" \"$i\" recovered"),
+        0,
+    );
+    assert_eq!(*rig.calls.borrow(), [vec!["1", "0", "recovered"]]);
+    assert!(!rig.errors.bytes().is_empty());
 }
 
 #[test]

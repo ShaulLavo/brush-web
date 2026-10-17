@@ -404,7 +404,40 @@ existing locale/state interfaces and rejects invalid UTF-8 output explicitly.
 The parser's scalar-count substring recognition and command-separator repairs
 are original local changes recorded in its change log. Arrays, subscript and
 command/process substitution execution, integer declarations and namerefs are
-not included. No whole-output buffering is added.
+not included in that arithmetic port. No whole-output buffering is added.
+
+Command/process substitution, here-document/here-string readers, eval, unset,
+scalar nounset and case execution are original asynchronous streaming adapters.
+They retain the existing Bashkit-derived parser/expansion foundations at
+`491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT, Copyright 2024–2026
+Everruns); no additional blocking interpreter implementation is copied.
+The command capture, live-descriptor, owned-descendant, bounded AST/state-copy,
+reader-depth and executor-task machinery is original. GNU Bash 5.3.15 is the
+semantic oracle for the original regression tests and differential generators.
+The parser's shared boundary, printing-budget and typed heredoc-backtick
+repairs are classified individually in `shellParser.changeLog`.
+`shellSubstitutions` in `sources.lock.json` lists the paths and boundaries.
+
+Positional `set` operands and ordinary scalar namerefs are original bounded
+semantic-reference adapters using Bashkit's
+`crates/bashkit/src/builtins/vars.rs` and
+`crates/bashkit/src/interpreter/{mod,declare,expansion}.rs` at the same pinned
+revision. Tests in `shell/engine/tests/words/set_positionals.rs` and
+`namerefs.rs` adapt scalar cases from
+`crates/bashkit/tests/spec_cases/bash/{word-split,nameref}.test.sh`.
+Resource, cancellation, restoration and live-target matrices are original.
+The adapter stores actual reference metadata, bounds resolution and cycles,
+admits snapshots before copying, and preserves local/function restoration;
+it is not a snapshot-value substitute for a reference. Arrays, indexed
+references and general declaration options remain excluded. The detailed
+classification and destinations are recorded under `shellScalarState`;
+the retained MIT license is `shell/parser/LICENSE`. The eight-link read boundary,
+soft unset on acyclic overflow, distinct cycle/write rejection and focused
+8/9-link controls are original adapters measured against GNU Bash 5.3.15, not
+copied implementations. No whole-output buffering is added.
+The IFS classification, positional-join snapshots, scoped resolution and admitted
+restoration corrections are original semantic-reference adapters measured against
+finite GNU Bash 5.3.15 controls; no additional upstream implementation is copied.
 
 The acceptance-only streaming `grep` subset in
 `shell/engine/src/builtins/grep.rs` adapts Bashkit's

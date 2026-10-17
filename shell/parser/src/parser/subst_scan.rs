@@ -59,6 +59,8 @@ struct CodeState {
     cases: Vec<CaseCtx>,
     /// Operators and heredocs belong to this scope, not nested substitutions.
     lt_run: usize,
+    /// Consecutive `>` just read, as `lt_run` counts `<`.
+    gt_run: usize,
     arith_at: Option<usize>,
     pending_heredocs: std::collections::VecDeque<Heredoc>,
 }
@@ -92,6 +94,12 @@ enum Mode {
         /// A `$(...)` inside the delimiter word, scanned by its own scanner
         /// so quotes, escapes and nested spans cannot end it early.
         nested: Option<Box<SubstScanner>>,
+    },
+    /// A backslash inside a double-quoted heredoc delimiter. Its next char
+    /// is quote-removed without ending the enclosing double quote.
+    DoubleDelimiterEscape {
+        strip_tabs: bool,
+        word: String,
     },
     /// Inside heredoc bodies; `line` accumulates the current line.
     Body {
@@ -127,6 +135,9 @@ pub struct SubstScanner {
     /// `${...}` or quotes): no enclosing command parse reaches them, but
     /// bash parses them as commands with the script.
     opaque_commands: Vec<(usize, usize)>,
+    /// Offset of the first `)` that ended a here-document on its delimiter
+    /// line (`EOF)`), if any.
+    heredoc_paren: Option<usize>,
 }
 
 impl Default for SubstScanner {
@@ -154,6 +165,7 @@ impl SubstScanner {
             root_arithmetic: None,
             starts: vec![0],
             opaque_commands: Vec::new(),
+            heredoc_paren: None,
         }
     }
 
@@ -176,6 +188,12 @@ impl SubstScanner {
         self.root_arithmetic
     }
 
+    /// Byte offset of the first `)` that ended a here-document on the
+    /// delimiter's own line. Bash's process substitution text ends there
+    /// when it reads a fused `<((` span (see the parser's process path).
+    pub fn heredoc_paren(&self) -> Option<usize> {
+        self.heredoc_paren
+    }
 
     fn process(&mut self, c: char) -> Step {
         let escaped = match self.mode {
@@ -223,6 +241,7 @@ impl SubstScanner {
             }
             Mode::Body { mut line } => {
                 if c == ')' && self.delimiter_line(&line) {
+                    self.heredoc_paren.get_or_insert(self.offset - c.len_utf8());
                     // Bash, in a command substitution: a line that is the
                     // delimiter followed by the closing `)` ends the
                     // here-document ("delimited by end-of-file") and the `)`
@@ -311,6 +330,10 @@ impl SubstScanner {
                     return Step::Body;
                 }
                 if let Some(q) = quote {
+                    if q == '"' && c == '\\' {
+                        self.mode = Mode::DoubleDelimiterEscape { strip_tabs, word };
+                        return Step::Body;
+                    }
                     if c != q {
                         word.push(c);
                     }
@@ -386,6 +409,28 @@ impl SubstScanner {
                     word,
                     started: true,
                     quote: None,
+                    nested: None,
+                };
+                Step::Body
+            }
+            Mode::DoubleDelimiterEscape {
+                strip_tabs,
+                mut word,
+            } => {
+                // Double quotes remove a continuation and the backslash
+                // before a quote, slash, dollar or backtick; other slashes
+                // remain literal. Single-quoted delimiters never enter here.
+                if c != '\n' {
+                    if !matches!(c, '"' | '\\' | '$' | '`') {
+                        word.push('\\');
+                    }
+                    word.push(c);
+                }
+                self.mode = Mode::Delimiter {
+                    strip_tabs,
+                    word,
+                    started: true,
+                    quote: Some('"'),
                     nested: None,
                 };
                 Step::Body
@@ -706,6 +751,20 @@ impl SubstScanner {
     }
 
     fn feed_code(&mut self, c: char) -> Step {
+        // `<(` or `>(` after a single angle bracket opens a process
+        // substitution (bash's LEX_GTLT toggles, so `<<(` and `>>(` do not).
+        let process = c == '('
+            && match self.prev {
+                Some('<') => self.code.last().expect("code state").lt_run == 1,
+                Some('>') => self.code.last().expect("code state").gt_run == 1,
+                _ => false,
+            };
+        let gt_run = if c == '>' {
+            self.code.last_mut().expect("code state").gt_run + 1
+        } else {
+            0
+        };
+        self.code.last_mut().expect("code state").gt_run = gt_run;
         let lt_run = if c == '<' {
             self.code.last_mut().expect("code state").lt_run + 1
         } else {
@@ -784,7 +843,8 @@ impl SubstScanner {
                 self.on_newline();
             }
             '(' => {
-                if self.prev == Some('$') {
+                // Like `$(`, a fused `<((` is raw paren-matched text.
+                if self.prev == Some('$') || process {
                     self.quote_word();
                     self.push_code();
                     return Step::Body;
@@ -870,7 +930,10 @@ pub(crate) fn arithmetic_expression(body: &str, start: usize) -> Option<&str> {
 /// Bash `chk_arithsub`: raw parentheses balance outside quotes and escapes.
 fn balanced_arithmetic(text: &str) -> bool {
     let mut depth = 0usize;
-    let mut chars = text.chars();
+    let mut chars = ArithmeticText {
+        source: text.chars(),
+        scanner: SubstScanner::with_frame(Frame::Arithmetic),
+    };
     while let Some(c) = chars.next() {
         match c {
             '(' => depth += 1,
@@ -901,6 +964,26 @@ fn balanced_arithmetic(text: &str) -> bool {
         }
     }
     depth == 0
+}
+
+struct ArithmeticText<'a> {
+    source: std::str::Chars<'a>,
+    scanner: SubstScanner,
+}
+
+impl Iterator for ArithmeticText<'_> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<char> {
+        for c in self.source.by_ref() {
+            let comment = matches!(self.scanner.mode, Mode::Comment);
+            self.scanner.feed(c);
+            if !comment || c == '\n' {
+                return Some(c);
+            }
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -968,6 +1051,23 @@ mod tests {
         assert_eq!(body("cat <<< x) y"), Some("cat <<< x"));
         // arithmetic shift is not a heredoc
         assert_eq!(body("echo $((1<<2))) y"), Some("echo $((1<<2))"));
+    }
+
+    #[test]
+    fn quoted_heredoc_delimiters_remove_only_double_quote_escapes() {
+        for (delimiter, eof) in [
+            ("\"EO\\\nF\"", "EOF"),
+            ("\"E\\\"OF\"", "E\"OF"),
+            ("\"E\\\\OF\"", "E\\OF"),
+            ("\"E\\$OF\"", "E$OF"),
+            ("\"E\\`OF\"", "E`OF"),
+            ("\"E\\qOF\"", "E\\qOF"),
+            ("'E\\\"OF'", "E\\\"OF"),
+        ] {
+            let command = format!(": <<{delimiter}\nbody\n{eof}\n");
+            let source = format!("{command}) suffix");
+            assert_eq!(body(&source), Some(command.as_str()), "{source:?}");
+        }
     }
 
     #[test]

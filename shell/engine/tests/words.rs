@@ -207,14 +207,13 @@ fn selected_malformed_lazy_substitutions_are_fatal_status_one() {
             "{source}"
         );
     }
-    // A complete substitution remains an explicitly unsupported feature.
+    // Complete substitutions execute; the surrounding apostrophes are literal
+    // inside this double-quoted default operand, unlike the malformed cases.
     for source in [
         r#"unset v; args "${v:-'$(true)'}" following"#,
         r#"unset v; args "${v:-'`true`'}" following"#,
     ] {
-        let rig = Rig::new(Limits::default());
-        assert_eq!(rig.run(source), 2, "{source}");
-        assert!(rig.calls.borrow().is_empty(), "{source}");
+        check(source, &[&["''", "following"]]);
     }
 }
 
@@ -327,7 +326,6 @@ fn scalar_replace_unsupported_selected_syntax_fails_without_dispatch() {
         "args ${v/@(a)/b}",
         "args ${v/[[:alpha:]]/b}",
         "args ${v/[[.a.]]/b}",
-        "args ${v/a/$(args forbidden)}",
         "args ${v/a/~}",
     ] {
         let rig = Rig::new(Limits::default());
@@ -338,6 +336,21 @@ fn scalar_replace_unsupported_selected_syntax_fails_without_dispatch() {
         assert_eq!(rig.run("args recovered"), 0);
         assert_eq!(*rig.calls.borrow(), &[vec!["recovered"]]);
     }
+}
+
+#[test]
+fn scalar_replace_selected_substitutions_execute_and_skipped_operands_stay_lazy() {
+    check(
+        r#"v=abc; args "${v/a/$(args replacement; echo X)}" "${v/`args pattern; echo b`/Y}"; args "${set+${v/a/$(args forbidden)}}"; args "${v/z/$(args no_match; echo X)}""#,
+        &[
+            &["replacement"],
+            &["pattern"],
+            &["Xbc", "aYc"],
+            &[""],
+            &["no_match"],
+            &["abc"],
+        ],
+    );
 }
 
 #[test]
@@ -638,8 +651,6 @@ fn unsupported_case_targets_transformations_and_selected_patterns_fail_closed() 
         "${v@U}",
         "${v~}",
         "${v~~}",
-        "${v^^$(args forbidden)}",
-        "${v^^`args forbidden`}",
         "${v^^~}",
         "${v^^@(a)}",
         "${v^^?(a)}",
@@ -657,7 +668,7 @@ fn unsupported_case_targets_transformations_and_selected_patterns_fail_closed() 
             assert!(rig.calls.borrow().is_empty(), "{source}");
         }
     }
-    for source in ["args ${v^^[[:alpha:]]}", "args ${v^^$(args forbidden)}"] {
+    for source in ["args ${v^^[[:alpha:]]}", "args ${v^^[[.a.]]}"] {
         let rig = Rig::new(Limits::default());
         rig.variable("v", "");
         assert_eq!(
@@ -691,6 +702,22 @@ fn unsupported_case_targets_transformations_and_selected_patterns_fail_closed() 
     assert_eq!(*rig.calls.borrow(), &[vec!["abc"]]);
     rig.variable("p", "é");
     assert_eq!(rig.run("args ${v^^$p}"), 2, "byte locale non-ASCII pattern");
+}
+
+#[test]
+fn case_selected_substitution_patterns_execute_even_for_an_empty_target() {
+    for pattern in ["$(args pattern; echo b)", "`args pattern; echo b`"] {
+        for form in [
+            format!("${{v^^{pattern}}}"),
+            format!("${{u:-${{v^^{pattern}}}}}"),
+        ] {
+            check(&format!("v=abc; args {form}"), &[&["pattern"], &["aBc"]]);
+        }
+        check(
+            &format!("v=; args \"${{v^^{pattern}}}\""),
+            &[&["pattern"], &[""]],
+        );
+    }
 }
 
 #[test]
@@ -1086,8 +1113,6 @@ fn unsupported_trim_targets_and_selected_patterns_fail_without_dispatch() {
         "${a[0]#x}",
         "${PIPESTATUS[@]%%x}",
         "${!v#x}",
-        "${v#$(args forbidden)}",
-        "${v#`args forbidden`}",
         "${v#~}",
         "${v#@(a)}",
         "${v#?(a)}",
@@ -1128,6 +1153,40 @@ fn unsupported_trim_targets_and_selected_patterns_fail_without_dispatch() {
     assert_eq!(rig.run("X=${v#a} echo allowed"), 0);
     assert_eq!(rig.output.bytes(), b"allowed\n");
     assert!(!rig.shell.state().borrow().variables.contains_key("X"));
+}
+
+#[test]
+fn trim_selected_substitution_patterns_reach_default_assignment_and_error_operands() {
+    for pattern in ["$(args pattern; echo a)", "`args pattern; echo a`"] {
+        for (form, assigned) in [
+            (format!("${{v#{pattern}}}"), false),
+            (format!("${{u:-${{v#{pattern}}}}}"), false),
+            (format!("${{u:=${{v#{pattern}}}}}"), true),
+        ] {
+            let rig = Rig::new(Limits::default());
+            rig.variable("v", "abc");
+            assert_eq!(rig.run(&format!("args {form}")), 0, "{form}");
+            assert_eq!(*rig.calls.borrow(), &[vec!["pattern"], vec!["bc"]]);
+            assert_eq!(
+                rig.shell
+                    .state()
+                    .borrow()
+                    .variables
+                    .get("u")
+                    .map(String::as_str),
+                assigned.then_some("bc"),
+            );
+        }
+        let rig = Rig::new(Limits::default());
+        rig.variable("v", "abc");
+        assert_eq!(
+            rig.run(&format!("args ${{u:?${{v#{pattern}}}}}; args forbidden")),
+            127
+        );
+        assert_eq!(*rig.calls.borrow(), &[vec!["pattern"]]);
+        assert_eq!(rig.errors.bytes(), b"/usr/bin/bash: line 1: u: bc\n");
+        assert!(!rig.shell.state().borrow().variables.contains_key("u"));
+    }
 }
 
 #[test]
@@ -2104,8 +2163,6 @@ fn scalar_operators_work_in_assignments_declarations_command_names_and_redirects
 #[test]
 fn selected_unsupported_operands_and_operator_targets_fail_without_dispatch() {
     for source in [
-        "args ${u:-$(args forbidden)}",
-        "args ${u:-`args forbidden`}",
         "args ${u:-$@}",
         "args ${u:-${PIPESTATUS[@]}}",
         "args ${a[0]-x}",
@@ -2118,6 +2175,16 @@ fn selected_unsupported_operands_and_operator_targets_fail_without_dispatch() {
         assert!(rig.calls.borrow().is_empty(), "{source}");
         assert!(!rig.shell.state().borrow().variables.contains_key("u"));
     }
+    // Selected command substitutions execute without assigning the default.
+    check(
+        r#"args ${u:-$(args command; echo selected)} ${u:-`args backtick; echo tick`}; args "${u-unset}""#,
+        &[
+            &["command"],
+            &["backtick"],
+            &["selected", "tick"],
+            &["unset"],
+        ],
+    );
     // Brace expansion is supported now; bash leaves this operand's braces.
     let rig = Rig::new(Limits::default());
     assert_eq!(rig.run("args ${u:-{a,b}}"), 0);
@@ -2348,13 +2415,17 @@ fn quoted_process_substitution_lookalikes_are_text() {
         r#"u=; args ${u:-"<("} ${u:-">("} "${u:-<(printf X)}" ${u:-${other:-"<("}}"#,
         &[&["<(", ">(", "<(printf X)", "<("]],
     );
-    for source in [
-        "args ${u:-<(args forbidden)}",
-        "args ${u:->(args forbidden)}",
-    ] {
+    // Without quotes, the same operand opens a live descriptor rather than
+    // returning the process-substitution spelling as text.
+    for source in ["args ${u:-<(echo produced)}", "args ${u:->(true)}"] {
         let rig = Rig::new(Limits::default());
-        assert_eq!(rig.run(source), 2, "{source}");
-        assert!(rig.calls.borrow().is_empty(), "{source}");
+        assert_eq!(rig.run(source), 0, "{source}");
+        let calls = rig.calls.borrow();
+        assert_eq!(calls.len(), 1, "{source}");
+        assert_eq!(calls[0].len(), 1, "{source}");
+        let fd = calls[0][0].strip_prefix("/dev/fd/").unwrap();
+        assert!(fd.parse::<i32>().unwrap() > 2, "{source}");
+        assert!(!rig.shell.state().borrow().variables.contains_key("u"));
     }
 }
 
@@ -2926,7 +2997,24 @@ fn assignment_and_error_operands_are_lazy_including_unsupported_syntax() {
         r#"v=set; e=; args ${v:=$(args forbidden)} ${v=${bad:?fail}} "${e=$(args forbidden)}" ${v?$(args forbidden)} "${e?$(args forbidden)}" ${v:?${bad:=bad}}; args "$bad"; args ${u+${bad:?fail}} ${v:-${bad:=bad}}"#,
         &[&["set", "set", "", "set", "", "set"], &[""], &["set"]],
     );
-    for source in ["args ${u:=$(args forbidden)}", "args ${u:=$@}"] {
+    check(
+        r#"args "${u:=$(args selected; echo assigned)}" "$u" "${u:=`args forbidden`}"; args "${other:=`args backtick; echo tick`}" "$other""#,
+        &[
+            &["selected"],
+            &["assigned", "assigned", "assigned"],
+            &["backtick"],
+            &["tick", "tick"],
+        ],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run("args ${u:?$(args diagnostic; echo failure)}; args forbidden"),
+        127
+    );
+    assert_eq!(*rig.calls.borrow(), &[vec!["diagnostic"]]);
+    assert_eq!(rig.errors.bytes(), b"/usr/bin/bash: line 1: u: failure\n");
+    assert!(!rig.shell.state().borrow().variables.contains_key("u"));
+    for source in ["args ${u:=$@}"] {
         let rig = Rig::new(Limits::default());
         assert_eq!(rig.run(source), 2, "{source}");
         assert!(rig.calls.borrow().is_empty());
@@ -4012,12 +4100,24 @@ fn cancellation_during_redirect_target_keeps_effects_and_restores_frames() {
 mod arithmetic;
 #[path = "words/braces.rs"]
 mod braces;
+#[path = "words/case.rs"]
+mod case;
+#[path = "words/command.rs"]
+mod command;
 #[path = "words/indirect.rs"]
 mod indirect;
+#[path = "words/nounset.rs"]
+mod nounset;
 
+#[path = "words/namerefs.rs"]
+mod namerefs;
 #[path = "words/readonly.rs"]
 mod readonly;
+#[path = "words/scalar_refs.rs"]
+mod scalar_refs;
 #[path = "words/scoped_prefix.rs"]
 mod scoped_prefix;
 #[path = "words/session.rs"]
 mod session;
+#[path = "words/set_positionals.rs"]
+mod set_positionals;

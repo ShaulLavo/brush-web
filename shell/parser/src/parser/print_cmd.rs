@@ -10,6 +10,10 @@
 
 use super::ast::*;
 use super::raw::heredoc_eof_from_raw;
+use crate::error::{Error, Result};
+use crate::limits::ExecutionBudget;
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 const INDENT_AMOUNT: usize = 4;
 
@@ -29,7 +33,7 @@ pub fn function_string(name: &str, body: &Command) -> String {
     p.indentation -= INDENT_AMOUNT;
     p.inside_function_def -= 1;
     p.close_function(func_redirects);
-    p.out
+    p.out.into_string()
 }
 
 fn is_reserved_word(name: &str) -> bool {
@@ -74,18 +78,152 @@ struct HereDoc {
     eof: String,
 }
 
-#[derive(Default)]
-struct Printer {
-    out: String,
+struct PrintQuota<'a> {
+    fuel: &'a Cell<usize>,
+    max_fuel: usize,
+    execution_budget: Option<&'a ExecutionBudget>,
+    failure: RefCell<Option<Error>>,
+}
+
+impl<'a> PrintQuota<'a> {
+    fn charge(&self, bytes: usize) -> bool {
+        if self.failure.borrow().is_some() {
+            return false;
+        }
+        if let Some(budget) = self.execution_budget
+            && let Err(error) = budget.consume_work(u64::try_from(bytes).unwrap_or(u64::MAX))
+        {
+            *self.failure.borrow_mut() = Some(error.into());
+            return false;
+        }
+        if self.fuel.get() < bytes {
+            *self.failure.borrow_mut() = Some(
+                crate::limits::LimitExceeded::ParserFuel {
+                    used: self.max_fuel,
+                    limit: self.max_fuel,
+                }
+                .into(),
+            );
+            return false;
+        }
+        self.fuel.set(self.fuel.get() - bytes);
+        true
+    }
+
+    fn failure(&self) -> Option<Error> {
+        self.failure.borrow_mut().take()
+    }
+}
+
+struct Output<'a> {
+    text: String,
+    quota: Option<Rc<PrintQuota<'a>>>,
+}
+
+impl<'a> Default for Output<'a> {
+    fn default() -> Self {
+        Self {
+            text: String::new(),
+            quota: None,
+        }
+    }
+}
+
+impl<'a> Output<'a> {
+    fn bounded(quota: Rc<PrintQuota<'a>>) -> Self {
+        Self {
+            text: String::new(),
+            quota: Some(quota),
+        }
+    }
+
+    fn push(&mut self, ch: char) {
+        if self
+            .quota
+            .as_ref()
+            .is_none_or(|quota| quota.charge(ch.len_utf8()))
+        {
+            self.text.push(ch);
+        }
+    }
+
+    fn push_str(&mut self, text: &str) {
+        if self
+            .quota
+            .as_ref()
+            .is_none_or(|quota| quota.charge(text.len()))
+        {
+            self.text.push_str(text);
+        }
+    }
+
+    fn chars(&self) -> std::str::Chars<'_> {
+        self.text.chars()
+    }
+
+    fn into_string(self) -> String {
+        self.text
+    }
+}
+
+struct Printer<'a> {
+    out: Output<'a>,
     indentation: usize,
     skip_this_indent: usize,
     was_heredoc: bool,
     printing_connection: usize,
     inside_function_def: usize,
     deferred: Vec<HereDoc>,
+    /// Printing a command substitution body (bash's `printing_comsub`):
+    /// a `case` keeps its first clause on the `case ... in` line.
+    printing_comsub: bool,
 }
 
-impl Printer {
+impl<'a> Printer<'a> {
+    fn with_quota(quota: Rc<PrintQuota<'a>>) -> Self {
+        Self {
+            out: Output::bounded(quota),
+            ..Self::default()
+        }
+    }
+
+    fn quota(&self) -> Option<Rc<PrintQuota<'a>>> {
+        self.out.quota.clone()
+    }
+
+    fn finish(self) -> Result<String> {
+        if let Some(quota) = &self.out.quota
+            && let Some(error) = quota.failure()
+        {
+            return Err(error);
+        }
+        Ok(self.out.into_string())
+    }
+
+    fn failed(&self) -> bool {
+        self.out
+            .quota
+            .as_ref()
+            .is_some_and(|quota| quota.failure.borrow().is_some())
+    }
+}
+
+impl<'a> Default for Printer<'a> {
+    fn default() -> Self {
+        Self {
+            out: Output::default(),
+            indentation: 0,
+            skip_this_indent: 0,
+            was_heredoc: false,
+            printing_connection: 0,
+            inside_function_def: 0,
+            deferred: Vec::new(),
+            printing_comsub: false,
+        }
+    }
+}
+
+impl<'a> Printer<'a> {
     fn indent(&mut self, n: usize) {
         for _ in 0..n {
             self.out.push(' ');
@@ -109,7 +247,7 @@ impl Printer {
 
     /// Prints a function body; returns the redirections of a `{ }` body,
     /// which print after its closing brace.
-    fn print_function_body<'a>(&mut self, body: &'a Command) -> &'a [Redirect] {
+    fn print_function_body<'cmd>(&mut self, body: &'cmd Command) -> &'cmd [Redirect] {
         match body {
             Command::Compound(CompoundCommand::BraceGroup(cmds), redirects) => {
                 self.print_list(cmds);
@@ -163,6 +301,9 @@ impl Printer {
 
     /// A command sequence (`;`/newline separated).
     fn print_list(&mut self, cmds: &[Command]) {
+        if self.failed() {
+            return;
+        }
         match cmds {
             [] => self.make(None),
             [only] => self.make(Some(only)),
@@ -176,6 +317,9 @@ impl Printer {
 
     /// `make_command_string_internal`.
     fn make(&mut self, cmd: Option<&Command>) {
+        if self.failed() {
+            return;
+        }
         let Some(cmd) = cmd else {
             return;
         };
@@ -248,6 +392,9 @@ impl Printer {
     /// The `cm_connection` case, flattened over a left-associative chain:
     /// each link ends like bash's nested connection (deferred heredocs).
     fn connection_body(&mut self, first: &Command, rest: &[(Conn, Option<&Command>)]) {
+        if self.failed() {
+            return;
+        }
         self.skip_this_indent += 1;
         self.printing_connection += 1;
         self.make(Some(first));
@@ -299,16 +446,120 @@ impl Printer {
         self.printing_connection -= 1;
     }
 
+    fn word_text(&self, word: &Word) -> String {
+        match &word.raw {
+            Some(raw) => normalize_raw_word(raw),
+            None => self.reconstruct_word(word),
+        }
+    }
+
+    fn reconstruct_word(&self, word: &Word) -> String {
+        let mut text = String::new();
+        for part in &word.parts {
+            match part {
+                WordPart::Literal(value) => text.push_str(value),
+                WordPart::CommandSubstitution(commands) => {
+                    text.push_str("$(");
+                    text.push_str(&self.inline_commands(commands));
+                    text.push(')');
+                }
+                WordPart::ProcessSubstitution { commands, is_input } => {
+                    text.push_str(if *is_input { "<(" } else { ">(" });
+                    text.push_str(&self.inline_commands(commands));
+                    text.push(')');
+                }
+                other => {
+                    let single = Word {
+                        parts: vec![other.clone()],
+                        quoted: false,
+                        has_unquoted_glob: false,
+                        part_quoted: Vec::new(),
+                        raw: None,
+                    };
+                    text.push_str(&single.to_string());
+                }
+            }
+        }
+        if word.quoted
+            && word
+                .parts
+                .iter()
+                .all(|part| matches!(part, WordPart::Literal(_)))
+        {
+            return super::raw::single_quote(&text);
+        }
+        text
+    }
+
+    fn inline_commands(&self, commands: &[Command]) -> String {
+        let mut printer = match self.quota() {
+            Some(quota) => Self::with_quota(quota),
+            None => Self::default(),
+        };
+        printer.print_list(commands);
+        printer.print_deferred_if_any("");
+        printer.out.into_string()
+    }
+
+    fn assignment_text(&self, assignment: &Assignment) -> String {
+        let mut text = assignment.name.clone();
+        if let Some(index) = &assignment.index {
+            text.push('[');
+            text.push_str(index);
+            text.push(']');
+        }
+        text.push_str(if assignment.append { "+=" } else { "=" });
+        match &assignment.value {
+            AssignmentValue::Scalar(word) => text.push_str(&self.word_text(word)),
+            AssignmentValue::Array(elements) => {
+                let values: Vec<String> = elements
+                    .iter()
+                    .map(|word| self.word_text(word))
+                    .collect();
+                text.push('(');
+                text.push_str(&values.join(" "));
+                text.push(')');
+            }
+        }
+        text
+    }
+
+    fn redirection_text(&self, redirect: &Redirect) -> String {
+        let target = self.word_text(&redirect.target);
+        match redirect.kind {
+            RedirectKind::Output => format!("{}> {target}", redirector(redirect, 1)),
+            RedirectKind::Clobber => format!("{}>| {target}", redirector(redirect, 1)),
+            RedirectKind::Append => format!("{}>> {target}", redirector(redirect, 1)),
+            RedirectKind::Input => format!("{}< {target}", redirector(redirect, 0)),
+            RedirectKind::HereString => format!("{}<<< {target}", redirector(redirect, 0)),
+            RedirectKind::ReadWrite => format!("{}<> {target}", redirector(redirect, 0)),
+            RedirectKind::OutputBoth => format!("&> {target}"),
+            RedirectKind::DupOutput => {
+                let fd_is_default = redirect.fd_var.is_none()
+                    && redirect.fd.is_none_or(|fd| fd == 1);
+                let word_target = !target.starts_with(|c: char| c == '-' || c.is_ascii_digit())
+                    && !target.starts_with('$');
+                if fd_is_default && word_target {
+                    format!("&> {target}")
+                } else {
+                    format!("{}>&{target}", redirector(redirect, 1))
+                }
+            }
+            RedirectKind::DupInput => format!("{}<&{target}", redirector(redirect, 0)),
+            RedirectKind::HereDoc | RedirectKind::HereDocStrip => String::new(),
+        }
+    }
+
     fn print_simple(&mut self, sc: &SimpleCommand) {
         let mut words: Vec<String> = Vec::new();
         for a in &sc.assignments {
-            words.push(assignment_text(a));
+            words.push(self.assignment_text(a));
         }
-        let name = word_text(&sc.name);
+        let name = self.word_text(&sc.name);
         if !(name.is_empty() && sc.name.raw.is_none()) {
             words.push(name);
         }
-        words.extend(sc.args.iter().map(word_text));
+        words.extend(sc.args.iter().map(|word| self.word_text(word)));
         self.out.push_str(&words.join(" "));
         if !sc.redirects.is_empty() {
             if !words.is_empty() {
@@ -326,7 +577,7 @@ impl Printer {
                 self.out.push(' ');
             }
             if matches!(r.kind, RedirectKind::HereDoc | RedirectKind::HereDocStrip) {
-                let delim = r.heredoc_delim.clone().unwrap_or_default();
+                let delim = normalize_raw_word(r.heredoc_delim.as_deref().unwrap_or_default());
                 self.out.push_str(&redirector(r, 0));
                 self.out.push_str(if r.kind == RedirectKind::HereDocStrip {
                     "<<-"
@@ -344,11 +595,12 @@ impl Printer {
                         .target
                         .raw
                         .clone()
-                        .unwrap_or_else(|| reconstruct_word(&r.target)),
+                        .unwrap_or_else(|| self.reconstruct_word(&r.target)),
                     eof,
                 });
             } else {
-                self.out.push_str(&redirection_text(r));
+                let text = self.redirection_text(r);
+                self.out.push_str(&text);
             }
         }
         if heredocs.is_empty() {
@@ -375,7 +627,10 @@ impl Printer {
                 self.out.push_str(" in ");
                 match &f.words {
                     Some(words) => {
-                        let w: Vec<String> = words.iter().map(word_text).collect();
+                        let w: Vec<String> = words
+                            .iter()
+                            .map(|word| self.word_text(word))
+                            .collect();
                         self.out.push_str(&w.join(" "));
                     }
                     None => self.out.push_str("\"$@\""),
@@ -386,7 +641,11 @@ impl Printer {
                 self.out.push_str("select ");
                 self.out.push_str(&f.variable);
                 self.out.push_str(" in ");
-                let w: Vec<String> = f.words.iter().map(word_text).collect();
+                let w: Vec<String> = f
+                    .words
+                    .iter()
+                    .map(|word| self.word_text(word))
+                    .collect();
                 self.out.push_str(&w.join(" "));
                 self.loop_body_after_head(&f.body);
             }
@@ -413,12 +672,19 @@ impl Printer {
             CompoundCommand::Until(w) => self.print_until_or_while("until", &w.condition, &w.body),
             CompoundCommand::Case(c) => {
                 self.out.push_str("case ");
-                self.out.push_str(&word_text(&c.word));
+                let word = self.word_text(&c.word);
+                self.out.push_str(&word);
                 self.out.push_str(" in ");
                 self.indentation += INDENT_AMOUNT;
-                for item in &c.cases {
-                    self.newline("");
-                    let pats: Vec<String> = item.patterns.iter().map(word_text).collect();
+                for (index, item) in c.cases.iter().enumerate() {
+                    if !(self.printing_comsub && index == 0) {
+                        self.newline("");
+                    }
+                    let pats: Vec<String> = item
+                        .patterns
+                        .iter()
+                        .map(|word| self.word_text(word))
+                        .collect();
                     self.out.push_str(&pats.join(" | "));
                     self.out.push_str(")\n");
                     self.indentation += INDENT_AMOUNT;
@@ -479,7 +745,10 @@ impl Printer {
             }
             CompoundCommand::Conditional(words) => {
                 self.out.push_str("[[ ");
-                let toks: Vec<String> = words.iter().map(word_text).collect();
+                let toks: Vec<String> = words
+                    .iter()
+                    .map(|word| self.word_text(word))
+                    .collect();
                 self.out.push_str(&cond_text(&toks));
                 self.out.push_str(" ]]");
             }
@@ -528,6 +797,41 @@ impl Printer {
         elifs: &[(Vec<Command>, Vec<Command>)],
         else_branch: Option<&[Command]>,
     ) {
+        if self.failed() {
+            return;
+        }
+        self.print_if_clause(test, then);
+        for (etest, ethen) in elifs {
+            if self.failed() {
+                return;
+            }
+            self.semicolon();
+            self.newline("else\n");
+            self.indentation += INDENT_AMOUNT;
+            self.indent(self.indentation);
+            self.print_if_clause(etest, ethen);
+        }
+        if self.failed() {
+            return;
+        }
+        if let Some(else_cmds) = else_branch {
+            self.semicolon();
+            self.newline("else\n");
+            self.indentation += INDENT_AMOUNT;
+            self.print_list(else_cmds);
+            self.print_deferred_if_any("");
+            self.indentation -= INDENT_AMOUNT;
+        }
+        for level in (0..=elifs.len()).rev() {
+            self.semicolon();
+            self.newline("fi");
+            if level > 0 {
+                self.indentation -= INDENT_AMOUNT;
+            }
+        }
+    }
+
+    fn print_if_clause(&mut self, test: &[Command], then: &[Command]) {
         self.out.push_str("if ");
         self.skip_this_indent += 1;
         self.print_list(test);
@@ -537,24 +841,6 @@ impl Printer {
         self.print_list(then);
         self.print_deferred_if_any("");
         self.indentation -= INDENT_AMOUNT;
-        if let Some(((etest, ethen), rest)) = elifs.split_first() {
-            self.semicolon();
-            self.newline("else\n");
-            self.indentation += INDENT_AMOUNT;
-            self.indent(self.indentation);
-            self.print_if(etest, ethen, rest, else_branch);
-            self.print_deferred_if_any("");
-            self.indentation -= INDENT_AMOUNT;
-        } else if let Some(else_cmds) = else_branch {
-            self.semicolon();
-            self.newline("else\n");
-            self.indentation += INDENT_AMOUNT;
-            self.print_list(else_cmds);
-            self.print_deferred_if_any("");
-            self.indentation -= INDENT_AMOUNT;
-        }
-        self.semicolon();
-        self.newline("fi");
     }
 
     /// Nested `function name () { ... }` inside a body.
@@ -741,12 +1027,45 @@ fn reconstruct_word(w: &Word) -> String {
     s
 }
 
+/// A substitution body as bash stores it after parsing (`print_comsub`).
+pub(crate) fn comsub_commands(cmds: &[Command]) -> String {
+    let mut p = Printer {
+        printing_comsub: true,
+        ..Printer::default()
+    };
+    p.print_list(cmds);
+    p.print_deferred_if_any("");
+    p.out.into_string()
+}
+
+/// Print a command-substitution body while charging every output byte to the
+/// parser's shared fuel and request budget. Nested reconstructions reuse the
+/// same quota, so process substitutions cannot escape the caller's limits.
+pub(crate) fn comsub_commands_bounded(
+    cmds: &[Command],
+    fuel: &Cell<usize>,
+    max_fuel: usize,
+    execution_budget: Option<&ExecutionBudget>,
+) -> Result<String> {
+    let quota = Rc::new(PrintQuota {
+        fuel,
+        max_fuel,
+        execution_budget,
+        failure: RefCell::new(None),
+    });
+    let mut p = Printer::with_quota(quota);
+    p.printing_comsub = true;
+    p.print_list(cmds);
+    p.print_deferred_if_any("");
+    p.finish()
+}
+
 /// Commands printed on one line (inside `$(...)` reconstructions).
 pub(crate) fn inline_commands(cmds: &[Command]) -> String {
     let mut p = Printer::default();
     p.print_list(cmds);
     p.print_deferred_if_any("");
-    p.out
+    p.out.into_string()
 }
 
 /// `[[ ... ]]` operands, as bash's `print_cond_node` prints its parse:
@@ -906,6 +1225,12 @@ mod tests {
             print_fn("f() { cat <<'E'\n$x\nE\necho z; }"),
             "f () \n{ \n    cat <<'E'\n$x\nE\n\n    echo z\n}"
         );
+    }
+
+    #[test]
+    fn heredoc_continuations_do_not_reappear_in_printed_delimiters() {
+        let script = Parser::new(": <<EO\\\nF\nbody\nEOF\n").parse().unwrap();
+        assert_eq!(comsub_commands(&script.commands), ": <<EOF\nbody\nEOF\n");
     }
 
     #[test]

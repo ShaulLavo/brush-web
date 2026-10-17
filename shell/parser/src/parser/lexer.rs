@@ -60,12 +60,33 @@ fn defer_backtick_syntax_error(buf: &mut String, body_start: usize) {
     let Some(body) = buf.get(body_start..) else {
         return;
     };
-    if body.trim().is_empty() || super::Parser::new(body).parse().is_ok() {
+    if body.trim().is_empty()
+        || closes_as_written(&buf[body_start.saturating_sub(1)..]) && super::Parser::new(body).parse().is_ok()
+    {
         return;
     }
     let deferred = format!("eval {}", super::raw::single_quote(body));
     buf.truncate(body_start);
     buf.push_str(&deferred);
+}
+
+/// Whether `$(` + `text` + `)` ends exactly at that final `)` when the word
+/// parser scans it. A backtick body ends at the next unescaped backtick, so a
+/// here-document or quote inside it must not hide or add a `)`.
+/// `text` starts with the character before the body (`(` or a space).
+fn closes_as_written(text: &str) -> bool {
+    let mut scanner = super::subst_scan::SubstScanner::new();
+    let mut chars = text.chars();
+    // The `(` of `$(` itself was consumed when the scanner was created.
+    if text.starts_with('(') {
+        chars.next();
+    }
+    for c in chars {
+        if scanner.feed(c) == super::subst_scan::Step::Close {
+            return false;
+        }
+    }
+    scanner.feed(')') == super::subst_scan::Step::Close
 }
 
 /// Concrete (drop-free) type of [`Lexer::lookahead`], so borrows end early.
@@ -87,6 +108,9 @@ pub struct Lexer<'a> {
     /// Buffer for re-injected characters (e.g., rest-of-line after heredoc delimiter).
     /// Consumed before `chars`.
     reinject_buf: VecDeque<char>,
+    /// Lexing a command substitution body: a here-document line that is the
+    /// delimiter followed by `)` ends the document (bash's PST_CMDSUBST).
+    substitution_body: bool,
     /// Maximum allowed nesting depth for command substitution
     max_subst_depth: usize,
     /// Preserve the typed origin while public error tokens retain their text.
@@ -155,6 +179,7 @@ impl<'a> Lexer<'a> {
             position: Position::new(),
             chars: input.chars().peekable(),
             reinject_buf: VecDeque::new(),
+            substitution_body: false,
             max_subst_depth: max_depth,
             limit_exceeded: None,
             capture_raw: false,
@@ -467,6 +492,10 @@ impl<'a> Lexer<'a> {
     }
 
     /// Turn word-token source capture on or off.
+    pub(crate) fn set_substitution_body(&mut self, on: bool) {
+        self.substitution_body = on;
+    }
+
     pub fn set_capture_raw(&mut self, on: bool) {
         self.capture_raw = on;
     }
@@ -1588,6 +1617,8 @@ impl<'a> Lexer<'a> {
                         }
                         Self::push_literal_with_escaped_dollar(content, &segment);
                         flags.quoted_ranges.push((start, content.len()));
+                    } else if self.peek_char() == Some('"') {
+                        // The next iteration reads the locale-quoted segment.
                     } else {
                         flags.has_unquoted_expansion = true;
                         content.push('$');
@@ -1783,7 +1814,7 @@ impl<'a> Lexer<'a> {
             match scanner.feed(c, next) {
                 Step::Copy => {}
                 Step::Escape | Step::Open => word.extend(self.advance()),
-                Step::Command => {
+                Step::Command | Step::Process => {
                     word.extend(self.advance());
                     if !self.read_command_subst_body(word) {
                         return Err("unterminated command substitution".to_string());
@@ -2707,6 +2738,19 @@ impl<'a> Lexer<'a> {
                     current_line.clear();
                 }
                 Some(ch) => {
+                    // In a command substitution bash ends the document at a
+                    // line that is the delimiter followed by `)`, warning that
+                    // it was "delimited by end-of-file"; the `)` is read again.
+                    if ch == ')' && self.substitution_body {
+                        let line_for_match: &str = if strip_tabs {
+                            current_line.trim_start_matches('\t')
+                        } else {
+                            &current_line
+                        };
+                        if line_for_match == delimiter {
+                            break;
+                        }
+                    }
                     current_line.push(ch);
                     self.advance();
                 }

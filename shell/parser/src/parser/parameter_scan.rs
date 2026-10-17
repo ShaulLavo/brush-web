@@ -44,6 +44,8 @@ struct Frame {
     quote: Option<char>,
     outer_quoted: bool,
     pattern: bool,
+    backtick: bool,
+    angle: bool,
 }
 
 /// An action after a raw character. Escape/Open/Command ask the caller to
@@ -54,6 +56,7 @@ pub enum Step {
     Escape,
     Open,
     Command,
+    Process,
     Closed,
     /// Unquoted root `/` terminating a replacement pattern (not consumed).
     Delimiter,
@@ -97,11 +100,12 @@ impl<const N: usize> ParameterScan<N> {
 
     pub(crate) fn substring_unquoted(&self) -> bool {
         let frame = &self.frames[self.depth - 1];
-        frame.quote.is_none() && frame.header.substring
+        frame.quote.is_none() && !frame.backtick && frame.header.substring
     }
 
     pub(crate) fn unquoted(&self) -> bool {
-        self.frames[self.depth - 1].quote.is_none()
+        let frame = &self.frames[self.depth - 1];
+        frame.quote.is_none() && !frame.backtick
     }
 
     pub(crate) fn single_quoted(&self) -> bool {
@@ -113,6 +117,13 @@ impl<const N: usize> ParameterScan<N> {
             return Step::Limit;
         }
         let frame = &mut self.frames[self.depth - 1];
+        if frame.backtick {
+            if ch == '\\' {
+                return Step::Escape;
+            }
+            frame.backtick = ch != '`';
+            return Step::Copy;
+        }
         if self.depth == 1 && self.slash_delimiter && frame.quote.is_none() && ch == '/' {
             return Step::Delimiter;
         }
@@ -120,6 +131,7 @@ impl<const N: usize> ParameterScan<N> {
         let literal_single =
             single && (!frame.outer_quoted || frame.pattern || frame.header.single_quotes);
         if ch == '\0' || ch == '\\' && !literal_single && !(single && next == Some('\'')) {
+            frame.angle = false;
             return Step::Escape;
         }
         if frame.quote == Some(ch) {
@@ -132,6 +144,16 @@ impl<const N: usize> ParameterScan<N> {
             // only if that operand is selected later. An unselected '${' or
             // '$(' lookalike must not become an eager parse failure.
             return Step::Copy;
+        }
+        if ch == '`' {
+            frame.backtick = true;
+            frame.angle = false;
+            return Step::Copy;
+        }
+        frame.angle = frame.quote.is_none() && matches!(ch, '<' | '>') && !frame.angle;
+        if frame.angle && next == Some('(') {
+            frame.angle = false;
+            return Step::Process;
         }
         if frame.quote.is_none() {
             frame.header.character(ch, next);
@@ -197,6 +219,11 @@ mod tests {
             "v/b/${w/y/{}}",
             "v/b/${u:-'$(x'}}",
             "u:-'${x}'}",
+            "u:-`f() { :; }; f`}",
+            "u:-`\"open`}",
+            "u:-`'open`}",
+            "u:-`$(open`}",
+            "u:-\"`'open`\"}",
         ] {
             assert_eq!(boundary(&format!("{source}tail")), source.len(), "{source}");
         }
