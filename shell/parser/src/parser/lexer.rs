@@ -1119,18 +1119,10 @@ impl<'a> Lexer<'a> {
                                 } else if nc == '(' {
                                     word.push(nc);
                                     self.advance();
-                                    let mut depth = 1;
-                                    while let Some(pc) = self.peek_char() {
-                                        word.push(pc);
-                                        self.advance();
-                                        if pc == '(' {
-                                            depth += 1;
-                                        } else if pc == ')' {
-                                            depth -= 1;
-                                            if depth == 0 {
-                                                break;
-                                            }
-                                        }
+                                    if !self.read_command_subst_body(&mut word) {
+                                        return Some(Token::Error(
+                                            "unterminated command substitution".to_string(),
+                                        ));
                                     }
                                 } else if nc.is_ascii_alphanumeric()
                                     || nc == '_'
@@ -1171,43 +1163,13 @@ impl<'a> Lexer<'a> {
                     word.push('(');
                     self.advance();
 
-                    // Check for $(( - arithmetic expansion
-                    if self.peek_char() == Some('(') {
-                        let inner_open = word.len();
-                        word.push('(');
-                        self.advance();
-                        // Read until ))
-                        let mut depth = 2;
-                        let mut subshell = false;
-                        while let Some(c) = self.peek_char() {
-                            word.push(c);
-                            self.advance();
-                            if c == '(' {
-                                depth += 1;
-                            } else if c == ')' {
-                                depth -= 1;
-                                if depth == 1 && !subshell && self.peek_char() != Some(')') {
-                                    // `$(( cmd ) )`: the inner `(` closes
-                                    // alone, so this is `$( (cmd) )`, a
-                                    // command substitution of a subshell
-                                    // (bash reads it the same way).
-                                    word.insert(inner_open, ' ');
-                                    subshell = true;
-                                }
-                                if depth == 0 {
-                                    break;
-                                }
-                            }
-                        }
-                    } else {
-                        // Quote/heredoc-aware end of the body (see subst_scan).
-                        // Nesting depth is bounded where bodies are parsed
-                        // (parser max_depth) and run (max_subst_depth).
-                        if !self.read_command_subst_body(&mut word) {
-                            return Some(Token::Error(
-                                "unterminated command substitution".to_string(),
-                            ));
-                        }
+                    // Arithmetic and ambiguous command subshells share one
+                    // boundary reader. Raw paren counting would consume suffix
+                    // words after a parenthesis inside a command comment.
+                    if !self.read_command_subst_body(&mut word) {
+                        return Some(Token::Error(
+                            "unterminated command substitution".to_string(),
+                        ));
                     }
                 } else if self.peek_char() == Some('[') {
                     // `$[expr]`: bash's old synonym for `$((expr))`.
@@ -1676,23 +1638,7 @@ impl<'a> Lexer<'a> {
             Some('(') => {
                 content.push('(');
                 self.advance();
-                if self.peek_char() == Some('(') {
-                    content.push('(');
-                    self.advance();
-                    let mut depth = 2;
-                    while let Some(c) = self.peek_char() {
-                        content.push(c);
-                        self.advance();
-                        if c == '(' {
-                            depth += 1;
-                        } else if c == ')' {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                    }
-                } else if !self.read_command_subst_body(content) {
+                if !self.read_command_subst_body(content) {
                     return Err("unterminated command substitution".to_string());
                 }
             }

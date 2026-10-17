@@ -137,6 +137,7 @@ pub struct SubstScanner {
     input_finished: bool,
     offset: usize,
     replay_work: usize,
+    root_arithmetic: Option<usize>,
 }
 
 impl Default for SubstScanner {
@@ -172,6 +173,7 @@ impl SubstScanner {
             input_finished: false,
             offset: 0,
             replay_work: 0,
+            root_arithmetic: None,
         }
     }
 
@@ -252,6 +254,9 @@ impl SubstScanner {
                 } else {
                     debug_assert_eq!(self.code.len(), code + 1);
                     self.stack[stack] = Frame::Code;
+                    if stack == 0 {
+                        self.root_arithmetic = None;
+                    }
                     self.parens[code] = 0;
                     self.code[code] = CodeState {
                         cmd_pos: true,
@@ -295,6 +300,12 @@ impl SubstScanner {
         self.offset
     }
 
+    /// Byte position of the second opener if the resolved root is arithmetic.
+    /// Continuations may precede it; command fallback clears this classification.
+    pub fn arithmetic_start(&self) -> Option<usize> {
+        self.root_arithmetic
+    }
+
     pub fn replay_work(&self) -> usize {
         self.replay_work
     }
@@ -325,6 +336,11 @@ impl SubstScanner {
             }
             None => Some(c),
         };
+        if step == Step::Close {
+            // A resolved boundary is terminal, even when EOF replay has unread
+            // lookahead suffixes on its tape. Never offer those as pending work.
+            self.replay = None;
+        }
         if step == Step::Body && self.input_finished && !self.has_pending() {
             self.schedule_eof_fallback();
         }
@@ -500,6 +516,9 @@ impl SubstScanner {
                     } else {
                         self.tentative
                             .push((self.stack.len() - 1, self.code.len() - 1, start));
+                        if self.stack.len() == 1 {
+                            self.root_arithmetic = Some(start);
+                        }
                         Frame::Arithmetic
                     }
                 } else {
@@ -903,6 +922,7 @@ fn split_subst_body(s: &str) -> Option<(&str, usize)> {
     loop {
         match step {
             Step::Close => {
+                assert!(!scanner.has_pending(), "resolved close is terminal");
                 let end = scanner.offset();
                 return Some((&s[..end - 1], end));
             }

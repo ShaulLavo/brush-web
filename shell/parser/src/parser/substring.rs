@@ -72,8 +72,8 @@ impl Parser<'_> {
     }
 
     fn read_parameter_command(&self, chars: &mut WordChars<'_>, process: bool) -> Result<()> {
-        let body = self.parameter_command_body(chars, process)?;
-        if !process && body.starts_with('(') {
+        let (body, arithmetic) = self.parameter_command_body(chars, process)?;
+        if arithmetic {
             return Ok(());
         }
         self.validate_parameter_command(body)
@@ -83,7 +83,7 @@ impl Parser<'_> {
         &self,
         chars: &mut WordChars<'a>,
         process: bool,
-    ) -> Result<&'a str> {
+    ) -> Result<(&'a str, bool)> {
         let source = chars.remaining();
         let mut scanner = if process {
             SubstScanner::new_command()
@@ -125,7 +125,7 @@ impl Parser<'_> {
             self.tick()?;
             chars.next();
         }
-        Ok(&source[..end])
+        Ok((&source[..end], scanner.arithmetic_start().is_some()))
     }
 
     #[inline(never)]

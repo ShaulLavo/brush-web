@@ -1204,6 +1204,8 @@ fn ambiguous_substitutions_preserve_inactive_defaults_and_suffixes() {
 fn replayed_utf8_closes_preserve_later_tokens() {
     for source in [
         "$((printf é # (\n))",
+        "\"$((printf é # (\n))\"",
+        "\"\"$((printf é # (\n))",
         "${v:-$((printf é # (\n))}",
         "\"${v:-$((printf é # (\n))}\"",
     ] {
@@ -1244,4 +1246,40 @@ fn arithmetic_replay_is_charged_to_parser_fuel() {
         parse(&eof_source, &limits),
         Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
     ));
+}
+
+#[test]
+fn resolved_substitution_kind_controls_the_ast_without_rewriting_source() {
+    for source in [
+        "$((printf é # (\n))",
+        "\"$((printf é # (\n))\"",
+        "\"\"$((printf é # (\n))",
+        "$((case x in x) :;; esac) )",
+    ] {
+        let word = argument(&format!("args {source} suffix"));
+        assert!(
+            word.parts
+                .iter()
+                .any(|part| matches!(part, WordPart::CommandSubstitution(_))),
+            "{source}: {word:?}"
+        );
+        assert!(
+            !word
+                .parts
+                .iter()
+                .any(|part| matches!(part, WordPart::ArithmeticExpansion(_))),
+            "{source}: {word:?}"
+        );
+        assert_eq!(word.raw.as_deref(), Some(source));
+    }
+    for source in [
+        "$((1 << 2)\\\n)",
+        "$(\\\n(1 << 2))",
+        "\"$((1 << 2)\\\n)\"",
+        "\"\"$((1 << 2)\\\n)",
+    ] {
+        let word = argument(&format!("args {source} suffix"));
+        assert!(word.parts.iter().any(|part| matches!(part, WordPart::ArithmeticExpansion(expression) if expression == "1 << 2")), "{source}: {word:?}");
+        assert_eq!(word.raw.as_deref(), Some(source));
+    }
 }

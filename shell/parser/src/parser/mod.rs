@@ -366,7 +366,9 @@ impl<'a> Parser<'a> {
         // a generated `[` is a literal, not an unterminated array subscript.
         // A second inert prefix forces word context for empty text, reserved
         // words and standalone braces. Remove only that prefix structurally.
-        let size = input.len().checked_add(3)
+        let size = input
+            .len()
+            .checked_add(3)
             .filter(|size| *size <= max_fuel)
             .ok_or(LimitExceeded::ParserFuel {
                 used: max_fuel,
@@ -570,7 +572,8 @@ impl<'a> Parser<'a> {
     fn limit_error(&self, limit: LimitExceeded) -> Error {
         // Infallible word readers defer errors and can keep scanning. Poison
         // their shared budget so an earlier syntax error cannot mask a limit.
-        self.execution_budget.as_ref()
+        self.execution_budget
+            .as_ref()
             .map_or(limit, |budget| budget.record_failure(limit))
             .into()
     }
@@ -777,8 +780,11 @@ impl<'a> Parser<'a> {
             // parse_command_list consumes semicolon/background separators.
             // A remaining token on this line cannot silently start a second
             // command after a completed compound command or its redirections.
-            if self.strict_command_separators && parsed.is_some() && self.current_token.is_some()
-                && !matches!(self.current_token, Some(tokens::Token::Newline)) {
+            if self.strict_command_separators
+                && parsed.is_some()
+                && self.current_token.is_some()
+                && !matches!(self.current_token, Some(tokens::Token::Newline))
+            {
                 return Err(self.error("unexpected token"));
             }
             if parsed.is_none()
@@ -949,10 +955,12 @@ impl<'a> Parser<'a> {
 
         // No grammar level may silently begin another command without an
         // operator. Parentheses and reserved terminators belong to its caller.
-        if self.strict_command_separators && matches!(
-            self.current_token,
-            Some(tokens::Token::LeftParen | tokens::Token::DoubleLeftParen)
-        ) {
+        if self.strict_command_separators
+            && matches!(
+                self.current_token,
+                Some(tokens::Token::LeftParen | tokens::Token::DoubleLeftParen)
+            )
+        {
             return Err(self.error("unexpected token"));
         }
         finish_command_list(first, rest, start_span.merge(self.current_span))
@@ -5078,52 +5086,37 @@ impl<'a> Parser<'a> {
                     // Check for $( - command substitution or arithmetic
                     chars.next(); // consume first '('
 
-                    // Check for $(( - arithmetic expansion
-                    if chars.peek() == Some(&'(') {
-                        chars.next(); // consume second '('
-                        let mut expr = String::new();
-                        let mut depth = 2;
-                        for c in chars.by_ref() {
-                            if c == '(' {
-                                depth += 1;
-                                expr.push(c);
-                            } else if c == ')' {
-                                depth -= 1;
-                                if depth == 0 {
+                    // The shared scanner resolves both real arithmetic and
+                    // command-subshell fallback, including quotes/comments and
+                    // logically adjacent parentheses across continuations.
+                    let mut body = String::new();
+                    let mut scanner = subst_scan::SubstScanner::new();
+                    match self.scan_word_substitution(&mut scanner, &chars) {
+                        Ok((end, closed)) => {
+                            let mut consumed = 0;
+                            while consumed < end {
+                                let Some(c) = chars.next() else {
                                     break;
+                                };
+                                consumed += c.len_utf8();
+                                if !closed || consumed < end {
+                                    body.push(c);
                                 }
-                                expr.push(c);
-                            } else {
-                                expr.push(c);
                             }
                         }
-                        // Remove trailing ) if present
-                        if expr.ends_with(')') {
-                            expr.pop();
+                        Err(err) => {
+                            let first = self.deferred_error.take();
+                            self.deferred_error.set(first.or(Some(err)));
                         }
-                        push_part!(WordPart::ArithmeticExpansion(expr));
+                    }
+                    if let Some(start) = scanner.arithmetic_start()
+                        && let Some(expression) = body.get(start + 1..).and_then(|expression| {
+                            expression.trim_end_matches("\\\n").strip_suffix(')')
+                        })
+                    {
+                        push_part!(WordPart::ArithmeticExpansion(expression.to_string()));
                     } else {
-                        // Command substitution $(...): quote/heredoc-aware end.
-                        let mut cmd_str = String::new();
-                        let mut scanner = subst_scan::SubstScanner::new();
-                        match self.scan_word_substitution(&mut scanner, &chars) {
-                            Ok((end, closed)) => {
-                                let mut consumed = 0;
-                                while consumed < end {
-                                    let Some(c) = chars.next() else {
-                                        break;
-                                    };
-                                    consumed += c.len_utf8();
-                                    if !closed || consumed < end {
-                                        cmd_str.push(c);
-                                    }
-                                }
-                            }
-                            Err(err) => {
-                                let first = self.deferred_error.take();
-                                self.deferred_error.set(first.or(Some(err)));
-                            }
-                        }
+                        let cmd_str = body;
                         // A failed inner parse must never make the part vanish:
                         // dropping it splices the literals on either side into a
                         // word that appears nowhere in the source (`a$(|)b` ->
@@ -5512,7 +5505,9 @@ fn bad_brace_parameter(chars: &WordChars<'_>) -> Option<String> {
     let length_prefix = match it.peek() {
         Some('!') => return None,
         Some('#') => {
-            if hash_param_with_op(chars) { return None; }
+            if hash_param_with_op(chars) {
+                return None;
+            }
             it.next();
             match it.peek() {
                 // `${#}`, `${##}`, `${#-}`, ...: length of a special parameter
@@ -5522,7 +5517,9 @@ fn bad_brace_parameter(chars: &WordChars<'_>) -> Option<String> {
                 Some(_) => {
                     let mut tail = it.clone();
                     tail.next();
-                    if tail.peek() == Some(&'}') { return None; }
+                    if tail.peek() == Some(&'}') {
+                        return None;
+                    }
                     true
                 }
             }
@@ -6119,7 +6116,9 @@ fn cond_term(
             *pos += 1;
             Ok(())
         }
-        Some(CondTok::Op(op)) => Err(ConditionalError::Syntax(format!("unexpected token `{op}' in conditional command"))),
+        Some(CondTok::Op(op)) => Err(ConditionalError::Syntax(format!(
+            "unexpected token `{op}' in conditional command"
+        ))),
     }
 }
 
@@ -6668,11 +6667,18 @@ mod tests {
             for _ in 0..120 {
                 script = template.replace("BODY", &script);
             }
-            let err = Parser::with_limits(&script, usize::MAX, 100_000)
+            // Each nested command performs a bounded boundary scan before its
+            // grammar parse. Size work for those passes so this test reaches
+            // the hard AST-depth admission rather than the fuel admission.
+            let fuel = script
+                .len()
+                .saturating_mul(HARD_MAX_AST_DEPTH)
+                .saturating_mul(4);
+            let err = Parser::with_limits(&script, usize::MAX, fuel)
                 .parse()
                 .unwrap_err();
             assert!(
-                err.to_string().contains("AST nesting too deep"),
+                matches!(err, Error::ResourceLimit(LimitExceeded::AstDepth { .. })),
                 "{template}: {err}"
             );
         }
