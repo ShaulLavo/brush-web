@@ -1,7 +1,7 @@
 //! Original case-pattern positional adapter. GNU Bash expands without pathname
 //! or IFS field splitting here, but selects the first field produced by quoted
 //! multi-value `$@` when IFS is nonempty/unset. No upstream implementation copied.
-use super::{Error, Expansion, Ifs, Protection};
+use super::{Error, Expansion, Protection};
 use crate::state::SharedState;
 
 impl Expansion<'_> {
@@ -16,11 +16,12 @@ impl Expansion<'_> {
             return Err(2.into());
         }
         self.elements_remaining -= count;
-        let ifs_separator = Ifs::separator(state);
+        let ifs_separator = self.ifs_separator(state).await?;
         // Scalar @ joins with spaces. Scalar * uses the first IFS character;
         // empty IFS concatenates, while unset IFS defaults to a space.
         let separator = if at { Some(' ') } else { ifs_separator };
         let first_field = at && quoted && ifs_separator.is_some() && count > 1;
+        let protection = Protection::expansion(quoted, state);
         for index in 0..count {
             self.work.checkpoint(self.cancel).await?;
             if index != 0 {
@@ -39,8 +40,7 @@ impl Expansion<'_> {
                 value.clone()
             };
             self.admit_pattern_snapshot(&value).await?;
-            self.segment(&value, Protection::expansion(quoted, state), quoted)
-                .await?;
+            self.segment(&value, protection, quoted).await?;
         }
         // Discarded later fields do not stop scanning: suffix substitutions,
         // assignments, errors and shared work/storage limits still take effect.

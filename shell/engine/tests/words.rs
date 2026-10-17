@@ -4115,5 +4115,7 @@ mod nounset;
 mod namerefs;
 #[path = "words/readonly.rs"]
 mod readonly;
+#[path = "words/scalar_refs.rs"]
+mod scalar_refs;
 #[path = "words/set_positionals.rs"]
 mod set_positionals;

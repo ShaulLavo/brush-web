@@ -489,6 +489,13 @@ async fn declarations(
                 .await
                 .map_err(error_status)?;
         }
+        let key = if matches!(name, "export" | "readonly") {
+            State::attribute_target(state, &key, name == "readonly", &context.cancel, work)
+                .await
+                .map_err(error_status)?
+        } else {
+            key
+        };
         if apply_declaration(name, &key, value, &mut state.borrow_mut()).is_ok() {
             continue;
         }
@@ -545,6 +552,9 @@ fn apply_declaration(
     if name == "readonly" {
         return state.readonly(key.to_owned(), value);
     }
+    if name == "export" {
+        return state.export(key.to_owned(), value);
+    }
     if name == "local" {
         let value = value.unwrap_or_else(|| state.variables.get(key).cloned().unwrap_or_default());
         return state.local(key.to_owned(), value);
@@ -554,9 +564,6 @@ fn apply_declaration(
     }
     if let Some(value) = value {
         state.assign_parameter(key.to_owned(), value)?;
-    }
-    if name == "export" {
-        state.exported.insert(key.to_owned());
     }
     Ok(())
 }

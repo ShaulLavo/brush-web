@@ -165,6 +165,12 @@ impl State {
     pub(crate) fn is_nameref(&self, name: &str) -> bool {
         self.namerefs.contains_key(name)
     }
+    pub(crate) fn shares_scalar_binding(&self, first: &str, second: &str) -> Result<bool, i32> {
+        let Some(first) = self.scalar_target(first)? else {
+            return Ok(false);
+        };
+        Ok(self.scalar_target(second)? == Some(first))
+    }
     pub(crate) fn indirect_parameter<'a>(&'a self, name: &'a str) -> Result<Option<&'a str>, i32> {
         if self.is_nameref(name) {
             return self.scalar_target(name);
@@ -303,6 +309,7 @@ impl State {
             .is_some_and(|local| local.readonly)
     }
     pub(crate) fn readonly(&mut self, name: String, value: Option<String>) -> Result<(), i32> {
+        let name = self.assignment_name(name)?;
         if let Some(value) = value {
             self.assign_parameter(name.clone(), value)?;
         }
@@ -317,6 +324,38 @@ impl State {
         }
         self.readonly.insert(name);
         Ok(())
+    }
+    pub(crate) fn export(&mut self, name: String, value: Option<String>) -> Result<(), i32> {
+        let name = self.assignment_name(name)?;
+        if let Some(value) = value {
+            self.assign_parameter(name.clone(), value)?;
+        }
+        self.exported.insert(name);
+        Ok(())
+    }
+    /// Resolve attributes and values to one binding. Admit the retained set
+    /// node and all temporary/assignment keys before copying the target name.
+    pub(crate) async fn attribute_target(
+        state: &SharedState,
+        name: &str,
+        readonly: bool,
+        cancel: &Cancel,
+        work: &mut Work,
+    ) -> Result<String, Error> {
+        Self::admit_scalar_access(state, name, cancel, work).await?;
+        let state = state.borrow();
+        let target = state.scalar_target(name)?.ok_or(1)?;
+        let present = if readonly {
+            state.locals.iter().any(|frame| frame.contains_key(target))
+                || state.readonly.contains(target)
+        } else {
+            state.exported.contains(target)
+        };
+        work.admit_storage(target.len().saturating_mul(3))?;
+        if !present {
+            work.admit_storage(snapshot_node_bytes::<()>()?)?;
+        }
+        Ok(target.to_owned())
     }
     pub(crate) fn environment(&self) -> BTreeMap<String, String> {
         self.exported
@@ -853,6 +892,87 @@ mod tests {
         ));
         assert!(!state.borrow().variables.contains_key("target"));
         assert_eq!(state.borrow().namerefs["r"], "target");
+    }
+
+    #[test]
+    fn resolved_attribute_keys_and_set_nodes_are_admitted_before_growth() {
+        for readonly in [false, true] {
+            let state = State::default().shared();
+            state
+                .borrow_mut()
+                .namerefs
+                .insert("ref".into(), "target".into());
+            let bytes = "target".len() * 3
+                + snapshot_node_bytes::<()>().unwrap_or_else(|_| panic!("node size fits"));
+            let cancel = Cancel::new();
+            let mut small = Work::new(64, bytes - 1, 0);
+            assert!(matches!(
+                State::attribute_target(&state, "ref", readonly, &cancel, &mut small)
+                    .now_or_never(),
+                Some(Err(Error::Status(2)))
+            ));
+            assert!(state.borrow().exported.is_empty());
+            assert!(state.borrow().readonly.is_empty());
+            let mut exact = Work::new(64, bytes, 0);
+            let key = State::attribute_target(&state, "ref", readonly, &cancel, &mut exact)
+                .now_or_never()
+                .expect("a short reference needs fewer than 64 checkpoints")
+                .unwrap_or_else(|_| panic!("exact attribute admission fits"));
+            let result = if readonly {
+                state.borrow_mut().readonly(key, None)
+            } else {
+                state.borrow_mut().export(key, None)
+            };
+            assert_eq!(result, Ok(()));
+            assert_eq!(state.borrow().readonly.contains("target"), readonly);
+            assert_eq!(state.borrow().exported.contains("target"), !readonly);
+            assert!(!state.borrow().variables.contains_key("target"));
+            assert_eq!(state.borrow().namerefs["ref"], "target");
+        }
+    }
+
+    #[test]
+    fn cancelled_or_cyclic_attribute_resolution_creates_no_attributes() {
+        let state = State::default().shared();
+        state
+            .borrow_mut()
+            .namerefs
+            .insert("ref".into(), "t".repeat(100_000));
+        let cancel = Cancel::new();
+        let mut work = Work::new(1_000_000, 1_000_000, 0);
+        let mut declaration = Box::pin(State::attribute_target(
+            &state, "ref", true, &cancel, &mut work,
+        ));
+        assert!(declaration.as_mut().now_or_never().is_none());
+        assert!(state.try_borrow_mut().is_ok());
+        cancel.cancel();
+        assert!(matches!(
+            declaration.now_or_never(),
+            Some(Err(Error::Status(130)))
+        ));
+        assert!(state.borrow().readonly.is_empty());
+        assert!(state.borrow().exported.is_empty());
+
+        state
+            .borrow_mut()
+            .namerefs
+            .insert("ref".into(), "ref".into());
+        let mut work = Work::new(100_000, 4096, 0);
+        let cancel = Cancel::new();
+        let mut declaration = Box::pin(State::attribute_target(
+            &state, "ref", false, &cancel, &mut work,
+        ));
+        let waker = noop_waker();
+        let mut context = Context::from_waker(&waker);
+        for _ in 0..1024 {
+            if let Poll::Ready(result) = declaration.as_mut().poll(&mut context) {
+                assert!(matches!(result, Err(Error::Status(1))));
+                assert!(state.borrow().readonly.is_empty());
+                assert!(state.borrow().exported.is_empty());
+                return;
+            }
+        }
+        panic!("bounded cycle resolution must finish");
     }
 
     #[test]

@@ -273,16 +273,25 @@ fn admit_vec_slot<T>(value: &mut Vec<T>, work: &mut Work) -> Result<(), Error> {
         .map_err(|_| Error::Status(2))
 }
 
+#[derive(Default)]
 struct Ifs {
+    small: [char; 3],
+    small_len: usize,
     chars: BTreeSet<char>,
 }
 impl Ifs {
     fn separator(state: &SharedState) -> Option<char> {
         state
             .borrow()
-            .variables
-            .get("IFS")
+            .scalar_parameter("IFS")
             .map_or(Some(' '), |value| value.chars().next())
+    }
+    async fn admit_access(
+        state: &SharedState,
+        cancel: &Cancel,
+        work: &mut Work,
+    ) -> Result<(), Error> {
+        State::admit_scalar_access(state, "IFS", cancel, work).await
     }
     async fn new(
         state: &SharedState,
@@ -290,27 +299,66 @@ impl Ifs {
         max: usize,
         work: &mut Work,
     ) -> Result<Self, Error> {
-        let value = {
+        Self::admit_access(state, cancel, work).await?;
+        let value: Cow<'static, str> = {
             let s = state.borrow();
-            let value = s
-                .variables
-                .get("IFS")
-                .map(String::as_str)
-                .unwrap_or(" \t\n");
+            let value = s.scalar_parameter("IFS").unwrap_or(" \t\n");
             if value.len() > max.max(3) {
                 return Err(2.into());
             }
-            value.to_owned()
+            match value {
+                "" => Cow::Borrowed(""),
+                " \t\n" => Cow::Borrowed(" \t\n"),
+                value => {
+                    work.admit_storage(value.len())?;
+                    Cow::Owned(value.to_owned())
+                }
+            }
         };
-        let mut chars = BTreeSet::new();
+        let snapshot_bytes = if matches!(&value, Cow::Owned(_)) {
+            value.len()
+        } else {
+            0
+        };
+        let mut ifs = Self::default();
         for ch in value.chars() {
             work.checkpoint(cancel).await?;
-            chars.insert(ch);
+            ifs.insert(ch, work)?;
         }
-        Ok(Self { chars })
+        drop(value);
+        work.release_storage(snapshot_bytes);
+        Ok(ifs)
+    }
+    fn single(ch: char) -> Self {
+        Self {
+            small: [ch, '\0', '\0'],
+            small_len: 1,
+            chars: BTreeSet::new(),
+        }
+    }
+    fn is_empty(&self) -> bool {
+        self.small_len == 0 && self.chars.is_empty()
+    }
+    fn contains(&self, ch: char) -> bool {
+        self.small[..self.small_len].contains(&ch) || self.chars.contains(&ch)
+    }
+    fn insert(&mut self, ch: char, work: &mut Work) -> Result<(), Error> {
+        if self.contains(ch) {
+            return Ok(());
+        }
+        if self.small_len < self.small.len() {
+            self.small[self.small_len] = ch;
+            self.small_len += 1;
+            return Ok(());
+        }
+        // Charge a whole sparse B-tree node before each new overflow member.
+        // Default/empty and short delimiter sets need no collection allocation.
+        work.admit_storage((std::mem::size_of::<char>() + std::mem::size_of::<usize>()) * 16)?;
+        self.chars.insert(ch);
+        Ok(())
     }
     fn delimiter(&self, ch: char) -> Delimiter {
-        if !self.chars.contains(&ch) {
+        if !self.contains(ch) {
             return Delimiter::Text;
         }
         if matches!(ch, ' ' | '\t' | '\n') {
@@ -445,10 +493,9 @@ impl Segments {
         // @ uses spaces when the final IFS is empty. Positional unquoted *
         // expanded with empty IFS selects space splitting for the whole word.
         if !self.needs_split {
-            ifs.chars.clear();
-        } else if self.split_space || (self.list_word && ifs.chars.is_empty()) {
-            ifs.chars.clear();
-            ifs.chars.insert(' ');
+            ifs = Ifs::default();
+        } else if self.split_space || (self.list_word && ifs.is_empty()) {
+            ifs = Ifs::single(' ');
         }
         fields.list_word = self.list_word;
         for part in self.parts {
@@ -711,6 +758,10 @@ impl Expansion<'_> {
         }
         Ok(())
     }
+    async fn ifs_separator(&mut self, state: &SharedState) -> Result<Option<char>, Error> {
+        Ifs::admit_access(state, self.cancel, self.work).await?;
+        Ok(Ifs::separator(state))
+    }
     fn admit_raw(&mut self, bytes: usize) -> Result<(), Error> {
         if bytes > self.raw_remaining {
             return Err(2.into());
@@ -837,6 +888,9 @@ impl Expansion<'_> {
         depth: usize,
     ) -> LocalBoxFuture<'a, Result<(), Error>> {
         async move {
+            if !scalar && !quoted {
+                Ifs::admit_access(state, self.cancel, self.work).await?;
+            }
             self.segments.needs_split |= !scalar && !quoted;
             if matches!(part, WordPart::BadSubstitution(_)) {
                 self.work.admit_storage(256)?;
@@ -1603,7 +1657,8 @@ impl Expansion<'_> {
             self.admit_replacement_output().await?;
         }
         State::admit_assignment(state, name, captured.value.len(), self.cancel, self.work).await?;
-        let ifs_changed = ifs_changed || state.borrow().scalar_target(name)? == Some("IFS");
+        State::admit_scalar_access(state, "IFS", self.cancel, self.work).await?;
+        let ifs_changed = ifs_changed || state.borrow().shares_scalar_binding(name, "IFS")?;
         self.work.admit_storage(captured.value.len())?;
         // A prefix frame may also retain the durable value it will restore.
         if state.borrow().prefix_saved(name) {
@@ -1691,6 +1746,9 @@ impl Expansion<'_> {
         scalar: bool,
         depth: usize,
     ) -> Result<(), Error> {
+        if !scalar && !quoted {
+            Ifs::admit_access(state, self.cancel, self.work).await?;
+        }
         match piece {
             operand::Piece::Text { value, protected } => {
                 self.segment(
@@ -1740,7 +1798,7 @@ impl Expansion<'_> {
             return Err(2.into());
         }
         self.elements_remaining -= count;
-        let ifs_separator = Ifs::separator(state);
+        let ifs_separator = self.ifs_separator(state).await?;
         let list = !scalar && (at || !quoted);
         self.segments.needs_split |= list;
         self.segments.list_word |= list;
@@ -1760,16 +1818,12 @@ impl Expansion<'_> {
         if scalar || (quoted && !at) {
             self.segments.empty(self.work)?;
         }
+        let protection = Protection::expansion(quoted || scalar, state);
         for index in 0..count {
             self.element_boundary(index, list, separator, quoted || scalar)
                 .await?;
             let value = list_value(part, state, index, self.raw_remaining)?;
-            self.segment(
-                &value,
-                Protection::expansion(quoted || scalar, state),
-                quoted || scalar,
-            )
-            .await?;
+            self.segment(&value, protection, quoted || scalar).await?;
         }
         Ok(())
     }
@@ -2256,6 +2310,97 @@ mod tests {
     use super::*;
 
     #[test]
+    fn ifs_snapshot_rejects_unadmitted_storage_before_owning_a_custom_value() {
+        let state = State::default().shared();
+        state
+            .borrow_mut()
+            .variables
+            .insert("IFS".into(), ":".into());
+        let cancel = Cancel::new();
+        let mut work = Work::new(64, 0, 1);
+        assert!(matches!(
+            Ifs::new(&state, &cancel, 64, &mut work).now_or_never(),
+            Some(Err(Error::Status(2)))
+        ));
+        assert_eq!(state.borrow().scalar_parameter("IFS"), Some(":"));
+    }
+
+    #[test]
+    fn reference_ifs_snapshots_admit_exact_peak_storage_and_duplicate_delimiters() {
+        let node = (std::mem::size_of::<char>() + std::mem::size_of::<usize>()) * 16;
+        for (value, peak, temporary) in [
+            (None, 0, 0),
+            (Some(""), 0, 0),
+            (Some(" \t\n"), 0, 0),
+            (Some(":"), 1, 1),
+            (Some("::"), 2, 2),
+            (Some("ç"), 2, 2),
+            (Some("abcd"), 4 + node, 4),
+            (Some("abcdd"), 5 + node, 5),
+        ] {
+            let state = State::default().shared();
+            state
+                .borrow_mut()
+                .declare_nameref("IFS".into(), "sep".into(), false)
+                .unwrap();
+            if let Some(value) = value {
+                state
+                    .borrow_mut()
+                    .variables
+                    .insert("sep".into(), value.into());
+            }
+            let cancel = Cancel::new();
+            if peak != 0 {
+                let mut small = Work::new(64, peak - 1, 1);
+                assert!(matches!(
+                    Ifs::new(&state, &cancel, 64, &mut small).now_or_never(),
+                    Some(Err(Error::Status(2)))
+                ));
+            }
+            let mut exact = Work::new(64, peak, 1);
+            let ifs = Ifs::new(&state, &cancel, 64, &mut exact)
+                .now_or_never()
+                .expect("short IFS setup needs fewer than 64 checkpoints")
+                .unwrap_or_else(|_| panic!("exact IFS admission fits"));
+            assert_eq!(ifs.is_empty(), value == Some(""));
+            assert_eq!(exact.storage_remaining, temporary);
+        }
+    }
+
+    #[test]
+    fn reference_ifs_raw_bounds_and_cancellation_do_not_mutate_the_binding() {
+        let state = State::default().shared();
+        state
+            .borrow_mut()
+            .declare_nameref("IFS".into(), "sep".into(), false)
+            .unwrap();
+        state
+            .borrow_mut()
+            .variables
+            .insert("sep".into(), ":".repeat(4096));
+        let cancel = Cancel::new();
+        let mut work = Work::new(16_384, 8192, 1);
+        assert!(matches!(
+            Ifs::new(&state, &cancel, 64, &mut work).now_or_never(),
+            Some(Err(Error::Status(2)))
+        ));
+        assert_eq!(work.storage_remaining, 8192);
+        let mut snapshot = Box::pin(Ifs::new(&state, &cancel, 4096, &mut work));
+        assert!(snapshot.as_mut().now_or_never().is_none());
+        assert!(state.try_borrow_mut().is_ok());
+        cancel.cancel();
+        assert!(matches!(
+            snapshot.now_or_never(),
+            Some(Err(Error::Status(130)))
+        ));
+        assert_eq!(
+            state.borrow().scalar_parameter("IFS").map(str::len),
+            Some(4096)
+        );
+        assert_eq!(state.borrow().namerefs["IFS"], "sep");
+    }
+
+    #[test]
     fn nounset_admits_its_owned_diagnostic_at_the_exact_storage_boundary() {
         let state = crate::state::State::default().shared();
         state.borrow_mut().nounset = true;
@@ -2329,14 +2474,7 @@ mod tests {
         fields.joined = true;
         let cancel = Cancel::new();
         let fields = segments
-            .collect(
-                Ifs {
-                    chars: BTreeSet::from([':']),
-                },
-                fields,
-                &mut work,
-                &cancel,
-            )
+            .collect(Ifs::single(':'), fields, &mut work, &cancel)
             .now_or_never()
             .expect("the tiny join uses fewer than 64 checkpoints")?;
         Ok((fields, work.storage_remaining))
@@ -2378,15 +2516,7 @@ mod tests {
         };
         let cancel = Cancel::new();
         let mut work = Work::new(16_384, 8192, 2048);
-        let mut join = Box::pin(segments.join(
-            Ifs {
-                chars: BTreeSet::from([':']),
-            },
-            8192,
-            2048,
-            &mut work,
-            &cancel,
-        ));
+        let mut join = Box::pin(segments.join(Ifs::single(':'), 8192, 2048, &mut work, &cancel));
         assert!(join.as_mut().now_or_never().is_none());
         cancel.cancel();
         assert!(matches!(join.now_or_never(), Some(Err(Error::Status(130)))));

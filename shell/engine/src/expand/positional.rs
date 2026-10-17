@@ -1,4 +1,4 @@
-use super::{Error, Expansion, Ifs, Protection};
+use super::{Error, Expansion, Protection};
 use crate::{arithmetic, state::SharedState};
 
 impl Expansion<'_> {
@@ -40,18 +40,14 @@ impl Expansion<'_> {
         let separator = if scalar {
             Some(' ')
         } else {
-            Ifs::separator(state).or(Some(' '))
+            self.ifs_separator(state).await?.or(Some(' '))
         };
+        let protection = Protection::expansion(quoted || scalar, state);
         for index in start..end {
             self.element_boundary(index - start, list, separator, quoted || scalar)
                 .await?;
             let value = self.positional_slice_value(index, state)?;
-            self.segment(
-                &value,
-                Protection::expansion(quoted || scalar, state),
-                quoted || scalar,
-            )
-            .await?;
+            self.segment(&value, protection, quoted || scalar).await?;
         }
         Ok(())
     }
