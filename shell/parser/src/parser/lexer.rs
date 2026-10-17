@@ -120,10 +120,23 @@ pub struct Lexer<'a> {
     heredoc_resume: Option<Position>,
     literal_escapes: Vec<LiteralEscape>,
     boundary_scan_work: usize,
-    /// Body text of the last `$(`/`<(` span that reached end of input. Bash
-    /// parses that text as commands to tell an unexpected token (status 127)
-    /// from the end of input (status 2); the parser repeats that parse.
-    unterminated_substitution: Option<String>,
+    /// Command text of the last `$(`/`<(` span that reached end of input,
+    /// which bash parses before it notices the end of input.
+    unterminated_substitution: Option<UnterminatedSubstitution>,
+    /// Substitution bodies closed so far in the current token. Bash parses
+    /// each as it reads it, so they come before a later end-of-input error.
+    token_substitutions: Vec<String>,
+}
+
+/// What bash parses of a substitution span that reaches end of input.
+#[derive(Debug, Clone)]
+pub(crate) struct UnterminatedSubstitution {
+    /// Command bodies closed inside raw text, in source order: an error in
+    /// any of them is a command-substitution syntax error (status 127).
+    pub(crate) closed: Vec<String>,
+    /// The outermost open command frame: an unexpected token there is a
+    /// syntax error (127), reaching the end of input is the EOF error (2).
+    pub(crate) open: Option<String>,
 }
 
 impl<'a> Lexer<'a> {
@@ -133,7 +146,7 @@ impl<'a> Lexer<'a> {
     }
 
     /// Create a new lexer with a custom max substitution nesting depth.
-    /// THREAT[TM-DOS-044]: Limits recursion in read_command_subst_into().
+    /// THREAT[TM-DOS-044]: Limits recursion in read_command_subst_body().
     pub fn with_max_subst_depth(input: &'a str, max_depth: usize) -> Self {
         Self {
             input,
@@ -154,6 +167,7 @@ impl<'a> Lexer<'a> {
             literal_escapes: Vec::new(),
             boundary_scan_work: 0,
             unterminated_substitution: None,
+            token_substitutions: Vec::new(),
         }
     }
 
@@ -161,8 +175,13 @@ impl<'a> Lexer<'a> {
         self.limit_exceeded
     }
 
-    pub(crate) fn unterminated_substitution(&self) -> Option<&str> {
-        self.unterminated_substitution.as_deref()
+    pub(crate) fn unterminated_substitution(&self) -> Option<&UnterminatedSubstitution> {
+        self.unterminated_substitution.as_ref()
+    }
+
+    /// Bodies of the substitutions the last token closed, in source order.
+    pub(crate) fn token_substitutions(&self) -> &[String] {
+        &self.token_substitutions
     }
 
     pub(crate) fn take_boundary_scan_work(&mut self) -> usize {
@@ -448,6 +467,8 @@ impl<'a> Lexer<'a> {
     /// Get the next token with its source span.
     pub fn next_spanned_token(&mut self) -> Option<SpannedToken> {
         self.literal_escapes.clear();
+        self.token_substitutions.clear();
+        self.unterminated_substitution = None;
         self.skip_whitespace();
         let start = self.position;
         self.raw_buf.clear();
@@ -1012,7 +1033,11 @@ impl<'a> Lexer<'a> {
                         if self.peek_char() == Some('(') {
                             word.push('(');
                             self.advance();
-                            self.read_command_subst_into(&mut word);
+                            if !self.read_command_subst_body(&mut word) {
+                                return Some(Token::Error(
+                                    "unterminated command substitution".to_string(),
+                                ));
+                            }
                             continue;
                         }
                         if self.peek_char() == Some('{') {
@@ -2154,7 +2179,9 @@ impl<'a> Lexer<'a> {
                         // $(...) command substitution — track paren depth
                         content.push('(');
                         self.advance();
-                        self.read_command_subst_into(content);
+                        if !self.read_command_subst_body(content) {
+                            return Err("unterminated command substitution".to_string());
+                        }
                     } else if self.peek_char() == Some('{') {
                         // ${...} parameter expansion — track brace depth so
                         // inner quotes (e.g. ${arr["key"]}) don't end the string
@@ -2281,14 +2308,9 @@ impl<'a> Lexer<'a> {
 
     /// Read command substitution content after `$(`, handling nested parens,
     /// quotes, comments and heredoc bodies (see `subst_scan`). Appends chars
-    /// to `content` and adds the closing `)`.
-    fn read_command_subst_into(&mut self, content: &mut String) {
-        self.read_command_subst_body(content);
-    }
-
-    /// Like `read_command_subst_into`; returns whether the closing `)` was
-    /// found. The scanner is iterative, so deep nesting cannot overflow the
-    /// host stack here (TM-DOS-044).
+    /// to `content` including the closing `)`; returns whether it was found.
+    /// The scanner is iterative, so deep nesting cannot overflow the host
+    /// stack here (TM-DOS-044).
     fn read_command_subst_body(&mut self, content: &mut String) -> bool {
         self.consume_subst_body(Some(content))
     }
@@ -2311,12 +2333,39 @@ impl<'a> Lexer<'a> {
                 None => skipped.push(c),
             }
             if scanner.feed(c) == Step::Close {
+                let body = match content {
+                    Some(out) => &out[start..out.len() - 1],
+                    None => &skipped[..skipped.len() - 1],
+                };
+                // A fused span is raw text; bash parses only its nested bodies.
+                match scanner.arithmetic_start() {
+                    Some(_) => self.token_substitutions.extend(
+                        scanner
+                            .opaque_commands()
+                            .iter()
+                            .map(|&(from, to)| body[from..to].to_string()),
+                    ),
+                    None => self.token_substitutions.push(body.to_string()),
+                }
                 return true;
             }
         }
-        self.unterminated_substitution = Some(match content {
-            Some(out) => out[start..].to_string(),
-            None => skipped,
+        // Raw text (a fused `$((` span) fails only at the end of input. Bash
+        // has parsed the command bodies closed inside it, then parses from
+        // the outermost open command frame.
+        let body = match content {
+            Some(out) => &out[start..],
+            None => skipped.as_str(),
+        };
+        self.unterminated_substitution = Some(UnterminatedSubstitution {
+            closed: scanner
+                .opaque_commands()
+                .iter()
+                .map(|&(from, to)| body[from..to].to_string())
+                .collect(),
+            open: scanner
+                .unterminated_command_start()
+                .map(|from| body[from..].to_string()),
         });
         false
     }

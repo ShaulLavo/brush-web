@@ -122,6 +122,9 @@ pub struct Parser<'a> {
     /// Shell options that change parsing (aliases, extglob).
     options: ParseOptions,
     strict_command_separators: bool,
+    /// Parse `$(...)`/`<(...)` bodies with strict separators even when this
+    /// level is lenient (see `with_strict_substitution_bodies`).
+    strict_substitution_bodies: bool,
     /// The current token is a word with no quoting (alias candidate).
     current_plain: bool,
     /// The current token follows a blank-ending alias value.
@@ -235,6 +238,7 @@ impl<'a> Parser<'a> {
             execution_budget: None,
             options,
             strict_command_separators: false,
+            strict_substitution_bodies: false,
             current_plain,
             current_after_blank: false,
             prev_token_end: usize::MAX,
@@ -258,6 +262,16 @@ impl<'a> Parser<'a> {
     /// Aliases may change command boundaries when the interpreter reads a unit.
     pub fn with_strict_command_separators(mut self) -> Self {
         self.strict_command_separators = true;
+        self
+    }
+
+    /// Bash parses command substitution bodies with the script but without
+    /// expanding aliases (`parse_comsub`), so a word after a completed
+    /// compound command (`$( (x) y)`) is always a syntax error there. A
+    /// whole-script caller that stays lenient for aliases defined while the
+    /// script runs still gets bash's grammar inside substitution bodies.
+    pub fn with_strict_substitution_bodies(mut self) -> Self {
+        self.strict_substitution_bodies = true;
         self
     }
 
@@ -656,10 +670,20 @@ impl<'a> Parser<'a> {
             return Err(self.limit_error(limit));
         }
         if let Some(tokens::Token::Error(msg)) = &self.current_token {
+            // Bash has parsed the substitutions this token closed before it
+            // reached the end of input.
+            for body in self.lexer.token_substitutions() {
+                self.classify_substitution_text(body, true)?;
+            }
             if msg == "unterminated command substitution"
-                && let Some(body) = self.lexer.unterminated_substitution()
+                && let Some(span) = self.lexer.unterminated_substitution()
             {
-                self.classify_unterminated_substitution(body)?;
+                for body in &span.closed {
+                    self.classify_substitution_text(body, true)?;
+                }
+                if let Some(body) = &span.open {
+                    self.classify_substitution_text(body, false)?;
+                }
             }
             // bash: `unexpected EOF while looking for matching `"'`.
             let close = match msg.as_str() {
@@ -679,23 +703,23 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
-    /// Bash parses an unterminated `$(` body as commands. Stopping at an
-    /// unexpected token is a command-substitution syntax error (status 127);
-    /// only running out of input is the plain EOF error (status 2).
+    /// Bash parses the command text of an unterminated span before it sees
+    /// the end of input. Any error in a body closed inside it, or stopping
+    /// at an unexpected token in the open body, is a command-substitution
+    /// syntax error (status 127); only the open body running out of input is
+    /// the plain EOF error (status 2).
     #[inline(never)]
-    fn classify_unterminated_substitution(&self, body: &str) -> Result<()> {
+    fn classify_substitution_text(&self, body: &str, closed: bool) -> Result<()> {
         let mut parser = self.nested_parser(body)?;
         let result = parser.parse_inner();
         self.fuel.set(self.fuel.get().min(parser.fuel.get()));
+        let at_end = matches!(parser.current_token, None | Some(tokens::Token::Error(_)));
+        let line = self.current_span.start.line;
         match result {
             Err(error @ Error::ResourceLimit(_)) => Err(error),
-            Err(_)
-                if !matches!(parser.current_token, None | Some(tokens::Token::Error(_))) =>
-            {
-                Err(Error::ShellWord {
-                    line: self.current_span.start.line,
-                })
-            }
+            // A nested substitution's own syntax error, wherever it surfaced.
+            Err(Error::ShellWord { .. }) => Err(Error::ShellWord { line }),
+            Err(_) if closed || !at_end => Err(Error::ShellWord { line }),
             _ => Ok(()),
         }
     }
@@ -4279,6 +4303,7 @@ impl<'a> Parser<'a> {
                 // erasing the unquoted-glob boundary and breaking glob expansion
                 // for patterns like `./"$var"*.ext` inside `<(...)`.
                 let is_input = matches!(self.current_token, Some(tokens::Token::ProcessSubIn));
+                let start_line = self.current_span.start.line;
                 // Span end of the `<(` / `>(` token is exactly the start of the body.
                 let body_start_offset = self.current_span.end.offset;
                 let mut depth = 1;
@@ -4369,7 +4394,9 @@ impl<'a> Parser<'a> {
                     if let Some(budget) = &self.execution_budget {
                         inner_parser.attach_execution_budget(budget.clone());
                     }
-                    inner_parser.strict_command_separators = self.strict_command_separators;
+                    inner_parser.strict_command_separators =
+                        self.strict_command_separators || self.strict_substitution_bodies;
+                    inner_parser.strict_substitution_bodies = self.strict_substitution_bodies;
                     inner_parser.current_depth = self.current_depth + 1;
                     inner_parser.started_at = self.started_at;
                     let mut commands = Vec::new();
@@ -4383,12 +4410,12 @@ impl<'a> Parser<'a> {
                 self.fuel.set(remaining_fuel);
                 let commands = match parse_result {
                     Ok(commands) => commands,
-                    Err(err)
-                        if self.strict_command_separators
-                            || matches!(err, Error::ResourceLimit(_)) =>
-                    {
-                        return Err(err);
+                    Err(err @ Error::ResourceLimit(_)) => return Err(err),
+                    // Bash parses the body with the script and exits 127.
+                    Err(_) if self.strict_substitution_bodies => {
+                        return Err(Error::ShellWord { line: start_line });
                     }
+                    Err(err) if self.strict_command_separators => return Err(err),
                     Err(_) => Vec::new(),
                 };
 
@@ -4472,7 +4499,9 @@ impl<'a> Parser<'a> {
             parser.attach_execution_budget(budget.clone());
         }
         parser.set_options(self.options.clone());
-        parser.strict_command_separators = self.strict_command_separators;
+        parser.strict_command_separators =
+            self.strict_command_separators || self.strict_substitution_bodies;
+        parser.strict_substitution_bodies = self.strict_substitution_bodies;
         // `$( )` spans count from the outer word's line, so `$LINENO` and
         // error line numbers inside it match bash.
         let shift = self.current_span.start.line.saturating_sub(1);
@@ -5254,10 +5283,16 @@ impl<'a> Parser<'a> {
                     chars.next(); // consume first '('
 
                     match self.read_word_substitution(&mut chars) {
-                        Ok(WordSubstitution::Arithmetic(expression)) => {
+                        Ok(WordSubstitution::Arithmetic { expression, nested }) => {
+                            self.check_nested_bodies(&mut pending, nested);
                             push_part!(WordPart::ArithmeticExpansion(expression));
                         }
-                        Ok(WordSubstitution::Command { body, fused }) => {
+                        Ok(WordSubstitution::Command {
+                            body,
+                            fused,
+                            nested,
+                        }) => {
+                            self.check_nested_bodies(&mut pending, nested);
                             // A failed inner parse must never make the part
                             // vanish: dropping it splices the literals on
                             // either side into a word that appears nowhere in
@@ -5289,14 +5324,7 @@ impl<'a> Parser<'a> {
                         false,
                         &mut operand_bodies,
                     );
-                    for body in operand_bodies {
-                        pending.push(PendingSubstitution {
-                            index: None,
-                            body,
-                            fused: false,
-                            first_error: !self.has_deferred_error(),
-                        });
-                    }
+                    self.check_nested_bodies(&mut pending, operand_bodies);
                 } else if let Some(&c) = chars.peek() {
                     // Check for special single-character variables ($?, $#, $@, $*, $!, $$, $-, $0-$9)
                     if matches!(c, '?' | '#' | '@' | '*' | '!' | '$' | '-') || c.is_ascii_digit() {
@@ -5340,6 +5368,20 @@ impl<'a> Parser<'a> {
             in_quoted_segment,
             pending,
         })
+    }
+
+    /// Queue syntax checks for command bodies bash parses with the script
+    /// but that this word keeps as text (operands and raw `$((` spans).
+    #[inline(never)]
+    fn check_nested_bodies(&self, pending: &mut Vec<PendingSubstitution>, bodies: Vec<String>) {
+        for body in bodies {
+            pending.push(PendingSubstitution {
+                index: None,
+                body,
+                fused: false,
+                first_error: !self.has_deferred_error(),
+            });
+        }
     }
 
     fn has_deferred_error(&self) -> bool {
@@ -5486,14 +5528,29 @@ impl<'a> Parser<'a> {
         }
         // An unterminated span keeps its eager command parse and errors.
         let fused = closed.then(|| scanner.arithmetic_start()).flatten();
-        if let Some(start) = fused {
-            if let Some(expression) = subst_scan::arithmetic_expression(&body, start) {
-                return Ok(WordSubstitution::Arithmetic(expression.to_string()));
-            }
+        let Some(start) = fused else {
+            return Ok(WordSubstitution::Command {
+                body,
+                fused: false,
+                nested: Vec::new(),
+            });
+        };
+        // Bash parses the `$(...)` bodies inside raw `$((` text right away.
+        let nested = scanner
+            .opaque_commands()
+            .iter()
+            .map(|&(from, to)| body[from..to].to_string())
+            .collect();
+        if let Some(expression) = subst_scan::arithmetic_expression(&body, start) {
+            return Ok(WordSubstitution::Arithmetic {
+                expression: expression.to_string(),
+                nested,
+            });
         }
         Ok(WordSubstitution::Command {
             body,
-            fused: fused.is_some(),
+            fused: true,
+            nested,
         })
     }
 
@@ -5601,8 +5658,16 @@ struct PendingSubstitution {
 }
 
 enum WordSubstitution {
-    Arithmetic(String),
-    Command { body: String, fused: bool },
+    Arithmetic {
+        expression: String,
+        /// Command bodies inside the raw text, checked like operand bodies.
+        nested: Vec<String>,
+    },
+    Command {
+        body: String,
+        fused: bool,
+        nested: Vec<String>,
+    },
 }
 
 #[inline(never)]

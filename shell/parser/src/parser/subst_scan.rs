@@ -118,6 +118,12 @@ pub struct SubstScanner {
     prev: Option<char>,
     offset: usize,
     root_arithmetic: Option<usize>,
+    /// Body start offset per code frame (parallel to `code`).
+    starts: Vec<usize>,
+    /// Closed `$(...)` bodies whose enclosing text is all raw (`$((`,
+    /// `${...}` or quotes): no enclosing command parse reaches them, but
+    /// bash parses them as commands with the script.
+    opaque_commands: Vec<(usize, usize)>,
 }
 
 impl Default for SubstScanner {
@@ -143,6 +149,8 @@ impl SubstScanner {
             prev: None,
             offset: 0,
             root_arithmetic: None,
+            starts: vec![0],
+            opaque_commands: Vec::new(),
         }
     }
 
@@ -408,6 +416,7 @@ impl SubstScanner {
 
     fn push_code(&mut self) {
         self.stack.push(Frame::Substitution);
+        self.starts.push(self.offset);
         self.parens.push(0);
         self.code.push(CodeState {
             cmd_pos: true,
@@ -418,12 +427,46 @@ impl SubstScanner {
     fn pop_code(&mut self) -> Step {
         self.parens.pop();
         self.code.pop();
-        self.stack.pop();
+        let start = self.starts.pop().expect("code frame start");
+        let frame = self.stack.pop();
         if self.stack.is_empty() {
-            Step::Close
-        } else {
-            Step::Body
+            return Step::Close;
         }
+        if frame == Some(Frame::Code) && self.raw_context() {
+            self.opaque_commands.push((start, self.offset - 1));
+        }
+        Step::Body
+    }
+
+    /// No enclosing frame is command text (parsed with its own span) or a
+    /// backquote (parsed only when it expands).
+    fn raw_context(&self) -> bool {
+        !self
+            .stack
+            .iter()
+            .any(|frame| matches!(frame, Frame::Code | Frame::Backtick))
+    }
+
+    /// See [`SubstScanner::opaque_commands`] field docs: `(start, end)` byte
+    /// ranges of closed command bodies nested only in raw text.
+    pub fn opaque_commands(&self) -> &[(usize, usize)] {
+        &self.opaque_commands
+    }
+
+    /// At end of input: where bash's first command parse of the unterminated
+    /// span starts (the outermost open command frame), or `None` when only
+    /// raw text is open, whose sole error is the end of input.
+    pub fn unterminated_command_start(&self) -> Option<usize> {
+        let mut code = 0;
+        for frame in &self.stack {
+            match frame {
+                Frame::Code => return Some(self.starts[code]),
+                Frame::Backtick => return None,
+                Frame::Substitution | Frame::Arithmetic => code += 1,
+                _ => {}
+            }
+        }
+        None
     }
 
     fn feed_arithmetic(&mut self, c: char) -> Step {

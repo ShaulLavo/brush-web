@@ -289,6 +289,9 @@ impl Session {
             Some(parser_limits.parser_timeout),
         )
         .with_execution_budget(budget.clone())
+        // The whole script is parsed before aliases it defines exist, so the
+        // top level stays lenient; substitution bodies get bash's grammar.
+        .with_strict_substitution_bodies()
         .parse_recovering();
         budget.check().map_err(|error| error.to_string())?;
         let word_error = match error {

@@ -82,14 +82,21 @@ impl Parser<'_> {
     /// Read a `$(`, `<(` or `>(` body. Bash never parses a fused `$((` or
     /// `<((` span as commands before it expands.
     fn read_parameter_command(&self, chars: &mut WordChars<'_>, bodies: &mut Vec<String>) -> Result<()> {
-        let (body, fused) = self.parameter_command_body(chars)?;
-        if !fused {
-            bodies.push(body.to_string());
+        let (body, opaque) = self.parameter_command_body(chars)?;
+        match opaque {
+            // Bash still parses the `$(...)` bodies inside the raw text.
+            Some(spans) => bodies.extend(spans.iter().map(|&(from, to)| body[from..to].to_string())),
+            None => bodies.push(body.to_string()),
         }
         Ok(())
     }
 
-    fn parameter_command_body<'a>(&self, chars: &mut WordChars<'a>) -> Result<(&'a str, bool)> {
+    /// The body, and for a fused span the command bodies nested in its raw text.
+    #[allow(clippy::type_complexity)]
+    fn parameter_command_body<'a>(
+        &self,
+        chars: &mut WordChars<'a>,
+    ) -> Result<(&'a str, Option<Vec<(usize, usize)>>)> {
         let source = chars.remaining();
         // `<((` and `$((` alike start a raw arithmetic-style span in bash.
         let mut scanner = SubstScanner::new();
@@ -111,7 +118,10 @@ impl Parser<'_> {
             self.tick()?;
             chars.next();
         }
-        Ok((&source[..end], scanner.arithmetic_start().is_some()))
+        let opaque = scanner
+            .arithmetic_start()
+            .map(|_| scanner.opaque_commands().to_vec());
+        Ok((&source[..end], opaque))
     }
 
     #[inline(never)]
