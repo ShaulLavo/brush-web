@@ -105,3 +105,38 @@ errors cannot match. There are no unsupported exemptions.
 candidate case matches. `npm run fuzz:shell-braces:ci -- --shell PATH` strictly
 validates and replays seeds 1 and 42 without Bash.
 `npm run test:fuzz-shell-braces` tests generation, matching and fixture rejection.
+
+## Command and process substitution boundaries
+
+`npm run fuzz:shell-substitutions -- --shell PATH --seed 1` compares a bounded,
+seeded matrix with GNU Bash 5.3.15. The default run has 600 seeded cases, 16
+fixed controls and 2,520 structured boundary cases. Seed 42 uses the same matrix
+and a different deterministic stream. Run `--self-control` to compare two fresh
+Bash processes. The generator covers plain and double quoted words, set and unset
+`${v:-...}` operands, arithmetic, nested command substitutions and guarded
+process substitutions. Openers include `$(`, `$( (`, `$((`, `<(`, `<((` and
+backticks. Here-doc delimiters, case patterns, redirect and keyword end-of-input,
+comments, continuations, open quotes, and valid and invalid closed bodies all
+vary their one, two and three closing-parenthesis forms.
+
+The oracle is `/usr/bin/bash -c SCRIPT`, so its status is the status of the
+command string rather than file or stdin mode. Stdout bytes and status decide a
+match; stderr is retained only for diagnosis. `UNSUPPORTED` is accepted only
+when Bash succeeds and the candidate exits 2 with empty stdout because the
+candidate cannot execute substitutions or compound commands yet. Parse
+rejections and status 127 are mismatches. Structural shrinking keeps the opener,
+context and process-failure signature. Mismatch shapes are written to
+`/work/tmp/brush-web-subst-gen/mismatches.json`.
+
+The fuzzer never builds. It self-queues through the host light queue and removes
+its per-run directory (parent: `FUZZ_SUBST_SCRATCH`, else `RUNNER_TEMP`, else the
+OS temporary directory). `--record` refuses a nonzero mismatch count. Replay
+validates the generator hash, case order, coverage, seed, timeout, Bash version
+and canonical bytes before running the candidate without Bash:
+
+```sh
+npm run fuzz:shell-substitutions -- --shell /path/to/shell-engine --seed 1
+npm run fuzz:shell-substitutions -- --shell /path/to/shell-engine --seed 42
+npm run fuzz:shell-substitutions:ci -- --shell /path/to/shell-engine
+npm run test:fuzz-shell-substitutions
+```
