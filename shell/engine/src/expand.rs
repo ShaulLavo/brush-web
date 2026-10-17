@@ -2288,9 +2288,11 @@ pub(crate) async fn arithmetic_text(
         raw_remaining: max,
         elements_remaining: max,
     };
-    expansion
-        .operand(source, state, true, true, 0, false)
-        .await?;
+    let mut scanner = operand::Scanner::arithmetic(source);
+    while let Some(piece) = scanner.next(expansion.work, expansion.cancel).await? {
+        expansion.operand_piece(piece, state, true, true, 0).await?;
+    }
+    expansion.segment("", Protection::None, true).await?;
     Ok(expansion.captured.take().ok_or(2)?.value)
 }
 

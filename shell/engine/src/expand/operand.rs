@@ -64,6 +64,13 @@ enum Quote {
     Double,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Context {
+    Operand,
+    /// Quote removal cannot join an arithmetic expansion's dollar to an opener.
+    Arithmetic,
+}
+
 pub(super) struct Scanner<'a> {
     source: &'a str,
     cursor: usize,
@@ -73,6 +80,7 @@ pub(super) struct Scanner<'a> {
     pattern: bool,
     pattern_source: bool,
     case_positionals: bool,
+    context: Context,
 }
 impl<'a> Scanner<'a> {
     pub(super) fn new(
@@ -90,6 +98,13 @@ impl<'a> Scanner<'a> {
             pattern,
             pattern_source,
             case_positionals: false,
+            context: Context::Operand,
+        }
+    }
+    pub(super) fn arithmetic(source: &'a str) -> Self {
+        Self {
+            context: Context::Arithmetic,
+            ..Self::new(source, true, true, false)
         }
     }
     pub(super) fn case_pattern(source: &'a str) -> Self {
@@ -218,7 +233,8 @@ impl<'a> Scanner<'a> {
         work: &mut Work,
         cancel: &Cancel,
     ) -> Result<Piece<'a>, Error> {
-        let joined = self.outer_quoted
+        let joined = self.context == Context::Operand
+            && self.outer_quoted
             && !self.literal_single
             && self.quote == Quote::Double
             && self.peek() == Some('"');

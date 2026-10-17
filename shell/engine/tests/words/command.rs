@@ -738,7 +738,7 @@ fn job_signal_forms_preserve_term_int_and_invalid_statuses() {
         rig.run("status_gate & kill -s INVALID %1; args $?; kill -TERM %1; wait %1; args $?"),
         0
     );
-    assert_eq!(*rig.calls.borrow(), [vec!["2"], vec!["143"]]);
+    assert_eq!(*rig.calls.borrow(), [vec!["1"], vec!["143"]]);
     assert_eq!(rig.errors.bytes(), b"kill: invalid signal\n");
     assert_eq!(rig.host.active_count(), 0);
     assert_eq!(rig.host.retained_count(), 0);
@@ -746,13 +746,13 @@ fn job_signal_forms_preserve_term_int_and_invalid_statuses() {
 
 #[test]
 fn unsupported_signals_and_signal_zero_do_not_cancel_owned_pending_jobs() {
-    for (signal, diagnostic) in [
-        ("CONT", "unsupported signal action"),
-        ("STOP", "unsupported signal action"),
-        ("CHLD", "unsupported signal action"),
-        ("64", "unsupported signal action"),
-        ("128", "invalid signal"),
-        ("SIGCONT", "unsupported signal action"),
+    for (signal, diagnostic, status) in [
+        ("CONT", "unsupported signal action", "2"),
+        ("STOP", "unsupported signal action", "2"),
+        ("CHLD", "unsupported signal action", "2"),
+        ("64", "unsupported signal action", "2"),
+        ("128", "invalid signal", "1"),
+        ("SIGCONT", "unsupported signal action", "2"),
     ] {
         let rig = Rig::new(Limits::default());
         let _release = register_status_gate(&rig, "status_gate", 0);
@@ -763,7 +763,7 @@ fn unsupported_signals_and_signal_zero_do_not_cancel_owned_pending_jobs() {
             0,
             "{signal}"
         );
-        assert_eq!(*rig.calls.borrow(), [vec!["2"], vec!["143"]], "{signal}");
+        assert_eq!(*rig.calls.borrow(), [vec![status], vec!["143"]], "{signal}");
         assert_eq!(
             rig.errors.bytes(),
             format!("kill: {diagnostic}\n").as_bytes(),
@@ -781,6 +781,30 @@ fn unsupported_signals_and_signal_zero_do_not_cancel_owned_pending_jobs() {
     assert_eq!(*rig.calls.borrow(), [vec!["0"], vec!["143"]]);
     assert_eq!(rig.host.active_count(), 0);
     assert_eq!(rig.host.retained_count(), 0);
+}
+
+#[test]
+fn invalid_signal_preserves_a_finite_background_job_and_wait_status() {
+    for kill in [
+        "kill -s INVALID %1",
+        "kill -INVALID %1",
+        "kill -sINVALID %1",
+        "kill -128 %1",
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(
+            rig.run(&format!(
+                "i=0; while ((i < 1000)); do ((i += 1)); done & {kill}; kill_status=$?; wait %1; args \"$kill_status\" \"$?\" \"$i\""
+            )),
+            0,
+            "{kill}",
+        );
+        assert_eq!(*rig.calls.borrow(), [vec!["1", "0", "0"]], "{kill}");
+        assert_eq!(rig.errors.bytes(), b"kill: invalid signal\n", "{kill}");
+        assert_eq!(rig.ex.drive(64).pending, 0);
+        assert_eq!(rig.host.active_count(), 0);
+        assert_eq!(rig.host.retained_count(), 0);
+    }
 }
 
 #[test]

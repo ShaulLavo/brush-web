@@ -379,7 +379,7 @@ pub(crate) async fn run(
                             .await
                             .map_err(|error| error.status())?;
                         stderr
-                            .write_all(error.as_bytes(), &context.cancel)
+                            .write_all(error.message().as_bytes(), &context.cancel)
                             .await
                             .map_err(|error| error.status())?;
                         stderr
@@ -387,7 +387,7 @@ pub(crate) async fn run(
                             .await
                             .map_err(|error| error.status())?;
                     }
-                    return Err(2);
+                    return Err(error.status());
                 }
             };
             let selector = JobSelector::parse(selector)?;
@@ -411,37 +411,44 @@ enum SignalAction {
 enum SignalError {
     Invalid,
     Unsupported,
+    Usage,
 }
 impl SignalError {
     fn message(self) -> &'static str {
         match self {
-            Self::Invalid => "invalid signal",
+            Self::Invalid | Self::Usage => "invalid signal",
             Self::Unsupported => "unsupported signal action",
+        }
+    }
+    fn status(self) -> i32 {
+        match self {
+            Self::Invalid => 1,
+            Self::Unsupported | Self::Usage => 2,
         }
     }
 }
 
-fn kill_arguments(args: &[String]) -> Result<(SignalAction, &str), &'static str> {
+fn kill_arguments(args: &[String]) -> Result<(SignalAction, &str), SignalError> {
     match args {
         [selector] => Ok((SignalAction::Terminate(15), selector)),
         [flag, selector] if flag.starts_with("-s") => {
             let name = flag
                 .strip_prefix("-s")
                 .filter(|name| !name.is_empty())
-                .ok_or(SignalError::Invalid.message())?;
+                .ok_or(SignalError::Usage)?;
             Ok((parse_signal(name)?, selector))
         }
         [flag, signal, selector] if flag == "-s" => Ok((parse_signal(signal)?, selector)),
         [flag, selector] if flag.starts_with('-') => {
             Ok((parse_signal(flag.trim_start_matches('-'))?, selector))
         }
-        _ => Err(SignalError::Invalid.message()),
+        _ => Err(SignalError::Usage),
     }
 }
 
-fn parse_signal(value: &str) -> Result<SignalAction, &'static str> {
+fn parse_signal(value: &str) -> Result<SignalAction, SignalError> {
     if let Ok(signal) = value.parse::<i32>() {
-        return classify_signal(signal).map_err(SignalError::message);
+        return classify_signal(signal);
     }
     let name = value
         .get(..3)
@@ -465,9 +472,9 @@ fn parse_signal(value: &str) -> Result<SignalAction, &'static str> {
     .iter()
     .any(|candidate| ascii_eq_ignore_case(name, candidate))
     {
-        return Err(SignalError::Unsupported.message());
+        return Err(SignalError::Unsupported);
     }
-    Err(SignalError::Invalid.message())
+    Err(SignalError::Invalid)
 }
 
 fn classify_signal(signal: i32) -> Result<SignalAction, SignalError> {

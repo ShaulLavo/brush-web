@@ -1183,6 +1183,34 @@ fn arithmetic_boundaries_stay_opaque_in_quotes_and_parameter_operands() {
 }
 
 #[test]
+fn arithmetic_expansion_source_preserves_dollar_quote_boundaries() {
+    for expression in [
+        r#"0 + "$"((1+2))"#,
+        r#"0 + "\$"((1+2))"#,
+        r"0 + \$((1+2))",
+        r#"0 + "$((1+2))""#,
+    ] {
+        let token = format!("$(({expression}))");
+        let part = Parser::parse_substitution_token_with_limits(&token, 100, 16384).unwrap();
+        assert!(matches!(&part, WordPart::ArithmeticExpansion(source) if source == expression));
+        for source in [token.clone(), format!("\"{token}\"")] {
+            let word = argument(&format!("args {source}"));
+            assert!(
+                matches!(word.parts.as_slice(), [WordPart::ArithmeticExpansion(text)] if text == expression),
+                "{source}: {word:?}"
+            );
+            let generated = Parser::parse_expanded_word_with_limits(&source, 100, 16384).unwrap();
+            assert!(
+                matches!(generated.parts.as_slice(), [WordPart::ArithmeticExpansion(text)] if text == expression),
+                "{source}: {generated:?}"
+            );
+            assert_eq!(word.raw.as_deref(), Some(source.as_str()));
+            assert_eq!(generated.raw.as_deref(), Some(source.as_str()));
+        }
+    }
+}
+
+#[test]
 fn ambiguous_substitutions_preserve_inactive_defaults_and_suffixes() {
     for source in [
         r#"v=ok; printf '<%s>\n' ${v:-$((case x in x) :;; esac) )}{a,b}"#,

@@ -100,6 +100,43 @@ fn recursive_scalars_and_dollar_preexpansion_have_distinct_order() {
 }
 
 #[test]
+fn protected_dollars_do_not_become_arithmetic_expansion_openers() {
+    for expression in [
+        r#"0 + "$"((1+2))"#,
+        r#"0 + "$"((n=9))"#,
+        r#"0 + "\$"((n=9))"#,
+        r"0 + \$((n=9))",
+    ] {
+        for word in [
+            format!("$(({expression}))"),
+            format!("\"$(({expression}))\""),
+        ] {
+            let rig = Rig::new(Limits::default());
+            let source = format!("n=0; args {word}; args after");
+            assert_eq!(rig.run(&source), 1, "{source}");
+            assert!(rig.calls.borrow().is_empty(), "{source}");
+            assert!(rig.output.bytes().is_empty(), "{source}");
+            assert!(!rig.errors.bytes().is_empty(), "{source}");
+            assert_eq!(rig.shell.state().borrow().variables["n"], "0", "{source}");
+            assert_eq!(rig.run(r#"args "$n" recovered"#), 0);
+            assert_eq!(*rig.calls.borrow(), [vec!["0", "recovered"]]);
+        }
+    }
+}
+
+#[test]
+fn arithmetic_keeps_active_openers_and_parameter_operand_quote_rules() {
+    check(
+        r#"n=0; args $((0 + "$((n=3))")) "$n" "$((0 + "$((1+2))"))" "${unused:-"$"((1+2))}""#,
+        &[&["3", "3", "3", "3"]],
+    );
+    check(
+        r#"n=0; ((0 + "$"((n=9)))); args "$?" "$n" recovered"#,
+        &[&["1", "0", "recovered"]],
+    );
+}
+
+#[test]
 fn arithmetic_commands_and_let_errors_do_not_abort_following_commands() {
     let rig = Rig::new(Limits::default());
     assert_eq!(rig.run("x=0; ((x=9,1/0)); args \"$?\" \"$x\"; let 'x=4,08' 'x=99'; args \"$?\" \"$x\"; let 0 'x=3'; args \"$?\" \"$x\""), 0);

@@ -624,11 +624,24 @@ parity remain deferred rather than being represented as termination statuses.
 ## Current unit: preflight and loop-work repairs
 
 Status: Approved; source repairs in progress, acceptance pending. The exact
-`effa371` CI producer passed native/WASI, deepest nesting and the size gate
-(516,578 bytes Brotli-11). Its frozen replay measured 680 / 606 / 1,028 with no
-lost cases against runtime main `e3f245f` (527 / 394 / 792); the candidate baseline
-and generator fixtures were intentionally still stale. These are diagnostic
-measurements, not final acceptance.
+`8dd11b8` CI producer passed native/WASI and the size gate (2,514,034 bytes raw,
+528,401 bytes Brotli-11); its verify job passed with 132 browser tests and six
+existing skips. Its frozen replay measured 681 / 606 / 1,028 with zero lost
+case IDs against runtime main `e3f245f` (527 / 394 / 792). The candidate baseline
+and generator fixtures remain intentionally stale until acceptance succeeds.
+These are diagnostic measurements, not final acceptance.
+
+The six Bash 5.3.15 sweeps at that head exposed two remaining defects: both
+substitution seeds time out on the unchanged invalid-signal control's finite
+million-iteration job (2,000 ms acceptance bound), and both brace seeds report
+two protected-dollar arithmetic boundary mismatches. A separately admitted,
+bounded diagnostic completes the job in roughly 2.9 seconds but reveals an
+additional invalid-signal status difference (2 instead of Bash's 1). Preserve
+the time bound and workload; repair execution cost and signal parsing generally,
+not the generator. `$((0 + "$"((1+2))))` must not reactivate a quoted dollar as
+an arithmetic opener. The arithmetic sweeps, old fixture replays and per-case
+ratchet passed; they do not waive these failures. Qualified source artifact:
+[run 39050413259, producer job 117447674511](https://github.com/ShaulLavo/brush-web/actions/runs/39050413259/job/117447674511).
 
 The qualified native CLI from [run 39037414534, producer job 117409933867](https://github.com/ShaulLavo/brush-web/actions/runs/39037414534/job/117409933867)
 exposed five actual finite-control gaps before the full generator sweeps:
@@ -691,9 +704,12 @@ The shell becomes an independently maintained parser/interpreter/engine package.
 The shared WASI/browser runtime remains a **separate package that the product
 pulls in**, alongside the shell; it is not moved into the destination shell
 repository or absorbed into the shell. Preserve the `ProcessHost`, `HostEndpoint`, `FileSystem` and
-session/executor boundaries documented in `shell/engine/README.md`. The current
-in-process host is still a fixture, not browser integration. Extraction does not
-waive step 1's browser-worker gate or authorize replacing Brush before step 6.
+session/executor boundaries documented in `shell/engine/README.md`. Distinguish
+the in-process test fixture from the substitution lane's actual browser runtime
+integration: real Bun children now exercise captures, process-substitution input
+and here-string input on Chromium and Firefox. Those controls do not alone
+satisfy every step 1 browser-worker gate or authorize replacing Brush before
+step 6. Extraction waives none of those requirements.
 
 ### Ordered execution
 
