@@ -70,7 +70,7 @@ a local pipe test does not establish browser memory bounds.
 
 Supported for the gate: literal/quoted words, ordinary variables and positional
 parameters, `$?`, `PIPESTATUS`, scalar assignments, function definitions/calls,
-AND/OR lists, background lists, brace groups, subshells, `while`, pipelines,
+AND/OR lists, background lists, brace groups, subshells, `while`, `case` (`;;`, `;&`, `;;&`, quote-aware patterns), pipelines,
 `pipefail`, `!`, file/append/input and descriptor-duplication redirects, and a few
 streaming/state builtins. The first word area adds quote-aware fields for literals,
 ordinary variables, positional parameters and `PIPESTATUS`, including IFS splitting,

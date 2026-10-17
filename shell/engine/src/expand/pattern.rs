@@ -14,7 +14,7 @@ struct Character {
 }
 
 #[derive(Default)]
-pub(super) struct Pattern {
+pub(crate) struct Pattern {
     chars: Vec<Character>,
     quoted_empty: bool,
 }
@@ -145,6 +145,31 @@ impl Pattern {
             states,
             anchor,
         })
+    }
+
+    pub(crate) async fn matches_full(
+        &mut self,
+        value: &str,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<bool, Error> {
+        let atoms = self.compile(work, cancel).await?;
+        let count = atoms.len().checked_add(1).ok_or(2)?;
+        work.admit_storage(count)?;
+        let mut states = Vec::new();
+        states
+            .try_reserve_exact(count)
+            .map_err(|_| Error::Status(2))?;
+        states.push(true);
+        for atom in &atoms {
+            work.checkpoint(cancel).await?;
+            states.push(matches!(atom, Atom::Star) && *states.last().ok_or(2)?);
+        }
+        for ch in value.chars() {
+            work.checkpoint(cancel).await?;
+            self.advance(&atoms, &mut states, ch, work, cancel).await?;
+        }
+        Ok(states[atoms.len()])
     }
     async fn atom(
         &self,

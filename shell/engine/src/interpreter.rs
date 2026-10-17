@@ -709,11 +709,14 @@ fn execute(
                         // Only `((...))` expands words itself, after its
                         // redirections; other bodies must not retain the
                         // caller's descriptors while they run.
-                        work.substitutions = matches!(compound, CompoundCommand::Arithmetic(_))
-                            .then(|| Substitutions {
-                                context: context.compound_body(),
-                                fds: fds.clone(),
-                            });
+                        work.substitutions = matches!(
+                            compound,
+                            CompoundCommand::Arithmetic(_) | CompoundCommand::Case(_)
+                        )
+                        .then(|| Substitutions {
+                            context: context.compound_body(),
+                            fds: fds.clone(),
+                        });
                         execute_compound_body(
                             compound,
                             state.clone(),
@@ -794,8 +797,90 @@ async fn execute_compound_body(
                 }
             }
         }
+        CompoundCommand::Case(case_) => run_case(case_, state, fds, context, work).await,
         _ => Outcome::status(2),
     }
+}
+
+async fn loop_checkpoint(budget: &mut Budget, context: &Context) -> Result<(), Outcome> {
+    budget
+        .checkpoint(&context.cancel)
+        .await
+        .map_err(|_| Outcome::status(130))
+}
+
+/// `case` expands its word as a scalar (no splitting or globbing) and each
+/// pattern with quote protection, then matches through the bounded matcher.
+async fn run_case(
+    case_: CaseCommand,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+    work: &mut expand::Work,
+) -> Outcome {
+    let word = match expand::word(
+        &case_.word,
+        &state,
+        &context.cancel,
+        context.limits().expansion_bytes,
+        context.limits().expansion_bytes,
+        work,
+    )
+    .await
+    {
+        Ok(word) => word,
+        Err(error) => return expansion_failure(error.into(), &fds, &context).await,
+    };
+    let mut matched = false;
+    let mut result = Outcome::status(0);
+    let mut budget = Budget::default();
+    for item in case_.cases {
+        if let Err(outcome) = loop_checkpoint(&mut budget, &context).await {
+            return outcome;
+        }
+        if !matched {
+            let mut item_match = false;
+            for pattern in &item.patterns {
+                if let Err(outcome) = loop_checkpoint(&mut budget, &context).await {
+                    return outcome;
+                }
+                let mut pattern = match expand::pattern(
+                    pattern,
+                    &state,
+                    &context.cancel,
+                    context.limits().expansion_bytes,
+                    work,
+                )
+                .await
+                {
+                    Ok(pattern) => pattern,
+                    Err(error) => return expansion_failure(error.into(), &fds, &context).await,
+                };
+                match pattern.matches_full(&word, work, &context.cancel).await {
+                    Ok(true) => {
+                        item_match = true;
+                        break;
+                    }
+                    Ok(false) => {}
+                    Err(error) => return expansion_failure(error.into(), &fds, &context).await,
+                }
+            }
+            if !item_match {
+                continue;
+            }
+            matched = true;
+        }
+        result = sequence(item.commands, state.clone(), fds.clone(), context.clone()).await;
+        if result.flow != Flow::Normal {
+            return result;
+        }
+        match item.terminator {
+            CaseTerminator::Break => return result,
+            CaseTerminator::FallThrough => {}
+            CaseTerminator::Continue => matched = false,
+        }
+    }
+    result
 }
 
 async fn arithmetic_command(

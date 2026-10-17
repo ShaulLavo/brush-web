@@ -2174,6 +2174,41 @@ pub(crate) async fn word(
     Ok(values.into_iter().next().unwrap_or_default())
 }
 
+/// Expand one case-pattern word while retaining the quote protection that the
+/// bounded glob matcher needs. The parser's raw spelling is the authoritative
+/// source; the display fallback is only for synthetic ASTs in unit tests.
+pub(crate) async fn pattern(
+    word: &Word,
+    state: &SharedState,
+    cancel: &Cancel,
+    max_raw: usize,
+    work: &mut Work,
+) -> Result<pattern::Pattern, Error> {
+    let source = word
+        .raw
+        .as_deref()
+        .map_or_else(|| word.to_string(), str::to_owned);
+    let mut expansion = Expansion {
+        segments: Segments::default(),
+        captured: None,
+        pattern: Some(pattern::Pattern::default()),
+        replacement: None,
+        pattern_context: true,
+        pattern_snapshots: true,
+        ifs: None,
+        ifs_changed: false,
+        work,
+        cancel,
+        max_raw,
+        raw_remaining: max_raw,
+        elements_remaining: max_raw,
+    };
+    expansion
+        .operand(&source, state, false, false, 0, true)
+        .await?;
+    expansion.pattern.take().ok_or(2.into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
