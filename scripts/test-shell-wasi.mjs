@@ -24,6 +24,21 @@ cargo(
     "--target",
     "wasm32-wasip1",
     "-p",
+    "shell-parser",
+    "--lib",
+    "--test",
+    "api",
+    "-j2",
+    "--",
+    "--test-threads=1",
+  ]),
+  { env },
+);
+cargo(
+  ["test"].concat(manifest, [
+    "--target",
+    "wasm32-wasip1",
+    "-p",
     "shell-engine",
     "--lib",
     "--test",
