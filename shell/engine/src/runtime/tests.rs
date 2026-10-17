@@ -614,6 +614,12 @@ fn background_brace_sequence_kill_and_wait_cover_later_runtime_members() {
         vec![Some(0), None],
         "first member exited before persistent later member started"
     );
+    let members: Vec<_> = fake
+        .children
+        .borrow()
+        .iter()
+        .map(|(&pid, child)| (pid, child.job))
+        .collect();
     let job = session
         .start("kill %1; wait %1; echo MEMBERS_REAPED")
         .unwrap();
@@ -628,8 +634,18 @@ fn background_brace_sequence_kill_and_wait_cover_later_runtime_members() {
     assert_eq!(session.background_jobs(), 0);
     assert_eq!(runtime.retained_count(), 0);
     assert!(runtime.0.groups.borrow().is_empty());
-    assert_eq!(fake.reaped_jobs.borrow().len(), 2);
-    assert_eq!(fake.signals.borrow().len(), 2);
+    assert_eq!(*fake.reaped_jobs.borrow(), vec![members[0].1, members[1].1]);
+    // Cancellation first interrupts the external command's direct-child wait.
+    // finish_group then signals both runtime jobs for descendant teardown,
+    // including the job whose direct child had already exited naturally.
+    assert_eq!(
+        *fake.signals.borrow(),
+        vec![
+            (false, members[1].0, 2),
+            (true, members[0].1, 2),
+            (true, members[1].1, 2),
+        ]
+    );
     finish(
         &executor,
         &runtime,
