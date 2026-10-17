@@ -166,15 +166,20 @@ for (const pipeline of statusCases) {
   });
 }
 
-test("early downstream exit finishes an endless producer with SIGPIPE status", async ({ page }) => {
+test("early downstream exit finishes a yielding Bun producer with EPIPE status", async ({
+  page,
+}) => {
   await open(page);
-  await file(page, "endless.ts", 'while(true)process.stdout.write("first\\n")');
+  // Native Bun 1.4.2 and Node 26.7.0 ignore SIGPIPE: a tight write loop
+  // never yields to its deferred EPIPE handler. A real ticker yields, then exits
+  // 1 for unhandled EPIPE (not 141); the native fake producer covers SIGPIPE.
+  await file(page, "endless.ts", 'setInterval(()=>process.stdout.write("first\\n"),1)');
   await command(
     page,
     `set -o pipefail; bun run endless.ts | { IFS= read -r line; echo "$line"; }; printf 'STATUS:%s:%s\\n' "$?" "\${PIPESTATUS[*]}"`,
   );
   await output(page, "first");
-  await output(page, "STATUS:141:141 0");
+  await output(page, "STATUS:1:1 0");
   await ready(page);
   await expect.poll(() => page.workers().length).toBe(baselineWorkers.get(page));
 });

@@ -91,6 +91,16 @@ Brush remains the default. Select `?engine=own-shell` to run the Rust `shell-run
 
 `tests/pipelines.acceptance.spec.ts` retains the sixteen pipeline cases and explicitly asserts the selected engine. `tests/runtime-shell.spec.ts` adds foreground CPU interruption/background survival, arbitrary fd inheritance, handled EPIPE, continuing background output, and bounded shell/transport memory. The descendant-confirmation case is retained as an explicit known failure (`fixme`) pending runtime step 7b; it is not passing cancellation evidence. The two Bun inherited-fd3 cases are also explicitly pending: the pinned guest libc exits 71 on the truthful NOTSUP response before finding a relocated root preopen. The runtime owner must change the guest libc to skip occupied non-preopen descriptors; this shell does not fabricate successful preopen metadata. Builtins and direct runtime shell children retain active arbitrary-descriptor/root-preopen coverage. Background output may follow the waiting prompt, as in Bash; acceptance allows only that exact prompt prefix and still checks next-command usability and explicit kill/wait cleanup. Chromium and Firefox run the enabled cases in CI. Safari remains an owner-Mac verification gate; no Linux browser result is presented as Safari evidence. Child programs can deliberately accumulate input in their own heaps; per-program memory policy is a separate runtime concern, not evidence of shell buffering.
 
+The early-reader-close case uses a yielding Bun ticker and expects unhandled
+EPIPE status 1 (`PIPESTATUS` = `1 0`, `pipefail` = 1), matching the Linux native
+reference measured on 2026-10-17: Bun 1.4.2 and Node 26.7.0 both terminate that
+way for `setInterval(()=>process.stdout.write("tick\n"),1) | head -1`.
+In both native engines, `while(true) process.stdout.write("x\n") | head -1`
+does not terminate within three seconds (timeout 124): the loop starves the
+deferred error handler. The shell's native fake-producer test separately pins
+status 141 for a process using the default SIGPIPE disposition. Browser
+acceptance does not mistake Bun's ignored SIGPIPE for a shell transport failure.
+
 The full replacement gate remains open. Current runtime limitations also include a 1,024-slot lifetime process-directory limit (including the root), synchronous Preview1 filesystem opens/directory metadata calls that can block shell cancellation on a stalled filesystem service, and raw inherited terminal input without per-child canonical editing/EOF. [Plan 004](../plans/004-own-shell.md#steps) records the pending runtime work, retained limitation reproducer and filesystem test specifications. This integration does not claim that `poll` is already the sole blocking operation.
 
 ## Build the Bun asset
