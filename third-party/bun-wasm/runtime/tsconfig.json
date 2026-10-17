@@ -4,5 +4,5 @@
     "lib": ["ES2022", "DOM"], "strict": true, "noUncheckedIndexedAccess": true,
     "noEmit": true, "skipLibCheck": true, "allowImportingTsExtensions": true
   },
-  "include": ["core", "fs", "proc"]
+  "include": ["core", "fs", "proc", "interrupt"]
 }

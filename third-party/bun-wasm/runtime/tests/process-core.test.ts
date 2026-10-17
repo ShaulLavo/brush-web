@@ -407,7 +407,7 @@ test("killJob records every member before any teardown callback can spawn more d
   expect(rejected).toBe(true);
 });
 
-test("reaping the final member releases job metadata without affecting background descendants", async () => {
+test("job wait releases retained final-member metadata without affecting background descendants", async () => {
   const { supervisor, root, contexts } = fixture();
   const a = supervisor.spawn(root, request());
   await supervisor.start(a);
@@ -417,10 +417,12 @@ test("reaping the final member releases job metadata without affecting backgroun
   const descendantJob = supervisor.jobOf(b);
   contexts.get(a)!.exit(0);
   supervisor.reap(root, a);
-  expect(supervisor.job(job)).toBeUndefined();
+  expect(supervisor.job(job)).toBeDefined();
   expect(supervisor.job(descendantJob)).toBeDefined();
   contexts.get(b)!.exit(0);
   supervisor.reap(a, b);
+  expect(supervisor.waitJob(root, job)?.status).toBe(0);
+  expect(supervisor.waitJob(root, descendantJob)?.status).toBe(0);
   expect(supervisor.job(job)).toBeUndefined();
   expect(supervisor.job(descendantJob)).toBeUndefined();
 });

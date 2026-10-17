@@ -1,9 +1,9 @@
 import { checkedSignalNumber, createSignalState, requestSignal } from "./signals";
 import { DescriptorTable, MAX_DESCRIPTOR, OpenDescription, type Descriptor } from "../core/descriptors";
 import { ExecutableNotFound, ExecutableRegistry } from "./registry";
-import { ProcessTable, type ProcessRecord } from "./table";
+import { ProcessTable, type ProcessJob, type ProcessRecord } from "./table";
 import { claimOutcome, outcomeWord, readOutcome } from "./outcome";
-import { ProcessErrno, ProcessError, Signal, checkedSignal, type ChildExitEvent, type ProcessContext, type ProcessExit, type ProcessHandle, type SpawnRequest, type SpawnReservation } from "./types";
+import { ProcessErrno, ProcessError, Signal, checkedSignal, type ChildExitEvent, type ProcessContext, type ProcessExit, type ProcessHandle, type SpawnRequest, type SpawnReservation, type SharedJobIdentity } from "./types";
 
 export interface SupervisorOptions {
   registry: ExecutableRegistry;
@@ -13,6 +13,12 @@ export interface SupervisorOptions {
    * Fatal outcomes and explicit disposal never wait for this acknowledgement.
    */
   canConfirmExit?(pid: number): boolean;
+  /** Legacy hosts without job waits can release outcomes after their last individual reap. */
+  retainJobResults?: boolean;
+  /** Fence admitted filesystem and adapter work after revocation. Every exit confirmation
+   * waits for this hook, but never for physical worker termination.
+   */
+  quiesce?(pid: number): void | Promise<void>;
   /** Cleanup failures are diagnostics, never a reason to leave peers blocked or skip teardown. */
   onError?(error: unknown): void;
 }
@@ -39,6 +45,11 @@ export class ProcessSupervisor {
   readonly table: ProcessTable;
   private readonly options: SupervisorOptions;
   private readonly listeners = new Set<(event: ChildExitEvent) => void>();
+  private readonly jobReadiness = new Set<(job: number) => boolean>();
+  private readonly jobReapListeners = new Set<(job: number) => void>();
+  private readonly jobReapClaims = new Set<(job: number) => boolean>();
+  private readonly quiescentListeners = new Set<(event: ChildExitEvent) => void>();
+  private readonly jobListeners = new Map<number, Set<() => void>>();
   private disposed = false;
   private readonly finishing = new Set<number>();
   constructor(options: SupervisorOptions) { this.options = options; this.table = options.table ?? new ProcessTable(); }
@@ -62,6 +73,73 @@ export class ProcessSupervisor {
     if (!job) throw new ProcessError(ProcessErrno.SRCH, `unknown job ${jobId}`);
     return job.ownerPid === callerPid;
   }
+  /** A job is controlled by its owner and every live or retained ancestor of that owner. */
+  canWaitJob(callerPid: number, jobId: number): boolean {
+    // A synchronously accepted worker reap can reach the page after its caller was reaped
+    // by an ancestor. Retained identities still authenticate that queued owner-chain action.
+    if (this.table.parentOf(callerPid) === undefined) throw new ProcessError(ProcessErrno.SRCH, `unknown process ${callerPid}`);
+    const job = this.table.job(jobId);
+    if (!job) throw new ProcessError(this.table.wasJob(jobId) ? ProcessErrno.CHILD : ProcessErrno.SRCH, `unknown or reaped job ${jobId}`);
+    const seen = new Set<number>();
+    let owner: number | undefined = job.ownerPid;
+    while (owner !== undefined && owner !== 0 && !seen.has(owner)) {
+      if (owner === callerPid) return true;
+      seen.add(owner);
+      owner = this.table.parentOf(owner);
+    }
+    return false;
+  }
+  private requireWaitJob(callerPid: number, jobId: number) {
+    const job = this.table.job(jobId);
+    if (!job) throw new ProcessError(this.table.wasJob(jobId) ? ProcessErrno.CHILD : ProcessErrno.SRCH, `unknown or reaped job ${jobId}`);
+    if (!this.canWaitJob(callerPid, jobId)) throw new ProcessError(63, `job ${jobId} is outside the caller's owner chain`);
+    return job;
+  }
+  private jobIsEmpty(job: ProcessJob, internal = false): boolean {
+    try {
+      if (!Array.from(this.jobReadiness).every(check => check(job.id)) || job.pendingMembers !== 0) return false;
+      return this.table.confirmJobOutcome(job.id) !== null;
+    } catch (error) {
+      // A blocked worker can claim the shared job immediately after safe publication.
+      // Public waiters see CHILD; internal wake/cleanup bookkeeping must not fail for it.
+      if (internal && error instanceof ProcessError && error.errno === ProcessErrno.CHILD) return false;
+      throw error;
+    }
+  }
+  /** Controller adapters include accepted reservations not yet admitted to the local table. */
+  registerJobReadiness(check: (job: number) => boolean): () => void {
+    this.jobReadiness.add(check);
+    return () => { this.jobReadiness.delete(check); };
+  }
+  /** A shared controller atomically claims consumption before any local records are removed. */
+  registerJobReapClaim(claim: (job: number) => boolean): () => void {
+    this.jobReapClaims.add(claim);
+    return () => { this.jobReapClaims.delete(claim); };
+  }
+  onJobReap(listener: (job: number) => void): () => void {
+    this.jobReapListeners.add(listener);
+    return () => { this.jobReapListeners.delete(listener); };
+  }
+  private forgetUnusedJob(jobId: number): void {
+    const job = this.table.job(jobId);
+    if (this.options.retainJobResults === false && job?.members.size === 0 && this.jobIsEmpty(job, true)) this.table.removeJob(jobId);
+  }
+  jobEmpty(callerPid: number, jobId: number): boolean {
+    const job = this.requireWaitJob(callerPid, jobId);
+    return this.jobIsEmpty(job);
+  }
+  registerJobWake(callerPid: number, jobId: number, wake: Int32Array): () => void {
+    if (!(wake.buffer instanceof SharedArrayBuffer) || wake.length !== 1) throw new TypeError("job wake must be one shared int32");
+    this.requireWaitJob(callerPid, jobId);
+    let listeners = this.jobListeners.get(jobId);
+    if (!listeners) this.jobListeners.set(jobId, listeners = new Set());
+    const listener = () => { Atomics.add(wake, 0, 1); Atomics.notify(wake, 0); };
+    listeners.add(listener);
+    return () => {
+      listeners!.delete(listener);
+      if (listeners!.size === 0) this.jobListeners.delete(jobId);
+    };
+  }
   createRoot(options: RootProcessOptions = {}): number {
     if (this.disposed) throw new ProcessError(ProcessErrno.SRCH, "supervisor is disposed");
     const pid = options.pid ?? this.table.identities.pid();
@@ -73,7 +151,7 @@ export class ProcessSupervisor {
       : this.table.createJob(pid, options.foreground ?? true, options.job);
     this.table.insert({
       pid, parentPid: 0, job: job.id, descriptors: options.descriptors ?? new DescriptorTable(),
-      interrupt, requestedSignal, signalState, outcome, request: null, state: "running", result: null, signal: 0, revoked: false,
+      interrupt, requestedSignal, signalState, outcome, request: null, state: "running", result: null, jobSafe: false, signal: 0, revoked: false,
       revocations: new Set(), waiters: new Set(),
     });
     return pid;
@@ -85,20 +163,24 @@ export class ProcessSupervisor {
    * Admission and descriptor retention must already have happened while the parent was live.
    * Shared state is adopted unchanged; a preclaimed child outcome still prevents launch.
    */
-  reserveAdmittedSpawn(parentPid: number, spec: SpawnRequest, reservation: SpawnReservation = {}): number {
-    return this.reserveProcess(parentPid, spec, reservation, true);
+  reserveAdmittedSpawn(parentPid: number, spec: SpawnRequest, reservation: SpawnReservation = {}, retainedDescriptors?: DescriptorTable, jobIdentity?: SharedJobIdentity): number {
+    return this.reserveProcess(parentPid, spec, reservation, true, retainedDescriptors, jobIdentity);
   }
-  private reserveProcess(parentPid: number, spec: SpawnRequest, reservation: SpawnReservation, admitted: boolean): number {
+  private reserveProcess(parentPid: number, spec: SpawnRequest, reservation: SpawnReservation, admitted: boolean, retainedDescriptors?: DescriptorTable, jobIdentity?: SharedJobIdentity): number {
     if (this.disposed) throw new ProcessError(ProcessErrno.SRCH, "supervisor is disposed");
-    const parent = this.table.require(parentPid);
-    if (!admitted && (parent.result || parent.signal === Signal.SIGKILL || readOutcome(parent.outcome))) throw new ProcessError(ProcessErrno.SRCH, "parent process has exited or is being killed");
+    const parent = this.table.get(parentPid);
+    // A separately selected job can be admitted after an ancestor reaped its exited parent.
+    // Its worker already retained the capabilities and ancestry before that reap.
+    if (!parent && (!admitted || !retainedDescriptors || this.table.parentOf(parentPid) === undefined)) throw new ProcessError(ProcessErrno.SRCH, `unknown process ${parentPid}`);
+    if (!admitted && (parent!.result || parent!.signal === Signal.SIGKILL || readOutcome(parent!.outcome))) throw new ProcessError(ProcessErrno.SRCH, "parent process has exited or is being killed");
+    const parentDescriptors = retainedDescriptors ?? parent!.descriptors;
     if (!Number.isInteger(spec.job) || spec.job < -1) throw new ProcessError(ProcessErrno.INVAL, "invalid job selection");
     const bindings = new Set<number>();
     for (const binding of spec.fds) {
       if (!validFd(binding.child) || !validFd(binding.parent) || bindings.has(binding.child)) {
         throw new ProcessError(ProcessErrno.INVAL, "invalid or duplicate descriptor binding");
       }
-      if (!parent.descriptors.get(binding.parent)) throw new ProcessError(ProcessErrno.BADF, `missing parent descriptor ${binding.parent}`);
+      if (!parentDescriptors.get(binding.parent)) throw new ProcessError(ProcessErrno.BADF, `missing parent descriptor ${binding.parent}`);
       bindings.add(binding.child);
     }
     const interrupt = signalWord(reservation.interrupt), requestedSignal = signalWord(reservation.requestedSignal), outcome = outcomeWord(reservation.outcome), signalState = createSignalState(reservation.signalState);
@@ -109,16 +191,17 @@ export class ProcessSupervisor {
     let createdJob = false;
     if (job !== undefined && !this.table.job(job)) {
       if (reservation.job === undefined) throw new ProcessError(ProcessErrno.SRCH, `unknown job ${job}`);
-      this.table.createJob(parentPid, spec.job === 0, job);
+      this.table.createJob(jobIdentity?.ownerPid ?? parentPid, jobIdentity?.foreground ?? spec.job === 0, job, jobIdentity);
       createdJob = true;
     }
     if (job === undefined) { job = this.table.createJob(parentPid, spec.job === 0).id; createdJob = true; }
+    if (jobIdentity) this.table.adoptJobIdentity(job, jobIdentity);
     const descriptors = new DescriptorTable();
     const inherited = new Map<OpenDescription, Descriptor>();
     const revocations = new Set<() => void>();
     try {
       for (const binding of request.fds) {
-        const source = parent.descriptors.get(binding.parent)!;
+        const source = parentDescriptors.get(binding.parent)!;
         let target = inherited.get(source.description);
         if (!target) {
           const resource = source.resource;
@@ -133,9 +216,9 @@ export class ProcessSupervisor {
       }
       this.table.insert({
         pid, parentPid, job, descriptors,
-        interrupt, requestedSignal, signalState, outcome, request, state: "reserved", result: null, signal: 0, revoked: false,
+        interrupt, requestedSignal, signalState, outcome, request, state: "reserved", result: null, jobSafe: false, signal: 0, revoked: false,
         revocations, waiters: new Set(),
-      });
+      }, admitted);
     } catch (error) {
       this.disposeDescriptors(descriptors);
       if (createdJob) this.table.removeEmptyJob(job);
@@ -153,7 +236,7 @@ export class ProcessSupervisor {
     const record = this.table.get(pid);
     if (!record || record.request === null) return Promise.resolve();
     if (record.starting) return record.starting;
-    if (record.result) return Promise.resolve();
+    if (record.result || record.revoked) return Promise.resolve();
     const settled = readOutcome(record.outcome);
     if (settled) { this.finish(pid, settled); return Promise.resolve(); }
     record.state = "starting";
@@ -163,7 +246,7 @@ export class ProcessSupervisor {
   private async launch(record: ProcessRecord): Promise<void> {
     try {
       const executable = await this.options.registry.resolve(record.request!.executable);
-      if (record.result) return;
+      if (record.result || record.revoked) return;
       const settled = readOutcome(record.outcome);
       if (settled) { this.finish(record.pid, settled); return; }
       const context: ProcessContext = {
@@ -175,7 +258,7 @@ export class ProcessSupervisor {
         registerRevocation: hook => this.registerRevocation(record.pid, hook),
       };
       const handle = await this.options.launch(context);
-      if (record.result) this.terminate(handle);
+      if (record.result || record.revoked) this.terminate(handle);
       else { record.handle = handle; record.state = "running"; }
     } catch (error) { this.failStart(record.pid, error); }
   }
@@ -241,6 +324,26 @@ export class ProcessSupervisor {
     }
   }
   wait(parentPid: number, pid: number): ProcessExit | null { return this.child(parentPid, pid).result; }
+  /** Returns and reaps a completed job, retaining the leader's typed outcome even if it was reaped separately. */
+  waitJob(parentPid: number, jobId: number): ProcessExit | null {
+    const job = this.requireWaitJob(parentPid, jobId);
+    if (!this.jobIsEmpty(job)) return null;
+    return this.reapJob(parentPid, jobId);
+  }
+  reapJob(parentPid: number, jobId: number): ProcessExit {
+    const job = this.requireWaitJob(parentPid, jobId);
+    if (!this.jobIsEmpty(job)) throw new ProcessError(ProcessErrno.AGAIN, "job has not become empty");
+    const result = job.leaderResult;
+    if (!result) throw new ProcessError(ProcessErrno.CHILD, "job leader has no final outcome");
+    for (const claim of this.jobReapClaims) {
+      if (!claim(jobId)) throw new ProcessError(ProcessErrno.CHILD, "job was already reaped by another observer");
+    }
+    for (const pid of Array.from(job.members)) this.table.remove(pid);
+    this.table.removeJob(jobId);
+    for (const listener of Array.from(this.jobReapListeners)) this.safely(() => listener(jobId));
+    this.jobListeners.delete(jobId);
+    return result;
+  }
   waitForExit(parentPid: number, pid: number): Promise<ProcessExit> {
     const record = this.child(parentPid, pid);
     if (record.result) return Promise.resolve(record.result);
@@ -250,6 +353,7 @@ export class ProcessSupervisor {
     const record = this.child(parentPid, pid);
     if (!record.result) throw new ProcessError(ProcessErrno.AGAIN, "child has not exited");
     this.table.remove(pid);
+    this.forgetUnusedJob(record.job);
     return record.result;
   }
   private child(parentPid: number, pid: number): ProcessRecord {
@@ -260,6 +364,10 @@ export class ProcessSupervisor {
   onChildExit(listener: (event: ChildExitEvent) => void): () => void {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
+  }
+  onProcessQuiescent(listener: (event: ChildExitEvent) => void): () => void {
+    this.quiescentListeners.add(listener);
+    return () => { this.quiescentListeners.delete(listener); };
   }
   registerRevocation(pid: number, hook: () => void): () => void {
     const record = this.table.get(pid);
@@ -276,9 +384,16 @@ export class ProcessSupervisor {
       if (this.table.get(record.pid) === record) {
         this.finish(record.pid, { kind: "signaled", code: Signal.SIGKILL });
         this.table.remove(record.pid);
+        this.table.removeJob(record.job);
       }
     }
+    this.table.clearJobs();
     this.listeners.clear();
+    this.jobReadiness.clear();
+    this.jobReapListeners.clear();
+    this.jobReapClaims.clear();
+    this.quiescentListeners.clear();
+    this.jobListeners.clear();
   }
   private finish(pid: number, result: Omit<ProcessExit, "status">): void {
     const record = this.table.get(pid);
@@ -308,14 +423,35 @@ export class ProcessSupervisor {
     record.revocations.clear();
     for (const hook of hooks) this.safely(hook);
     this.disposeDescriptors(record.descriptors);
-    // Shared outcome selects a winner; waitability begins only after all capabilities are frozen.
-    record.result = winner;
-    record.state = "exited";
-    this.finishing.delete(pid);
-    for (const resolve of record.waiters) resolve(record.result);
-    record.waiters.clear();
-    const event = Object.freeze({ pid, parentPid: record.parentPid, job: record.job, result: record.result });
-    for (const listener of Array.from(this.listeners)) this.safely(() => listener(event));
+    // Invoke the fence while broker child/identity records are still present. Every observer
+    // must wait for admitted filesystem and adapter work (for example a terminal section),
+    // independently of the physical worker's potentially delayed termination.
+    let quiescence: void | Promise<void> = undefined;
+    let fenceFailed = false;
+    try { quiescence = this.options.quiesce?.(pid); }
+    catch (error) { fenceFailed = true; this.report(error); }
+    const safe = () => {
+      record.result = winner;
+      record.state = "exited";
+      this.table.recordOutcome(record);
+      this.finishing.delete(pid);
+      this.table.markJobSafe(record);
+      for (const resolve of record.waiters) resolve(winner);
+      record.waiters.clear();
+      const event = Object.freeze({ pid, parentPid: record.parentPid, job: record.job, result: winner });
+      for (const listener of Array.from(this.listeners)) this.safely(() => listener(event));
+      for (const listener of Array.from(this.quiescentListeners)) this.safely(() => listener(event));
+      const job = this.table.job(record.job);
+      this.forgetUnusedJob(record.job);
+      if (job && this.jobIsEmpty(job, true)) {
+        const listeners = this.jobListeners.get(record.job);
+        if (listeners) for (const listener of Array.from(listeners)) this.safely(listener);
+      }
+    };
+    if (!fenceFailed) {
+      if (quiescence) void quiescence.then(safe, error => this.report(error));
+      else safe();
+    }
     if (record.handle) { const handle = record.handle; record.handle = undefined; this.terminate(handle); }
   }
   private disposeDescriptors(descriptors: DescriptorTable): void {

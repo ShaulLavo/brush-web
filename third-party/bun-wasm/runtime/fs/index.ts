@@ -7,4 +7,5 @@ export { DEFAULT_SHARED_MAX_BYTES, SHARED_SEGMENT_BYTES, MissingSegmentError, Mi
 
 export { PersistentBackend } from "./persistent";
 export { IndexedDBStorage } from "./indexeddb";
+export { OpfsStorage, type OpfsStorageOptions } from "./opfs";
 export type { StorageBackend, PersistedIndex, PersistedNode, PersistenceBatch } from "./storage";

@@ -14,6 +14,13 @@ export interface SpawnRequest {
   job: number;
   fds: DescriptorBinding[];
 }
+/** Immutable shared-directory job identity, independent of controller message order. */
+export interface SharedJobIdentity {
+  readonly ownerPid: number;
+  readonly leaderPid: number;
+  readonly outcome: BigInt64Array;
+  readonly foreground: boolean;
+}
 export interface SpawnReservation {
   pid?: number;
   job?: number;

@@ -275,7 +275,7 @@ test("poll timeout, invalid subscriptions and filesystem completion do not corru
   expect(f.abi.imports.poll!(65528, 1, 0, 512)).toBe(-21);
   expect(f.abi.imports.poll!(256, -1, 0, 512)).toBe(-21);
   expect(f.abi.imports.poll!(256, 1, 0, 65528)).toBe(-21);
-  const service = { spawn: f.supervisor.spawn.bind(f.supervisor), wait: f.supervisor.wait.bind(f.supervisor), kill: f.supervisor.kill.bind(f.supervisor), killJob: f.supervisor.killJob.bind(f.supervisor), jobOf: f.supervisor.jobOf.bind(f.supervisor), defaultSignal: f.supervisor.defaultSignal.bind(f.supervisor), filesystemReady: (_pid: number, request: number) => request === 77 && complete };
+  const service = { waitJob: f.supervisor.waitJob.bind(f.supervisor), jobEmpty: f.supervisor.jobEmpty.bind(f.supervisor), spawn: f.supervisor.spawn.bind(f.supervisor), wait: f.supervisor.wait.bind(f.supervisor), kill: f.supervisor.kill.bind(f.supervisor), killJob: f.supervisor.killJob.bind(f.supervisor), jobOf: f.supervisor.jobOf.bind(f.supervisor), defaultSignal: f.supervisor.defaultSignal.bind(f.supervisor), filesystemReady: (_pid: number, request: number) => request === 77 && complete };
   const other = new ProcessABI({ memory: f.memory, descriptors: f.descriptors, fs: f.fs, pid: f.pid, signals: f.signals, service });
   f.sub(0, 3, 77);
   expect(other.imports.poll!(256, 1, 0, 512)).toBe(1);

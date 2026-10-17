@@ -19,7 +19,7 @@ self.onmessage = ({ data }: MessageEvent<{ connection: FilesystemConnection }>) 
     const wake = new Int32Array(data.connection.signal);
     let blocked = false;
     const abi = new ProcessABI({ memory, descriptors, fs, pid: 1,
-      service: { spawn: unused, wait: unused, kill: unused, killJob: unused, jobOf: unused, defaultSignal: unused },
+      service: { spawn: unused, waitJob: unused, jobEmpty: unused, wait: unused, kill: unused, killJob: unused, jobOf: unused, defaultSignal: unused },
       signals: { signalState: createSignalState(), interrupt: new Int32Array(new SharedArrayBuffer(4)), requestedSignal: new Int32Array(new SharedArrayBuffer(4)), outcome: outcomeWord() },
       wake,
       wait(milliseconds) {

@@ -68,11 +68,11 @@
   },
   "bunWasm": {
     "repository": "https://github.com/ShaulLavo/bun-wasm",
-    "revision": "525762749bcc8ea05ca6ceb46fbbccb4d29ce224",
+    "revision": "4af3c580a580270df82d1b051c12571a141ad883",
     "legacyHostRevision": "c81bcce890c5b121d7fee0a3eeaf3c8fef34e5cc",
     "engine": "quickjs",
-    "wasmSha256": "01fe8b51cc2afb429fcad2bea0cb56657d9ebca713e3c50147c135b2245559ce",
-    "wasmBytes": 14958992,
+    "wasmSha256": "5f1f7eff76d83121b294f971ce5a88e2051167aa4c05e710d77d8391e0e0bd24",
+    "wasmBytes": 14958925,
     "hostFiles": [
       "web/src/fs.ts",
       "web/src/wasi.ts",
@@ -80,17 +80,17 @@
       "web/src/net/trampoline.ts"
     ],
     "strategy": "Bun guest binary built from revision; runtime package separately pinned by runtimeRevision. Old Brush host files retain legacyHostRevision. Build verifies artifact and runtime source checksums.",
-    "artifactOrigin": "QuickJS deployment build at 525762749bcc8ea05ca6ceb46fbbccb4d29ce224. Runtime owner validated these exact guest bytes in the 4b final gate at c0a12226, whose tree matches runtimeRevision 8d3d416a.",
+    "artifactOrigin": "QuickJS deployment guest built from Bun source revision 4af3c580a580270df82d1b051c12571a141ad883. The matching runtime package and job-wait ABI were merged in bun-wasm revision 1d251a99d3d22a4c33c78d4eb7425e5e69299e82; guest files were copied from the coordinator-provided immutable guest bundle.",
     "sourceArtifact": "third-party/bun-wasm/bun.wasm.gz",
-    "sourceArtifactSha256": "3dab519c48397dfb7b2fc679344e4fefb8c48dea0d8ec430293a468f943a89b3",
+    "sourceArtifactSha256": "70c013a90064fd0ef6c6855d7b5a68c8a1800cc8034fdb1a3789e22915288781",
     "buildToolchain": {
       "rust": "nightly-2026-09-15",
       "binaryen": "133"
     },
-    "runtimeRevision": "8d3d416aa9cb23718ed3487a33d0b06e8e373672",
+    "runtimeRevision": "1d251a99d3d22a4c33c78d4eb7425e5e69299e82",
     "runtimeDirectory": "third-party/bun-wasm/runtime",
-    "runtimeTreeSha256": "82be8c453beded43115182f5cecd4ad45199d6d57eac075bf0d8bbacc5be582f",
-    "runtimeStrategy": "Vendored unmodified runtime package files from runtimeRevision. Legacy host files retain legacyHostRevision and the Bun artifact retains revision above; the new shell uses runtime/core and runtime/proc, never the legacy host."
+    "runtimeTreeSha256": "dae0eaac5ebb526f329aedfbdd3308657f67c0acf77aa3d225d83e19d42a5bcd",
+    "runtimeStrategy": "Vendored unmodified runtime package files from runtimeRevision 1d251a99d3d22a4c33c78d4eb7425e5e69299e82, including the wait_job/job-empty ABI and supervisor quiescence hook. Legacy host files retain legacyHostRevision and the Bun artifact has its separate traced guest revision; the new shell uses runtime/core and runtime/proc, never the legacy host."
   },
   "shellParser": {
     "repository": "https://github.com/everruns/bashkit",

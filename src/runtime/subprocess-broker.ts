@@ -134,6 +134,9 @@ export class SubprocessBroker {
           (pid === this.root?.pid
             ? this.options.canConfirmRoot?.() !== false
             : this.runtimeChildren.get(pid)?.acknowledged !== false),
+        // Runtime confirmation must wait for terminal cursor publication and any other
+        // bounded adapter critical section after revocation, but never for Worker.terminate().
+        quiesce: (pid) => this.quiesceRuntimeProcess(pid),
       });
       this.supervisor = supervisor;
       const pid = supervisor.createRoot({ ...this.options.root, ...this.rootTransport() });
@@ -204,6 +207,18 @@ export class SubprocessBroker {
     const admission = (transport?.data as { terminalAdmission?: TerminalAdmission } | undefined)
       ?.terminalAdmission;
     if (admission) revokeTerminal(admission);
+  }
+  /** Supervisor quiescence runs after revocation and before every exit confirmation. */
+  private quiesceRuntimeProcess(pid: number): void | Promise<void> {
+    const transport =
+      this.runtimeChildren.get(pid)?.transport ??
+      (this.root?.pid === pid ? this.runtimeRoot : undefined);
+    const admission = (transport?.data as { terminalAdmission?: TerminalAdmission } | undefined)
+      ?.terminalAdmission;
+    if (!admission) return undefined;
+    return (async () => {
+      await quiesceTerminal(admission);
+    })();
   }
   private runtimeFilesystem(
     transport: WorkerProcessTransport,

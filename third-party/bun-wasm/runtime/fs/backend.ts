@@ -14,7 +14,8 @@ export interface FilesystemBackend {
   sharedSegments?(): SharedSegment[];
   /** Lazy storage reads finish before the service acquires its mutation lock. */
   prepare?(operation: string, args: any[], data: Uint8Array): void | Promise<void>;
-  flush?(): Promise<void>;
+  /** File identity/path limits explicit durability to that file; omitted flushes the workspace. */
+  flush?(target?: FileHandle | string): Promise<void>;
 }
 const namespaceOperations = new Set(["preopen", "create", "link", "removePath", "rename", "writeFile", "mkdirp", "remove", "move"]);
 export class MemoryBackend implements FilesystemBackend {

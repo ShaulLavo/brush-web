@@ -20,12 +20,12 @@ On child completion, unread terminal input is discarded, including unfinished ca
 
 ## Runtime source and guest provenance
 
-The new shell integration consumes the vendored runtime package, not Brush's old one-child host. Its immutable source pin is `bunWasm.runtimeRevision` in `sources.lock.json`: `8d3d416aa9cb23718ed3487a33d0b06e8e373672`. `node scripts/check-runtime-source.mjs` verifies the complete vendored tree, hashing sorted relative paths and file contents separated by NUL bytes.
+The new shell integration consumes the vendored runtime package, not Brush's old one-child host. Its immutable source pin is `bunWasm.runtimeRevision` in `sources.lock.json`: `1d251a99d3d22a4c33c78d4eb7425e5e69299e82`. `node scripts/check-runtime-source.mjs` verifies the complete vendored tree, hashing sorted relative paths and file contents separated by NUL bytes.
 
 | Classification | Upstream source | Local destination | Changes and reason |
 | --- | --- | --- | --- |
 | Unmodified owned-runtime copy | `ShaulLavo/bun-wasm`, `runtime/`, revision above | `third-party/bun-wasm/runtime/` | Byte-for-byte package copy, including tests and metadata. Provides core descriptor/WASI/FS APIs and the process ABI, worker transport, supervisor and bounded pipes. Kept separate from the shell so the later `waffle` package switch changes imports, not process semantics. |
-| Unmodified built guest | `ShaulLavo/bun-wasm`, build `525762749bcc8ea05ca6ceb46fbbccb4d29ce224` | `third-party/bun-wasm/bun.wasm.gz` | Deterministically gzip-compressed QuickJS guest. Runtime owner validated these exact guest bytes against the final process-runtime gate at `c0a12226`, whose tree matches the runtime source pin. Uncompressed SHA-256: `01fe8b51cc2afb429fcad2bea0cb56657d9ebca713e3c50147c135b2245559ce`. |
+| Unmodified built guest | `ShaulLavo/bun-wasm`, Bun source build `4af3c580a580270df82d1b051c12571a141ad883`, bundle provenance `1d251a99d3d22a4c33c78d4eb7425e5e69299e82` | `third-party/bun-wasm/bun.wasm.gz` | Deterministically gzip-compressed QuickJS guest copied from the coordinator-provided immutable bundle. Uncompressed SHA-256: `5f1f7eff76d83121b294f971ce5a88e2051167aa4c05e710d77d8391e0e0bd24`. The matching runtime tree includes the job-wait ABI and supervisor quiescence hook. |
 | Historical unmodified host copy | `ShaulLavo/bun-wasm`, `web/src/{fs,wasi,subprocess-fs}.ts` and `web/src/net/trampoline.ts`, revision `c81bcce890c5b121d7fee0a3eeaf3c8fef34e5cc` | Top-level files in `third-party/bun-wasm/` | Retained solely for the default Brush engine. The new runtime-backed shell does not build on them. |
 
 The guest, runtime sources, and historical Brush host have distinct pins. A runtime-only change need not rebuild unchanged guest code; a guest-code change requires a new traced artifact and hashes. The historical measurements below retain their recorded artifact identities.

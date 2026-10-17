@@ -219,7 +219,7 @@ export class FilesystemService {
     }
     let result: any;
     if (operation === "flush" || operation === "sync") {
-      await this.backend.flush?.();
+      await this.backend.flush?.(operation === "sync" ? a : typeof a === "string" ? a : undefined);
       result = operation === "sync" ? 0 : undefined;
     } else result = await this.backend.execute(operation, args, data);
     const pending = session.pending.get(id);

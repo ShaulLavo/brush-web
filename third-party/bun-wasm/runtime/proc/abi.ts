@@ -11,6 +11,9 @@ import { ProcessErrno, ProcessError, Signal, type ProcessExit, type SpawnRequest
 export interface ProcessService {
   spawn(parentPid: number, request: SpawnRequest): number;
   wait(parentPid: number, pid: number): ProcessExit | null;
+  waitJob(callerPid: number, job: number): ProcessExit | null;
+  jobEmpty(callerPid: number, job: number): boolean;
+  registerJobWake?(callerPid: number, job: number, wake: Int32Array): () => void;
   kill(pid: number, signal: number): void;
   killJob(job: number, signal: number): void;
   jobOf(pid: number): number;
@@ -47,7 +50,7 @@ export interface ProcessABIOptions {
   createPipe?(): readonly [Stream, Stream];
   /** One shared readiness sequence. Publishers increment and notify after publishing state. */
   wake?: Int32Array;
-  /** Synchronous wait hook, primarily for embedders and deterministic tests. Only poll calls it. */
+  /** Synchronous wait hook, primarily for embedders and deterministic tests. poll and blocking wait_job call it. */
   wait?(milliseconds: number, word: Int32Array, expected: number): void;
   now?(): number;
 }
@@ -68,7 +71,7 @@ const decode = new TextDecoder("utf-8", { fatal: true });
 const clock = performance.now.bind(performance);
 type Subscription = { kind: number; id: number; userdata: bigint };
 
-/** Guest adapter for the runtime_proc WASM namespace. No operation except poll waits.
+/** Guest adapter for the runtime_proc WASM namespace. Only poll and blocking wait_job wait.
  * FileSystem must provide immediate I/O; worker-backed services supply nonblocking file I/O.
  * Streams with potentially blocking read/write must expose tryRead/tryWrite. */
 export class ProcessABI {
@@ -87,6 +90,7 @@ export class ProcessABI {
       read: (fd, ptr, length) => this.result(() => this.io(false, fd!, ptr!, length!)),
       write: (fd, ptr, length) => this.result(() => this.io(true, fd!, ptr!, length!)),
       wait: (pid, ptr) => this.result(() => this.wait(pid!, ptr!)),
+      wait_job: (job, flags, ptr) => this.result(() => this.waitJob(job!, flags!, ptr!)),
       kill: (pid, signal) => this.result(() => {
         if (options.service.canSignal?.(options.pid, pid!) === false) return -63;
         options.service.kill(pid!, signal!); return 0;
@@ -220,6 +224,29 @@ export class ProcessABI {
     output.setInt32(4, result.code, true);
     return 0;
   }
+  private waitJob(job: number, flags: number, ptr: number): number {
+    if (flags !== 0 && flags !== 1) return -ProcessErrno.INVAL;
+    this.span(ptr, 4); // Faults must not consume a completed job.
+    const wake = this.options.wake;
+    const release = wake ? this.options.service.registerJobWake?.(this.options.pid, job, wake) : undefined;
+    try {
+      for (;;) {
+        const sequence = wake ? Atomics.load(wake, 0) : 0;
+        // Validate/read readiness separately so a host callback growing memory cannot cause
+        // a fault after the consuming operation. No guest code runs between validation/reap.
+        if (this.options.service.jobEmpty(this.options.pid, job)) {
+          this.span(ptr, 4);
+          const result = this.options.service.waitJob(this.options.pid, job);
+          if (result) { this.view(ptr, 4).setInt32(0, result.status, true); return 0; }
+        }
+        if (flags === 1) return -ProcessErrno.AGAIN;
+        if (Atomics.load(this.options.signals.interrupt, 0) !== 0 || this.pending()) return -27; // EINTR; no signal consumed.
+        const word = wake ?? this.options.signals.interrupt;
+        if (this.options.wait) this.options.wait(10, word, wake ? sequence : 0);
+        else Atomics.wait(word, 0, wake ? sequence : 0, 10);
+      }
+    } finally { release?.(); }
+  }
   private pending(): boolean {
     for (let signal = 1; signal <= 64; signal++) {
       if (Atomics.load(this.options.signals.signalState, signal) & SIGNAL_PENDING) return true;
@@ -258,6 +285,7 @@ export class ProcessABI {
     throw new ProcessSignalExit(signal);
   }
   private readiness(sub: Subscription): Readiness | null {
+    if (sub.kind === 4) return this.options.service.jobEmpty(this.options.pid, sub.id) ? { readable: true, writable: false, hangup: false } : null;
     if (sub.kind === 2) return this.options.service.wait(this.options.pid, sub.id) ? { readable: true, writable: false, hangup: false } : null;
     const fs: NonblockingFileSystem = this.options.fs;
     if (sub.kind === 3) {
@@ -294,7 +322,7 @@ export class ProcessABI {
     for (let index = 0; index < count; index++) {
       const at = index * 16;
       const sub = { kind: input.getUint32(at, true), id: input.getUint32(at + 4, true), userdata: input.getBigUint64(at + 8, true) };
-      if (sub.kind > 3) return -ProcessErrno.INVAL;
+      if (sub.kind > 4) return -ProcessErrno.INVAL;
       subscriptions.push(sub);
     }
     if (Atomics.load(this.options.signals.interrupt, 0) !== 0 || this.pending()) return 0;
@@ -304,6 +332,10 @@ export class ProcessABI {
       if (wake) {
         const resources = new Set<Stream>();
         for (const sub of subscriptions) {
+          if (sub.kind === 4) {
+            const release = this.options.service.registerJobWake?.(this.options.pid, sub.id, wake);
+            if (release) unregister.push(release);
+          }
           if (sub.kind > 1) continue;
           const resource = this.descriptor(sub.id, POLL).resource;
           if (resource.kind === "file" || resource.kind === "directory") continue;

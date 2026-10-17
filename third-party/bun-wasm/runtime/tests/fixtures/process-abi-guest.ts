@@ -12,7 +12,7 @@ const descriptors = new DescriptorTable();
 const memory = new WebAssembly.Memory({ initial: 1 });
 descriptors.open(attachPipeEndpoint(endpoint), (1n << 1n) | (1n << 27n), 0n);
 const unused = (): never => { throw new Error("unexpected process service call"); };
-const service: ProcessService = { spawn: unused, wait: unused, kill: unused, killJob: unused, jobOf: unused, defaultSignal: unused };
+const service: ProcessService = { spawn: unused, waitJob: unused, jobEmpty: unused, wait: unused, kill: unused, killJob: unused, jobOf: unused, defaultSignal: unused };
 const abi = new ProcessABI({ memory, descriptors, fs: new MemFS(), pid, service, signals, wake: endpoint.wake,
   wait(milliseconds, word, expected) {
     parentPort!.postMessage({ phase: "blocked" });

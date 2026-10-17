@@ -1,16 +1,17 @@
-/** Real IndexedDB/Web Locks tests. Import and call runStorageTests() in a browser. */
+/** Real browser storage tests. Shared contract cases run unchanged against both backends. */
 import { IndexedDBStorage } from "../fs/indexeddb";
-import type { PersistenceBatch, PersistedNode } from "../fs/storage";
+import type { PersistenceBatch, PersistedNode, StorageBackend } from "../fs/storage";
+export { opfsStorageTests, runOpfsStorageTests } from "./opfs-storage-browser";
 
-function assert(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
-async function rejects(action: Promise<unknown>, match: string): Promise<void> {
+export function assert(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
+export async function rejects(action: Promise<unknown>, match: string | RegExp): Promise<void> {
   try { await action; } catch (error) {
-    assert(String(error).includes(match), `Expected ${match}, got ${error}`); return;
+    assert(typeof match === "string" ? String(error).includes(match) : match.test(String(error)), `Expected ${match}, got ${error}`); return;
   }
   throw new Error(`Expected rejection containing ${match}`);
 }
-const bytes = (value: string) => new TextEncoder().encode(value);
-function batch(generation: number, text = `v${generation}`): PersistenceBatch {
+export const bytes = (value: string) => new TextEncoder().encode(value);
+export function batch(generation: number, text = `v${generation}`): PersistenceBatch {
   return { generation, root: 1, removes: [], upserts: [
     { ino: 1, kind: "dir", mtime: generation, size: 0, children: [["file", 2]] },
     { ino: 2, kind: "file", mtime: generation, size: bytes(text).length, data: `file:${generation}` },
@@ -31,34 +32,92 @@ async function change(name: string, store: string, key: IDBValidKey, value?: unk
   }));
 }
 
-export async function runStorageTests(filter?: string): Promise<string[]> {
-  const passed: string[] = [];
-  async function test(label: string, run: (name: string, open: () => Promise<IndexedDBStorage>) => Promise<void>, compactEvery = 2) {
-    if (filter && !label.includes(filter)) return;
-    const name = `bun-wasm-storage-test-${crypto.randomUUID()}`;
-    const opened: IndexedDBStorage[] = [];
-    const open = async () => { const backend = await IndexedDBStorage.open(name, { compactEvery }); opened.push(backend); return backend; };
-    try { await run(name, open); passed.push(label); }
-    finally { for (const backend of opened) await backend.close().catch(() => {}); await request(indexedDB.deleteDatabase(name)); }
-  }
+export interface BrowserStorageTest { label: string; run(): Promise<void> }
+export interface StorageContractCase {
+  label: string;
+  run(name: string, open: () => Promise<StorageBackend>): Promise<void>;
+  compactEvery?: number;
+}
+type Register = (label: string, run: StorageContractCase["run"], compactEvery?: number) => void;
 
-  await test("empty, atomic save, reload, payload copies", async (_name, open) => {
+/** Backend-independent behavior, with no assumptions about the physical persistence layout. */
+export function storageContractCases(): StorageContractCase[] {
+  const cases: StorageContractCase[] = [];
+  const test: Register = (label, run, compactEvery) => { cases.push({ label, run, compactEvery }); };
+  test("empty, atomic save, reload, payload copies", async (_name, open) => {
     const storage = await open();
-    assert(await storage.load() === undefined, "fresh database must be empty");
+    assert(await storage.load() === undefined, "fresh storage must be empty");
     const first = batch(1);
     const saved = storage.persist(first);
     first.data.get("file:1")!.fill(0);
     first.upserts[1]!.size = 1000;
     await saved; await storage.flush(); await storage.close();
     const reopened = await open();
-    assert((await reopened.load())?.generation === 1, "generation survives reopen");
+    const loaded = await reopened.load();
+    assert(loaded?.generation === 1, "generation survives reopen");
+    loaded.nodes.length = 0;
+    assert((await reopened.load())?.nodes.length === 2, "load must return owned metadata");
     assert(new TextDecoder().decode(await reopened.read("file:1")) === "v1", "caller mutation cannot change queued payload");
     const copy = await reopened.read("file:1"); copy.fill(0);
     assert(new TextDecoder().decode(await reopened.read("file:1")) === "v1", "read must return owned bytes");
-    await rejects(reopened.read("missing"), "Missing");
+    await rejects(reopened.read("missing"), /Missing|ENOENT|NotFound/);
   });
 
-  await test("incremental journal without full metadata rewrites", async (name, open) => {
+  test("single writer lifetime and close", async (_name, open) => {
+    const storage = await open(); await rejects(open(), "writer");
+    await storage.close(); await storage.close();
+    await rejects(storage.load(), "closed"); await rejects(storage.persist(batch(1)), "closed");
+    await rejects(storage.read("file:1"), "closed"); await rejects(storage.flush(), "closed");
+    const next = await open(); assert(await next.load() === undefined, "lock released on close");
+  });
+
+  test("immutable keys, missing payloads, monotonic generations, and flush errors", async (_name, open) => {
+    const storage = await open(); await storage.persist(batch(1));
+    const collision = batch(2); collision.upserts[1]!.data = "file:1"; collision.data = new Map([["file:1", bytes("xx")]]);
+    await rejects(storage.persist(collision), "immutable"); await rejects(storage.flush(), "immutable");
+    const missing = batch(2); missing.data.clear();
+    await rejects(storage.persist(missing), "Missing");
+    await rejects(storage.persist(batch(1)), "generation");
+    assert((await storage.load())?.generation === 1, "failed saves leave committed index untouched");
+    await storage.persist(batch(2)); await storage.flush();
+    const metadataOnly = batch(3);
+    metadataOnly.upserts = [metadataOnly.upserts[1]!];
+    metadataOnly.upserts[0]!.data = "file:2"; metadataOnly.data.clear();
+    await storage.persist(metadataOnly); await storage.flush(); await storage.close();
+    const reopened = await open();
+    assert((await reopened.load())?.generation === 3, "incremental metadata can reuse an existing immutable payload without resending it");
+    assert(new TextDecoder().decode(await reopened.read("file:2")) === "v2", "unchanged payload remains intact after metadata-only update");
+    const duplicate = batch(4);
+    duplicate.upserts[1]!.data = "file:2"; duplicate.data = new Map([["file:2", bytes("v2")]]);
+    await reopened.persist(duplicate); await reopened.flush();
+    assert(new TextDecoder().decode(await reopened.read("file:2")) === "v2", "resubmitting identical immutable bytes works even after a cached read");
+  });
+
+  test("runtime payload pins survive collection but expire without a new pin", async (_name, open) => {
+    const storage = await open(); await storage.persist(batch(1));
+    for (let n = 2; n <= 5; n++) await storage.persist({ ...batch(n), retainedData: ["file:1"] });
+    assert(new TextDecoder().decode(await storage.read("file:1")) === "v1", "cold detached descriptor payload must stay pinned");
+    for (let n = 6; n <= 7; n++) await storage.persist(batch(n));
+    await rejects(storage.read("file:1"), /Missing|ENOENT|NotFound/);
+  });
+
+  test("incremental removals and directory validation", async (_name, open) => {
+    const storage = await open(); await storage.persist(batch(1));
+    await rejects(storage.persist({ generation: 2, root: 999, upserts: [], removes: [], data: new Map() }), "metadata");
+    await rejects(storage.persist({ generation: 2, root: 999, upserts: [], removes: [1, 2], data: new Map() }), "metadata");
+    await storage.persist({ generation: 2, root: 1, upserts: [], removes: [999], data: new Map() });
+    await rejects(storage.persist({ generation: 3, root: 1, upserts: [], removes: [2], data: new Map() }), "metadata");
+    const root: PersistedNode = { ino: 1, kind: "dir", size: 0, mtime: 3, children: [] };
+    await storage.persist({ generation: 3, root: 1, upserts: [root], removes: [2], data: new Map() });
+    assert((await storage.load())?.nodes.length === 1, "removed inode disappears");
+  });
+  return cases;
+}
+
+function indexedDBCases(): StorageContractCase[] {
+  const cases: StorageContractCase[] = [];
+  const test: Register = (label, run, compactEvery) => { cases.push({ label, run, compactEvery }); };
+  test("incremental journal without full metadata rewrites", async (name, open) => {
     const storage = await open(); await storage.persist(batch(1));
     await storage.persist({ ...batch(2), upserts: [batch(2).upserts[1]!] });
     await raw(name, async db => {
@@ -74,25 +133,7 @@ export async function runStorageTests(filter?: string): Promise<string[]> {
     assert((await reopened.load())?.nodes.find(node => node.ino === 2)?.data === "file:2", "journal replay restores changed inode");
   });
 
-  await test("single writer lifetime and close", async (_name, open) => {
-    const storage = await open(); await rejects(open(), "writer");
-    await storage.close(); await storage.close();
-    await rejects(storage.load(), "closed"); await rejects(storage.persist(batch(1)), "closed");
-    const next = await open(); assert(await next.load() === undefined, "lock released on close");
-  });
-
-  await test("immutable keys, missing payloads, monotonic generations, and flush errors", async (_name, open) => {
-    const storage = await open(); await storage.persist(batch(1));
-    const collision = batch(2); collision.upserts[1]!.data = "file:1"; collision.data = new Map([["file:1", bytes("xx")]]);
-    await rejects(storage.persist(collision), "immutable"); await rejects(storage.flush(), "immutable");
-    const missing = batch(2); missing.data.clear();
-    await rejects(storage.persist(missing), "Missing");
-    await rejects(storage.persist(batch(1)), "generation");
-    assert((await storage.load())?.generation === 1, "failed saves leave committed index untouched");
-    await storage.persist(batch(2)); await storage.flush();
-  });
-
-  await test("corrupt journal recovers previous generation, never an empty tree", async (name, open) => {
+  test("corrupt journal recovers previous generation, never an empty tree", async (name, open) => {
     const storage = await open(); await storage.persist(batch(1)); await storage.persist(batch(2)); await storage.close();
     await change(name, "journal", 2, { json: "corrupt", checksum: "wrong" });
     const reopened = await open();
@@ -102,7 +143,7 @@ export async function runStorageTests(filter?: string): Promise<string[]> {
     assert((await (await open()).load())?.generation === 3, "recovery can append a new valid chain");
   });
 
-  await test("generation reuse cannot resurrect abandoned journal successors", async (name, open) => {
+  test("generation reuse cannot resurrect abandoned journal successors", async (name, open) => {
     const original = await open();
     for (let n = 1; n <= 3; n++) await original.persist(batch(n));
     await original.close();
@@ -123,7 +164,7 @@ export async function runStorageTests(filter?: string): Promise<string[]> {
     });
   }, 128);
 
-  await test("runtime payload pins survive collection but expire without a new pin", async (_name, open) => {
+  test("IndexedDB pin validation does not hydrate cold payloads", async (_name, open) => {
     const storage = await open(); await storage.persist(batch(1));
     const originalGet = IDBObjectStore.prototype.get;
     IDBObjectStore.prototype.get = function(key: IDBValidKey | IDBKeyRange) {
@@ -137,14 +178,14 @@ export async function runStorageTests(filter?: string): Promise<string[]> {
     await rejects(storage.read("file:1"), "Missing");
   });
 
-  await test("both corrupt base snapshots reject instead of erasing existing storage", async (name, open) => {
+  test("both corrupt base snapshots reject instead of erasing existing storage", async (name, open) => {
     const storage = await open(); for (let n = 1; n <= 3; n++) await storage.persist(batch(n)); await storage.close();
     await change(name, "metadata", 0, { json: "bad", checksum: "bad" });
     await change(name, "metadata", 1, { json: "bad", checksum: "bad" });
     const reopened = await open(); await rejects(reopened.load(), "corrupt"); await rejects(reopened.persist(batch(4)), "corrupt");
   });
 
-  await test("compaction keeps both snapshots and collects only unreachable old data", async (_name, open) => {
+  test("compaction keeps both snapshots and collects only unreachable old data", async (_name, open) => {
     const storage = await open(); for (let n = 1; n <= 5; n++) await storage.persist(batch(n));
     assert(new TextDecoder().decode(await storage.read("file:3")) === "v3", "previous compacted snapshot data survives");
     assert(new TextDecoder().decode(await storage.read("file:4")) === "v4", "retained journal payload survives");
@@ -152,13 +193,13 @@ export async function runStorageTests(filter?: string): Promise<string[]> {
     await rejects(storage.read("file:1"), "Missing"); await rejects(storage.read("file:2"), "Missing");
   });
 
-  await test("missing latest snapshot payload recovers older valid copy", async (name, open) => {
+  test("missing latest snapshot payload recovers older valid copy", async (name, open) => {
     const storage = await open(); for (let n = 1; n <= 3; n++) await storage.persist(batch(n)); await storage.close();
     await change(name, "data", "file:3");
     const reopened = await open(); assert((await reopened.load())?.generation === 2, "invalid payload reference must not win recovery");
   });
 
-  await test("strict write transactions abort payload and metadata together", async (name, open) => {
+  test("strict write transactions abort payload and metadata together", async (name, open) => {
     const storage = await open(); await storage.persist(batch(1));
     const originalPut = IDBObjectStore.prototype.put;
     const originalTransaction = IDBDatabase.prototype.transaction;
@@ -181,15 +222,31 @@ export async function runStorageTests(filter?: string): Promise<string[]> {
     });
   });
 
-  await test("incremental removals and directory validation", async (_name, open) => {
-    const storage = await open(); await storage.persist(batch(1));
-    await rejects(storage.persist({ generation: 2, root: 999, upserts: [], removes: [], data: new Map() }), "metadata");
-    await rejects(storage.persist({ generation: 2, root: 999, upserts: [], removes: [1, 2], data: new Map() }), "metadata");
-    await storage.persist({ generation: 2, root: 1, upserts: [], removes: [999], data: new Map() });
-    await rejects(storage.persist({ generation: 3, root: 1, upserts: [], removes: [2], data: new Map() }), "metadata");
-    const root: PersistedNode = { ino: 1, kind: "dir", size: 0, mtime: 3, children: [] };
-    await storage.persist({ generation: 3, root: 1, upserts: [root], removes: [2], data: new Map() });
-    assert((await storage.load())?.nodes.length === 1, "removed inode disappears");
-  });
+  return cases;
+}
+
+export function storageTests(): BrowserStorageTest[] {
+  return storageContractCases().concat(indexedDBCases()).map(({ label, run, compactEvery = 2 }) => ({
+    label,
+    async run() {
+      const name = `bun-wasm-storage-test-${crypto.randomUUID()}`;
+      const opened: IndexedDBStorage[] = [];
+      const open = async () => {
+        const backend = await IndexedDBStorage.open(name, { compactEvery }); opened.push(backend); return backend;
+      };
+      try { await run(name, open); }
+      finally {
+        for (const backend of opened) await backend.close().catch(() => {});
+        await request(indexedDB.deleteDatabase(name));
+      }
+    },
+  }));
+}
+
+export async function runStorageTests(filter?: string): Promise<string[]> {
+  const passed: string[] = [];
+  for (const test of storageTests()) if (!filter || test.label.includes(filter)) {
+    await test.run(); passed.push(test.label);
+  }
   return passed;
 }
