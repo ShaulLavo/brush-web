@@ -1400,6 +1400,23 @@ fn substitution_end_of_input_and_heredoc_boundaries_follow_bash() {
 }
 
 #[test]
+fn captured_body_validation_uses_substitution_heredoc_boundaries() {
+    for source in ["(: <<EOF\nbody\nEOF)", "(: <<-EOF\n\tbody\n\tEOF)"] {
+        Parser::new(source)
+            .with_substitution_body()
+            .parse()
+            .unwrap_or_else(|error| panic!("{source:?}: {error}"));
+        assert!(
+            Parser::new(source)
+                .with_strict_command_separators()
+                .parse()
+                .is_err(),
+            "ordinary script grammar keeps the delimiter distinct: {source:?}"
+        );
+    }
+}
+
+#[test]
 fn quoted_heredoc_delimiters_preserve_substitution_and_operand_boundaries() {
     // Bash 5.3.15 accepts the continuation and escaped-quote controls with
     // status 0, including an unselected default containing the process body.
