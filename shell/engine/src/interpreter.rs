@@ -8,10 +8,7 @@ use crate::{
     process::{GroupId, ProcessGroup, ProcessHost, SpawnRequest},
     state::{FunctionFrame, PrefixFrame, SharedState, State, absolute},
 };
-use futures::{
-    FutureExt,
-    future::{LocalBoxFuture, join_all},
-};
+use futures::future::join_all;
 use shell_parser::parser::*;
 use std::{
     cell::{Cell, RefCell},
@@ -602,224 +599,305 @@ fn sequence(
     state: SharedState,
     fds: Descriptors,
     context: Context,
-) -> LocalBoxFuture<'static, Outcome> {
-    async move {
-        let mut result = Outcome::status(0);
-        for command in commands {
-            result = execute(command, state.clone(), fds.clone(), context.clone()).await;
-            if result.flow != Flow::Normal || context.cancel.is_cancelled() {
-                break;
-            }
-        }
-        if context.cancel.is_cancelled() {
-            Outcome::status(130)
-        } else {
-            result
+) -> eval::Frame<'static, Outcome> {
+    let evaluation = context.evaluation.clone();
+    evaluation.frame(
+        sequence_body(commands, state, fds, context),
+        Outcome::status,
+    )
+}
+
+async fn sequence_body(
+    commands: Vec<Command>,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+) -> Outcome {
+    let mut result = Outcome::status(0);
+    for command in commands {
+        result = execute(command, state.clone(), fds.clone(), context.clone()).await;
+        if result.flow != Flow::Normal || context.cancel.is_cancelled() {
+            break;
         }
     }
-    .boxed_local()
+    if context.cancel.is_cancelled() {
+        return Outcome::status(130);
+    }
+    result
 }
 fn execute(
     command: Command,
     state: SharedState,
     fds: Descriptors,
     context: Context,
-) -> LocalBoxFuture<'static, Outcome> {
-    async move {
-        yield_now().await;
-        if context.cancel.is_cancelled() {
-            return Outcome::status(130);
+) -> eval::Frame<'static, Outcome> {
+    if context.cancel.is_cancelled() {
+        return futures::future::Either::Left(futures::future::ready(Outcome::status(130)));
+    }
+    let evaluation = match context.evaluation.descend() {
+        Ok(scope) => scope,
+        Err(code) => {
+            return futures::future::Either::Left(futures::future::ready(Outcome::status(code)));
         }
-        let evaluation = match context.evaluation.descend() {
-            Ok(scope) => scope,
-            Err(code) => return Outcome::status(code),
-        };
-        let context = Context {
-            evaluation,
-            ..context
-        };
-        let preserve = matches!(command, Command::Pipeline(_) | Command::List(_));
-        let result = match command {
-            Command::Simple(simple) => {
-                simple_command(simple, state.clone(), fds, context.clone()).await
+    };
+    let context = Context {
+        evaluation,
+        ..context
+    };
+    let evaluation = context.evaluation.clone();
+    evaluation.frame(
+        async move {
+            yield_now().await;
+            if context.cancel.is_cancelled() {
+                return Outcome::status(130);
             }
-            Command::Function(function) => {
+            let preserve = matches!(command, Command::Pipeline(_) | Command::List(_));
+            let result = command_body(command, state.clone(), fds, context).await;
+            let mut s = state.borrow_mut();
+            s.status = result.code;
+            if !preserve {
+                s.pipestatus = vec![result.code];
+            }
+            result
+        },
+        Outcome::status,
+    )
+}
+
+// Select the future outside the recursive poll frame. An async match retains
+// every branch's largest expansion/dispatch frame even when polling a brace.
+#[inline(never)]
+fn command_body(
+    command: Command,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+) -> eval::Frame<'static> {
+    let evaluation = context.evaluation.clone();
+    match command {
+        Command::Simple(simple) => {
+            evaluation.frame(simple_command(simple, state, fds, context), Outcome::status)
+        }
+        Command::Function(function) => evaluation.frame(
+            async move {
                 state
                     .borrow_mut()
                     .functions
                     .insert(function.name, Rc::new(*function.body));
                 Outcome::status(0)
-            }
-            Command::Pipeline(pipeline) => {
-                let count = pipeline.commands.len();
-                if count == 0 || count > context.limits().pipeline_stages {
-                    state.borrow_mut().status = 2;
-                    state.borrow_mut().pipestatus = vec![2];
-                    return Outcome::status(2);
-                }
-                let mut previous = None;
-                let mut tasks = Vec::new();
-                for (index, command) in pipeline.commands.into_iter().enumerate() {
-                    let mut stage_fds = fds.borrow().clone();
-                    if let Some(input) = previous.take() {
-                        stage_fds.insert(0, input);
-                    }
-                    if index + 1 < count {
-                        let (reader, writer) = io::pipe();
-                        stage_fds.insert(1, writer);
-                        previous = Some(reader);
-                    }
-                    let child = if count == 1 {
-                        state.clone()
-                    } else {
-                        state.borrow().clone().shared()
-                    };
-                    let stage_context = if count == 1 {
-                        context.clone()
-                    } else {
-                        context.isolated_command(&command)
-                    };
-                    let stage_fds = if count == 1 {
-                        fds.clone()
-                    } else {
-                        Rc::new(RefCell::new(stage_fds))
-                    };
-                    let parent_scope = context.scope.clone();
-                    tasks.push(context.core.executor.spawn(async move {
-                        let result =
-                            execute(command, child, stage_fds, stage_context.clone()).await;
-                        if count > 1 {
-                            stage_context.finish_scope(parent_scope).await;
-                        }
-                        result
-                    }));
-                }
-                drop(fds);
-                drop(previous);
-                let results = join_all(tasks).await;
-                if count == 1 && results[0].flow != Flow::Normal {
-                    return results[0];
-                }
-                let codes: Vec<_> = results.iter().map(|r| r.code).collect();
-                let mut code = if state.borrow().pipefail {
-                    codes.iter().rev().copied().find(|&n| n != 0).unwrap_or(0)
-                } else {
-                    *codes.last().unwrap()
-                };
-                if pipeline.negated {
-                    code = i32::from(code == 0);
-                }
-                if context.cancel.is_cancelled() {
-                    code = 130;
-                }
-                state.borrow_mut().pipestatus = codes;
-                Outcome::status(code)
-            }
-            Command::List(list) => list_command(list, state.clone(), fds, context.clone()).await,
-            Command::Compound(CompoundCommand::Subshell(commands), redirs) => {
-                subshell(commands, redirs, state.clone(), fds, context.clone()).await
-            }
-            Command::Compound(compound, redirs) => {
-                let table = fds.borrow().clone();
-                drop(fds);
-                let fds = Rc::new(RefCell::new(table));
-                let mut work = substitution_work(&context, &fds);
-                match command_redirects(&redirs, &state, fds, &context, &mut work).await {
-                    Err(outcome) => outcome,
-                    Ok(fds) => {
-                        // Only `((...))` expands words itself, after its
-                        // redirections; other bodies must not retain the
-                        // caller's descriptors while they run.
-                        work.substitutions = matches!(
-                            compound,
-                            CompoundCommand::Arithmetic(_) | CompoundCommand::Case(_)
-                        )
-                        .then(|| Substitutions {
-                            context: context.compound_body(),
-                            fds: fds.clone(),
-                        });
-                        execute_compound_body(
-                            compound,
-                            state.clone(),
-                            fds,
-                            context.compound_body(),
-                            &mut work,
-                        )
-                        .await
-                    }
-                }
-            }
-        };
-        let mut s = state.borrow_mut();
-        s.status = result.code;
-        if !preserve {
-            s.pipestatus = vec![result.code];
+            },
+            Outcome::status,
+        ),
+        Command::Pipeline(pipeline) => evaluation.frame(
+            pipeline_command(pipeline, state, fds, context),
+            Outcome::status,
+        ),
+        Command::List(list) => {
+            evaluation.frame(list_command(list, state, fds, context), Outcome::status)
         }
-        result
-    }
-    .boxed_local()
-}
-async fn command_redirects(
-    redirs: &[Redirect],
-    state: &SharedState,
-    fds: Descriptors,
-    context: &Context,
-    work: &mut expand::Work,
-) -> Result<Descriptors, Outcome> {
-    let original_fds = fds.clone();
-    match redirects(redirs, state, fds, context, work, None).await {
-        Ok(fds) => Ok(fds),
-        Err(error) => Err(expansion_failure(error, &original_fds, context).await),
+        Command::Compound(CompoundCommand::Subshell(commands), redirs) => evaluation.frame(
+            subshell(commands, redirs, state, fds, context),
+            Outcome::status,
+        ),
+        Command::Compound(compound, redirs) => evaluation.frame(
+            compound_command(compound, redirs, state, fds, context),
+            Outcome::status,
+        ),
     }
 }
 
-async fn execute_compound_body(
+async fn pipeline_command(
+    pipeline: Pipeline,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+) -> Outcome {
+    let count = pipeline.commands.len();
+    if count == 0 || count > context.limits().pipeline_stages {
+        state.borrow_mut().pipestatus = vec![2];
+        return Outcome::status(2);
+    }
+    let mut previous = None;
+    let mut tasks = Vec::new();
+    for (index, command) in pipeline.commands.into_iter().enumerate() {
+        let mut stage_fds = fds.borrow().clone();
+        if let Some(input) = previous.take() {
+            stage_fds.insert(0, input);
+        }
+        if index + 1 < count {
+            let (reader, writer) = io::pipe();
+            stage_fds.insert(1, writer);
+            previous = Some(reader);
+        }
+        let child = if count == 1 {
+            state.clone()
+        } else {
+            state.borrow().clone().shared()
+        };
+        let stage_context = if count == 1 {
+            context.clone()
+        } else {
+            context.isolated_command(&command)
+        };
+        let stage_fds = if count == 1 {
+            fds.clone()
+        } else {
+            Rc::new(RefCell::new(stage_fds))
+        };
+        let parent_scope = context.scope.clone();
+        tasks.push(context.core.executor.spawn(pipeline_stage(
+            command,
+            child,
+            stage_fds,
+            stage_context,
+            parent_scope,
+            count > 1,
+        )));
+    }
+    drop(fds);
+    drop(previous);
+    let results = join_all(tasks).await;
+    if count == 1 && results[0].flow != Flow::Normal {
+        return results[0];
+    }
+    let codes: Vec<_> = results.iter().map(|r| r.code).collect();
+    let mut code = if state.borrow().pipefail {
+        codes.iter().rev().copied().find(|&n| n != 0).unwrap_or(0)
+    } else {
+        *codes.last().unwrap()
+    };
+    if pipeline.negated {
+        code = i32::from(code == 0);
+    }
+    if context.cancel.is_cancelled() {
+        code = 130;
+    }
+    state.borrow_mut().pipestatus = codes;
+    Outcome::status(code)
+}
+
+async fn pipeline_stage(
+    command: Command,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+    parent_scope: Scope,
+    isolated: bool,
+) -> Outcome {
+    let result = execute(command, state, fds, context.clone()).await;
+    if isolated {
+        context.finish_scope(parent_scope).await;
+    }
+    result
+}
+
+async fn compound_command(
+    compound: CompoundCommand,
+    redirs: Vec<Redirect>,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+) -> Outcome {
+    let table = fds.borrow().clone();
+    drop(fds);
+    let fds = Rc::new(RefCell::new(table));
+    let mut work = substitution_work(&context, &fds);
+    let fds = match command_redirects(&redirs, &state, fds, &context, &mut work).await {
+        Err(outcome) => return outcome,
+        Ok(fds) => fds,
+    };
+    let context = context.compound_body();
+    // Other bodies must release the expansion reader's descriptor references.
+    work.substitutions = matches!(
+        compound,
+        CompoundCommand::Arithmetic(_) | CompoundCommand::Case(_)
+    )
+    .then(|| Substitutions {
+        context: context.clone(),
+        fds: fds.clone(),
+    });
+    execute_compound_body(compound, state, fds, context, &mut work).await
+}
+
+#[inline(never)]
+fn command_redirects<'a>(
+    redirs: &'a [Redirect],
+    state: &'a SharedState,
+    fds: Descriptors,
+    context: &'a Context,
+    work: &'a mut expand::Work,
+) -> eval::Frame<'a, Result<Descriptors, Outcome>> {
+    context.evaluation.frame(
+        async move {
+            let original_fds = fds.clone();
+            match redirects(redirs, state, fds, context, work, None).await {
+                Ok(fds) => Ok(fds),
+                Err(error) => Err(expansion_failure(error, &original_fds, context).await),
+            }
+        },
+        |code| Err(Outcome::status(code)),
+    )
+}
+
+#[inline(never)]
+fn execute_compound_body<'a>(
     compound: CompoundCommand,
     state: SharedState,
     fds: Descriptors,
     context: Context,
-    work: &mut expand::Work,
-) -> Outcome {
+    work: &'a mut expand::Work,
+) -> eval::Frame<'a> {
+    let evaluation = context.evaluation.clone();
     match compound {
-        CompoundCommand::Arithmetic(source) => {
-            arithmetic_command(&source, &state, &fds, &context, work).await
-        }
-        CompoundCommand::BraceGroup(commands) => {
-            sequence(commands, state.clone(), fds, context.clone()).await
-        }
+        CompoundCommand::Arithmetic(source) => evaluation.frame(
+            async move { arithmetic_command(&source, &state, &fds, &context, work).await },
+            Outcome::status,
+        ),
+        CompoundCommand::BraceGroup(commands) => sequence(commands, state, fds, context),
         CompoundCommand::While(loop_) => {
-            let mut result = Outcome::status(0);
-            loop {
-                let condition = sequence(
-                    loop_.condition.clone(),
-                    state.clone(),
-                    fds.clone(),
-                    context.clone(),
-                )
-                .await;
-                if context.cancel.is_cancelled() {
-                    break Outcome::status(130);
-                }
-                if condition.flow != Flow::Normal {
-                    break condition;
-                }
-                if condition.code != 0 {
-                    break result;
-                }
-                result = sequence(
-                    loop_.body.clone(),
-                    state.clone(),
-                    fds.clone(),
-                    context.clone(),
-                )
-                .await;
-                if result.flow != Flow::Normal {
-                    break result;
-                }
-            }
+            evaluation.frame(while_command(loop_, state, fds, context), Outcome::status)
         }
-        CompoundCommand::Case(case_) => run_case(case_, state, fds, context, work).await,
-        _ => Outcome::status(2),
+        CompoundCommand::Case(case_) => {
+            evaluation.frame(run_case(case_, state, fds, context, work), Outcome::status)
+        }
+        _ => futures::future::Either::Left(futures::future::ready(Outcome::status(2))),
+    }
+}
+
+async fn while_command(
+    loop_: WhileCommand,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+) -> Outcome {
+    let mut result = Outcome::status(0);
+    loop {
+        let condition = sequence(
+            loop_.condition.clone(),
+            state.clone(),
+            fds.clone(),
+            context.clone(),
+        )
+        .await;
+        if context.cancel.is_cancelled() {
+            return Outcome::status(130);
+        }
+        if condition.flow != Flow::Normal {
+            return condition;
+        }
+        if condition.code != 0 {
+            return result;
+        }
+        result = sequence(
+            loop_.body.clone(),
+            state.clone(),
+            fds.clone(),
+            context.clone(),
+        )
+        .await;
+        if result.flow != Flow::Normal {
+            return result;
+        }
     }
 }
 
@@ -839,16 +917,7 @@ async fn run_case(
     context: Context,
     work: &mut expand::Work,
 ) -> Outcome {
-    let word = match expand::word(
-        &case_.word,
-        &state,
-        &context.cancel,
-        context.limits().expansion_bytes,
-        context.limits().expansion_bytes,
-        work,
-    )
-    .await
-    {
+    let word = match case_word(&case_.word, &state, &context, work).await {
         Ok(word) => word,
         Err(error) => return expansion_failure(error.into(), &fds, &context).await,
     };
@@ -860,32 +929,20 @@ async fn run_case(
             return outcome;
         }
         if !matched {
-            let mut item_match = false;
-            for pattern in &item.patterns {
-                if let Err(outcome) = loop_checkpoint(&mut budget, &context).await {
-                    return outcome;
-                }
-                let mut pattern = match expand::pattern(
-                    pattern,
-                    &state,
-                    &context.cancel,
-                    context.limits().expansion_bytes,
-                    work,
-                )
-                .await
-                {
-                    Ok(pattern) => pattern,
-                    Err(error) => return expansion_failure(error.into(), &fds, &context).await,
-                };
-                match pattern.matches_full(&word, work, &context.cancel).await {
-                    Ok(true) => {
-                        item_match = true;
-                        break;
-                    }
-                    Ok(false) => {}
-                    Err(error) => return expansion_failure(error.into(), &fds, &context).await,
-                }
-            }
+            let item_match = match case_item_matches(
+                &item.patterns,
+                &word,
+                &state,
+                &fds,
+                &context,
+                work,
+                &mut budget,
+            )
+            .await
+            {
+                Ok(matched) => matched,
+                Err(outcome) => return outcome,
+            };
             if !item_match {
                 continue;
             }
@@ -902,6 +959,74 @@ async fn run_case(
         }
     }
     result
+}
+
+#[inline(never)]
+fn case_word<'a>(
+    word: &'a Word,
+    state: &'a SharedState,
+    context: &'a Context,
+    work: &'a mut expand::Work,
+) -> eval::Frame<'a, Result<String, expand::Error>> {
+    context.evaluation.frame(
+        expand::word(
+            word,
+            state,
+            &context.cancel,
+            context.limits().expansion_bytes,
+            context.limits().expansion_bytes,
+            work,
+        ),
+        |code| Err(code.into()),
+    )
+}
+
+#[inline(never)]
+fn case_item_matches<'a>(
+    patterns: &'a [Word],
+    word: &'a str,
+    state: &'a SharedState,
+    fds: &'a Descriptors,
+    context: &'a Context,
+    work: &'a mut expand::Work,
+    budget: &'a mut Budget,
+) -> eval::Frame<'a, Result<bool, Outcome>> {
+    context.evaluation.frame(
+        case_item_matches_body(patterns, word, state, fds, context, work, budget),
+        |code| Err(Outcome::status(code)),
+    )
+}
+
+async fn case_item_matches_body(
+    patterns: &[Word],
+    word: &str,
+    state: &SharedState,
+    fds: &Descriptors,
+    context: &Context,
+    work: &mut expand::Work,
+    budget: &mut Budget,
+) -> Result<bool, Outcome> {
+    for pattern in patterns {
+        loop_checkpoint(budget, context).await?;
+        let mut pattern = match expand::pattern(
+            pattern,
+            state,
+            &context.cancel,
+            context.limits().expansion_bytes,
+            work,
+        )
+        .await
+        {
+            Ok(pattern) => pattern,
+            Err(error) => return Err(expansion_failure(error.into(), fds, context).await),
+        };
+        match pattern.matches_full(word, work, &context.cancel).await {
+            Ok(true) => return Ok(true),
+            Ok(false) => {}
+            Err(error) => return Err(expansion_failure(error.into(), fds, context).await),
+        }
+    }
+    Ok(false)
 }
 
 async fn arithmetic_command(
@@ -1497,7 +1622,21 @@ async fn simple_command(
         .unwrap_or_else(Outcome::status)
 }
 
-async fn prepare_simple_command(
+#[inline(never)]
+fn prepare_simple_command<'a>(
+    simple: SimpleCommand,
+    state: &'a SharedState,
+    fds: Descriptors,
+    context: &'a Context,
+) -> eval::Frame<'a, Result<PreparedCommand, CommandError>> {
+    let evaluation = context.evaluation.clone();
+    evaluation.frame(
+        prepare_simple_command_body(simple, state, fds, context),
+        |code| Err(code.into()),
+    )
+}
+
+async fn prepare_simple_command_body(
     mut simple: SimpleCommand,
     state: &SharedState,
     fds: Descriptors,
@@ -1616,7 +1755,17 @@ async fn prepare_simple_command(
     })
 }
 
-async fn dispatch_simple_command(
+#[inline(never)]
+fn dispatch_simple_command(
+    prepared: PreparedCommand,
+    state: SharedState,
+    context: Context,
+) -> eval::Frame<'static, Result<Outcome, i32>> {
+    let evaluation = context.evaluation.clone();
+    evaluation.frame(dispatch_simple_command_body(prepared, state, context), Err)
+}
+
+async fn dispatch_simple_command_body(
     prepared: PreparedCommand,
     state: SharedState,
     context: Context,
@@ -1625,7 +1774,7 @@ async fn dispatch_simple_command(
         argv,
         assigned,
         fds,
-        mut work,
+        work,
     } = prepared;
     let mut fields = argv.into_iter();
     let Some(name) = fields.next() else {
@@ -1661,41 +1810,7 @@ async fn dispatch_simple_command(
         if !assigned.is_empty() {
             return Err(2);
         }
-        if args.is_empty() {
-            return Ok(arithmetic_command("()", &state, &fds, &context, &mut work).await);
-        }
-        let mut result = Outcome::status(0);
-        for source in &args {
-            match crate::arithmetic::evaluate_literal(
-                source,
-                &state,
-                &context.cancel,
-                context.limits().expansion_bytes,
-                &mut work,
-            )
-            .await
-            {
-                Ok(value) => result = Outcome::status(i32::from(value == 0)),
-                Err(error) => {
-                    let ordinary = matches!(
-                        error,
-                        expand::Error::Arithmetic {
-                            expansion: false,
-                            ..
-                        } | expand::Error::Readonly {
-                            expansion: false,
-                            ..
-                        }
-                    );
-                    result = expansion_failure(error.into(), &fds, &context).await;
-                    if ordinary {
-                        result.flow = Flow::Normal;
-                    }
-                    break;
-                }
-            }
-        }
-        return Ok(result);
+        return Ok(let_command(args, state, fds, context, work).await);
     }
     if name == "eval" {
         if !assigned.is_empty() {
@@ -1707,8 +1822,7 @@ async fn dispatch_simple_command(
         if !assigned.is_empty() {
             return Err(2);
         }
-        let bindings = fds.borrow().clone();
-        return builtins::run(&name, args, state, bindings, context).await;
+        return builtin_command(name, args, state, fds, context).await;
     }
     // A pipe named by an open descriptor exists but cannot be executed.
     if name.starts_with("/dev/fd/")
@@ -1753,6 +1867,81 @@ async fn dispatch_simple_command(
             Err(130)
         }
     }
+}
+
+#[inline(never)]
+fn let_command(
+    args: Vec<String>,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+    mut work: expand::Work,
+) -> eval::Frame<'static, Outcome> {
+    let evaluation = context.evaluation.clone();
+    evaluation.frame(
+        async move {
+            if args.is_empty() {
+                return arithmetic_command("()", &state, &fds, &context, &mut work).await;
+            }
+            let mut result = Outcome::status(0);
+            for source in &args {
+                let value = crate::arithmetic::evaluate_literal(
+                    source,
+                    &state,
+                    &context.cancel,
+                    context.limits().expansion_bytes,
+                    &mut work,
+                )
+                .await;
+                result = match value {
+                    Ok(value) => Outcome::status(i32::from(value == 0)),
+                    Err(error) => return literal_arithmetic_failure(error, &fds, &context).await,
+                };
+            }
+            result
+        },
+        Outcome::status,
+    )
+}
+
+async fn literal_arithmetic_failure(
+    error: expand::Error,
+    fds: &Descriptors,
+    context: &Context,
+) -> Outcome {
+    let ordinary = matches!(
+        error,
+        expand::Error::Arithmetic {
+            expansion: false,
+            ..
+        } | expand::Error::Readonly {
+            expansion: false,
+            ..
+        }
+    );
+    let mut result = expansion_failure(error.into(), fds, context).await;
+    if ordinary {
+        result.flow = Flow::Normal;
+    }
+    result
+}
+
+#[inline(never)]
+fn builtin_command(
+    name: String,
+    args: Vec<String>,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+) -> eval::Frame<'static, Result<Outcome, i32>> {
+    let evaluation = context.evaluation.clone();
+    evaluation.frame(
+        async move {
+            let bindings = fds.borrow().clone();
+            builtins::run(&name, args, state, bindings, context).await
+        },
+        Err,
+    )
 }
 async fn assignments(
     assignments: Vec<Assignment>,

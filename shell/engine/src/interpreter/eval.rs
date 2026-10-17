@@ -3,12 +3,17 @@ use crate::{
     executor::{Budget, Cancel},
     state::SharedState,
 };
+use futures::{
+    FutureExt,
+    future::{Either, LocalBoxFuture, Ready, ready},
+};
 use shell_parser::{
     limits::{ExecutionBudget, ExecutionLimits},
     parser::{Command, Word, WordPart},
 };
 use std::{
     cell::Cell,
+    future::Future,
     mem::size_of,
     rc::Rc,
     sync::{Arc, atomic::AtomicBool},
@@ -18,6 +23,9 @@ use std::{
 const MAX_EVAL_DEPTH: usize = 16;
 const MAX_EXECUTION_DEPTH: usize = 256;
 const TEXT_BYTES_PER_LEVEL: usize = 16;
+const READER_METADATA_BYTES: usize = 4096;
+
+pub(super) type Frame<'a, T = Outcome> = Either<Ready<T>, LocalBoxFuture<'a, T>>;
 
 struct Shared {
     storage: Cell<usize>,
@@ -53,6 +61,21 @@ impl Scope {
 
     pub(super) fn parser_budget(&self) -> &ExecutionBudget {
         &self.shared.parser
+    }
+
+    // Fixed execution frames spend their byte size from shared request work
+    // before allocation. Source/AST copies also keep their storage admission.
+    // Rejection is inline, including when no allocation allowance remains.
+    pub(super) fn frame<'a, T: 'a, F: Future<Output = T> + 'a>(
+        &self,
+        future: F,
+        failure: impl FnOnce(i32) -> T,
+    ) -> Frame<'a, T> {
+        let bytes = u64::try_from(size_of::<F>()).unwrap_or(u64::MAX).max(1);
+        if self.shared.parser.consume_work(bytes).is_err() {
+            return Either::Left(ready(failure(2)));
+        }
+        Either::Right(future.boxed_local())
     }
 
     pub(super) fn new_task(&self) -> Self {
@@ -151,11 +174,21 @@ impl Shape {
         text.checked_add(nodes)
             .and_then(|bytes| bytes.checked_add(parsers))
             .and_then(|bytes| bytes.checked_add(4096))
+            .and_then(|bytes| bytes.checked_add(READER_METADATA_BYTES))
             .ok_or(2)
     }
 }
 
-async fn join(args: Vec<String>, scope: &Scope, context: &Context) -> Result<String, i32> {
+#[inline(never)]
+fn join<'a>(
+    args: Vec<String>,
+    scope: &'a Scope,
+    context: &'a Context,
+) -> Frame<'a, Result<String, i32>> {
+    scope.frame(join_body(args, scope, context), Err)
+}
+
+async fn join_body(args: Vec<String>, scope: &Scope, context: &Context) -> Result<String, i32> {
     let mut budget = Budget::default();
     let mut bytes = args.len().saturating_sub(1);
     for arg in &args {
@@ -198,22 +231,37 @@ async fn join(args: Vec<String>, scope: &Scope, context: &Context) -> Result<Str
 
 /// Read admitted eval text in the current shell. Complete earlier lines and
 /// the caller's return/exit behavior survive a later syntax error.
-pub(super) async fn run(
+#[inline(never)]
+pub(super) fn run(
     args: Vec<String>,
     state: SharedState,
     fds: Descriptors,
     context: Context,
-) -> Outcome {
+) -> Frame<'static> {
     if context.cancel.is_cancelled() {
-        return Outcome::status(130);
+        return Either::Left(ready(Outcome::status(130)));
     }
     if args.is_empty() || args.len() == 1 && args[0].is_empty() {
-        return Outcome::status(0);
+        return Either::Left(ready(Outcome::status(0)));
     }
     let evaluation = match context.evaluation.enter() {
         Ok(scope) => scope,
-        Err(code) => return Outcome::status(code),
+        Err(code) => return Either::Left(ready(Outcome::status(code))),
     };
+
+    evaluation.frame(
+        run_body(args, state, fds, context, evaluation.clone()),
+        Outcome::status,
+    )
+}
+
+async fn run_body(
+    args: Vec<String>,
+    state: SharedState,
+    fds: Descriptors,
+    context: Context,
+    evaluation: Scope,
+) -> Outcome {
     let source = match join(args, &evaluation, &context).await {
         Ok(source) => source,
         Err(code) => return Outcome::status(code),
@@ -231,7 +279,14 @@ pub(super) async fn run(
         evaluation,
         ..context
     };
-    let mut result = sequence(commands, state, fds.clone(), context.clone()).await;
+    // A joined reader task breaks the recursive poll/drop chain. Keep the
+    // caller's shell and evaluation scopes, including both depth counters.
+    // Shape already admitted this reader's fixed executor/queue metadata.
+    let mut result = context
+        .core
+        .executor
+        .spawn(sequence(commands, state, fds.clone(), context.clone()))
+        .await;
     if result.flow == Flow::Normal
         && let Some(failure) = failure
     {

@@ -458,6 +458,91 @@ fn recursive_eval_has_an_execution_depth_bound_and_recovers() {
     assert_eq!(*rig.calls.borrow(), [vec!["recovered"]]);
 }
 
+// Each source contains one command per brace, so every brace and eval adds
+// exactly one execute frame. The last source replaces eval with the leaf.
+fn eval_chain(rig: &Rig, levels: usize, groups: usize, leaf: &str) {
+    for index in 0..levels {
+        let count = groups / levels + usize::from(index < groups % levels);
+        let body = if index + 1 == levels {
+            leaf.to_owned()
+        } else {
+            format!("eval \"$e{}\"", index + 1)
+        };
+        rig.variable(
+            &format!("e{index}"),
+            &format!("{}{body}{}", "{ ".repeat(count), "; }".repeat(count)),
+        );
+    }
+}
+
+#[test]
+fn eval_accepts_sixteen_active_readers_and_rejects_the_seventeenth() {
+    for (levels, status) in [(16, 0), (17, 2)] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: 16 * 1024 * 1024,
+            ..Limits::default()
+        });
+        eval_chain(&rig, levels, 0, "reached=yes");
+        assert_eq!(rig.run("eval \"$e0\""), status, "eval levels {levels}");
+        assert_eq!(
+            rig.shell.state().borrow().variables.contains_key("reached"),
+            status == 0,
+        );
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.ex.drive(64).pending, 0);
+        assert_eq!(rig.run("args recovered"), 0);
+        assert_eq!(*rig.calls.borrow(), [vec!["recovered"]]);
+    }
+}
+
+#[test]
+fn compound_eval_accepts_execution_depth_256_and_rejects_257() {
+    // One outer eval + 16 evaluated commands + 239 braces = 256 frames.
+    for (groups, status) in [(239, 0), (240, 2)] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: 128 * 1024 * 1024,
+            ..Limits::default()
+        });
+        eval_chain(&rig, 16, groups, "reached=yes");
+        assert_eq!(rig.run("eval \"$e0\""), status, "brace count {groups}");
+        assert_eq!(
+            rig.shell.state().borrow().variables.contains_key("reached"),
+            status == 0,
+        );
+        assert!(rig.calls.borrow().is_empty());
+        assert_eq!(rig.ex.drive(64).pending, 0);
+        assert_eq!(rig.run("args recovered"), 0);
+    }
+}
+
+#[test]
+fn interrupting_the_deepest_compound_eval_drains_the_execution_chain() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 128 * 1024 * 1024,
+        ..Limits::default()
+    });
+    let (_release, progress) = register_gated(&rig, b"unused", false);
+    eval_chain(&rig, 16, 239, "gated");
+    let job = rig.shell.start("eval \"$e0\"").unwrap();
+    for _ in 0..2000 {
+        rig.ex.drive(64);
+        if rig.host.active_count() == 1 {
+            break;
+        }
+    }
+    assert_eq!(rig.host.active_count(), 1, "the deepest leaf must start");
+    assert!(!job.is_finished());
+    assert!(!progress.get());
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.output.bytes().is_empty());
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.ex.drive(64).pending, 0);
+    assert_eq!(rig.host.active_count(), 0);
+    assert_eq!(rig.host.retained_count(), 0);
+    assert_eq!(rig.run("args recovered"), 0);
+}
+
 #[test]
 fn eval_inside_compound_commands_bounds_the_actual_execution_chain() {
     let rig = Rig::new(Limits {
