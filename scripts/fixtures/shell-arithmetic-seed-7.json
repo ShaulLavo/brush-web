@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceHash": "c07e673b2d0ccc6c4d84a3e74c2f5009f4ff6a73ed01098a033934f1508ef89b",
+  "sourceHash": "1b3bc6a02f792e4875d0535b0e7dbe6d2999f4ac4ce391cd167ec70788da4f90",
   "seed": 7,
   "count": 3000,
   "timeoutMs": 2000,
@@ -3307,6 +3307,258 @@
         "signal": null,
         "timedOut": false,
         "stdoutBase64": "PHN0YXR1cz0xPgo8eD03Pgo8eT0zPgo8ej0wPgo8Zm9sbG93aW5nPgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-expansion-10",
+        "context": "expansion",
+        "script": "x=7; y=3; z=0; unset missing; printf '<%s>\\n' \"$(( $(echo 2)+1 ))\"; printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDM+CjxzdGF0dXM9MD4KPHg9Nz4KPHk9Mz4KPHo9MD4KPGZvbGxvd2luZz4K",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-command-10",
+        "context": "command",
+        "script": "x=7; y=3; z=0; unset missing; (( $(echo 2)+1 )); printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8eD03Pgo8eT0zPgo8ej0wPgo8Zm9sbG93aW5nPgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-expansion-11",
+        "context": "expansion",
+        "script": "x=7; y=3; z=0; unset missing; printf '<%s>\\n' \"$(( `echo 2`+1 ))\"; printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDM+CjxzdGF0dXM9MD4KPHg9Nz4KPHk9Mz4KPHo9MD4KPGZvbGxvd2luZz4K",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-command-11",
+        "context": "command",
+        "script": "x=7; y=3; z=0; unset missing; (( `echo 2`+1 )); printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8eD03Pgo8eT0zPgo8ej0wPgo8Zm9sbG93aW5nPgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-expansion-12",
+        "context": "expansion",
+        "script": "x=7; y=3; z=0; unset missing; printf '<%s>\\n' \"$(( $(printf '%s' \"$x\")*2 ))\"; printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDE0Pgo8c3RhdHVzPTA+Cjx4PTc+Cjx5PTM+Cjx6PTA+Cjxmb2xsb3dpbmc+Cg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-command-12",
+        "context": "command",
+        "script": "x=7; y=3; z=0; unset missing; (( $(printf '%s' \"$x\")*2 )); printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8eD03Pgo8eT0zPgo8ej0wPgo8Zm9sbG93aW5nPgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-expansion-13",
+        "context": "expansion",
+        "script": "x=7; y=3; z=0; unset missing; printf '<%s>\\n' \"$(( x=$(echo 4),x ))\"; printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDQ+CjxzdGF0dXM9MD4KPHg9ND4KPHk9Mz4KPHo9MD4KPGZvbGxvd2luZz4K",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-command-13",
+        "context": "command",
+        "script": "x=7; y=3; z=0; unset missing; (( x=$(echo 4),x )); printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8eD00Pgo8eT0zPgo8ej0wPgo8Zm9sbG93aW5nPgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-expansion-14",
+        "context": "expansion",
+        "script": "x=7; y=3; z=0; unset missing; printf '<%s>\\n' \"$(( $(exit 3)1 ))\"; printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDE+CjxzdGF0dXM9MD4KPHg9Nz4KPHk9Mz4KPHo9MD4KPGZvbGxvd2luZz4K",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-command-14",
+        "context": "command",
+        "script": "x=7; y=3; z=0; unset missing; (( $(exit 3)1 )); printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8eD03Pgo8eT0zPgo8ej0wPgo8Zm9sbG93aW5nPgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-expansion-15",
+        "context": "expansion",
+        "script": "x=7; y=3; z=0; unset missing; printf '<%s>\\n' \"$(( 0 && $(echo 5) ))\"; printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDA+CjxzdGF0dXM9MD4KPHg9Nz4KPHk9Mz4KPHo9MD4KPGZvbGxvd2luZz4K",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-command-15",
+        "context": "command",
+        "script": "x=7; y=3; z=0; unset missing; (( 0 && $(echo 5) )); printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0xPgo8eD03Pgo8eT0zPgo8ej0wPgo8Zm9sbG93aW5nPgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-expansion-16",
+        "context": "expansion",
+        "script": "x=7; y=3; z=0; unset missing; printf '<%s>\\n' \"$(( $(echo 1 +) 2 ))\"; printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDM+CjxzdGF0dXM9MD4KPHg9Nz4KPHk9Mz4KPHo9MD4KPGZvbGxvd2luZz4K",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-command-16",
+        "context": "command",
+        "script": "x=7; y=3; z=0; unset missing; (( $(echo 1 +) 2 )); printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8eD03Pgo8eT0zPgo8ej0wPgo8Zm9sbG93aW5nPgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-expansion-17",
+        "context": "expansion",
+        "script": "x=7; y=3; z=0; unset missing; printf '<%s>\\n' \"$(( $(x=9; echo $x)+x ))\"; printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDE2Pgo8c3RhdHVzPTA+Cjx4PTc+Cjx5PTM+Cjx6PTA+Cjxmb2xsb3dpbmc+Cg==",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-command-17",
+        "context": "command",
+        "script": "x=7; y=3; z=0; unset missing; (( $(x=9; echo $x)+x )); printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8eD03Pgo8eT0zPgo8ej0wPgo8Zm9sbG93aW5nPgo=",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-expansion-18",
+        "context": "expansion",
+        "script": "x=7; y=3; z=0; unset missing; printf '<%s>\\n' \"$(( $((0 + $(echo 3))) ))\"; printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PDM+CjxzdGF0dXM9MD4KPHg9Nz4KPHk9Mz4KPHo9MD4KPGZvbGxvd2luZz4K",
+        "stderrBase64": ""
+      }
+    },
+    {
+      "case": {
+        "id": "textual-command-18",
+        "context": "command",
+        "script": "x=7; y=3; z=0; unset missing; (( $((0 + $(echo 3))) )); printf '<%s>\\n' status=$? x=$x y=$y z=$z following"
+      },
+      "bash": {
+        "status": 0,
+        "signal": null,
+        "timedOut": false,
+        "stdoutBase64": "PHN0YXR1cz0wPgo8eD03Pgo8eT0zPgo8ej0wPgo8Zm9sbG93aW5nPgo=",
         "stderrBase64": ""
       }
     },

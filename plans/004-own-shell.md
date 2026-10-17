@@ -589,12 +589,15 @@ effects, token/depth limits, native/WASI suites and independent fixture replay.
 
 ## Current unit follow-up: preserve requested job signals
 
-Status: Source-prepared; acceptance pending. Found during runtime integration,
-not introduced by it: `kill %1` took the Session cancellation path and sent
-SIGINT (2), although Bash defaults to SIGTERM (15). The source now carries
-default TERM and explicit named/numeric signal values through scoped job and
-process-substitution groups. Expected wait statuses are 143 for TERM and 130
-for INT. Native/WASI and Bash 5.3 differential verification remain pending.
+Status: Source acceptance passed at `e4202c7`; final evidence-head CI and merge
+remain required. Found during runtime integration, not introduced by it:
+`kill %1` took the Session cancellation path and sent SIGINT (2), although Bash
+defaults to SIGTERM (15). The source now carries default TERM and explicit
+named/numeric signal values through scoped job and process-substitution groups.
+Native/WASI controls passed with wait statuses 143 for TERM and 130 for INT.
+Both Bash 5.3.15 substitution seeds passed 3,142 controls each with zero
+mismatches or unsupported cases. Invalid signals now return Bash status 1 before
+mutation; known unsupported actions retain explicit status 2.
 
 Reproduce against Bash 5.3.15 and the exact-head native CLI with an owned,
 bounded background job: launch it, issue default or explicit `kill`, wait for
@@ -623,13 +626,26 @@ parity remain deferred rather than being represented as termination statuses.
 
 ## Current unit: preflight and loop-work repairs
 
-Status: Approved; source repairs in progress, acceptance pending. The exact
-`8dd11b8` CI producer passed native/WASI and the size gate (2,514,034 bytes raw,
-528,401 bytes Brotli-11); its verify job passed with 132 browser tests and six
-existing skips. Its frozen replay measured 681 / 606 / 1,028 with zero lost
-case IDs against runtime main `e3f245f` (527 / 394 / 792). The candidate baseline
-and generator fixtures remain intentionally stale until acceptance succeeds.
-These are diagnostic measurements, not final acceptance.
+Status: Source acceptance passed at `e4202c7`; final fixture/evidence-head CI,
+independent review and merge remain required. Its exact native CLI passed all
+six Bash 5.3.15 sweeps: substitutions 3,142 each (seeds 1/42), braces 7,334 each
+(1/42), arithmetic 3,692 each (7/314), all with zero mismatches or unsupported
+cases. Old word, readonly and parser-boundary fixture replays passed. Frozen
+scores are Oils 681/1,682, Brush-suite 606/1,888 and Bashkit-suite 1,028/2,222,
+with zero lost case IDs against runtime main `e3f245f` (527 / 394 / 792).
+The exact source producer passed native/WASI tests and size gates (2,518,525
+bytes raw, 529,529 bytes Brotli-11); actual browser verification passed 132
+controls with six existing skips. The independent exact-source review approved
+`e4202c7`. [Run 39053112336, producer job 117455545690](https://github.com/ShaulLavo/brush-web/actions/runs/39053112336/job/117455545690)
+contains that source evidence; its two stale fixture/baseline data gates are
+not accepted as final green CI. Refresh and strictly replay those data in this
+unit before landing. Arithmetic timing margin remains the Approved follow-up
+below, not a completed throughput claim.
+
+Historical diagnostic at `8dd11b8`: native/WASI and size gates passed (2,514,034
+bytes raw, 528,401 bytes Brotli-11), and browser verification passed 132 controls
+with six existing skips. The following failures were discovered at that head
+and repaired before `e4202c7` source acceptance.
 
 The six Bash 5.3.15 sweeps at that head exposed two remaining defects: both
 substitution seeds time out on the unchanged invalid-signal control's finite
@@ -674,6 +690,77 @@ ID, job ID, source receipt and binary checksum. Full verification may run in
 parallel, but final acceptance still requires every CI job green, six actual
 Bash differential sweeps, refreshed strict fixture replay, zero lost corpus
 passes and independent review of the exact final head.
+
+## Follow-up: arithmetic throughput and timing margin
+
+Status: Approved; throughput remains unfinished even when the substitution
+sweeps pass. Target **at most 1,000 ms for both foreground and background
+million-iteration controls**, under the unchanged release configuration and
+2,000 ms differential timeout. Do not raise the timeout, reduce the iteration
+count, change the release profile, enlarge stacks or weaken tests to obtain
+margin.
+
+The canonical admitted local experiment at `e4202c7` measured 2,082 ms foreground
+and 1,846 ms background after borrowed arithmetic-command replay, versus
+2,981 / 2,800 ms before it. These are single-run diagnostic observations, not a
+performance headline or a reliability distribution. The exact CI CLI from
+[run 39053112336, job 117455545690](https://github.com/ShaulLavo/brush-web/actions/runs/39053112336/job/117455545690)
+passed substitution seeds 1/42 under the unchanged timeout, but 154 ms of local
+background headroom is too thin to call throughput complete. A bounded numeric
+leaf future-representation experiment passed native semantic tests but was
+reverted: three alternating matched-compiler rounds under ordinary non-quiet
+admission measured median scaled retired user instructions of 35.318 billion
+control versus 35.617 billion candidate foreground (+0.85%), and 31.282 billion
+versus 31.216 billion background (-0.21%). All 12 outputs/statuses matched; these
+counts do not establish a clear reduction. Counters included inherited child
+instructions and recorded enabled/running time for multiplex scaling. The
+experiment changed no permissions, kernel settings, profile or timeout. Its
+source and temporary binaries were removed; it is not part of accepted source.
+No quiet timing hold ran. Do not assume that fewer allocations meet the target.
+
+Reproduce the fixed control without host files or unowned processes:
+
+```bash
+i=0; while ((i < 1000000)); do ((i += 1)); done &
+kill -s INVALID %1; kill_status=$?; wait %1
+printf 'kill=%s\n' "$kill_status"
+status=$?; printf 'status=%s\n' "$status"; exit "$status"
+```
+
+Require exact stdout `kill=1` then `status=0` and exit 0. For the foreground
+control, run the same loop without `&` and print `i=1000000`. Use the canonical
+host queue, a qualified exact-head CLI and Bash 5.3.15; retain every bounded
+sample rather than choosing the fastest. PC performance research never requests
+`--quiet` holds: compare retired instruction counts under ordinary admission
+(or WASI fuel), alternating matched control/candidate binaries. Wall-clock
+performance verdicts belong on the Mac or Pi. The unchanged PC generator timeout
+remains a correctness gate, not a timing benchmark. The existing generator command is
+`node scripts/fuzz-shell-substitution-boundaries.mjs --queue-active --shell
+"$SHELL_NATIVE" --seed 1` inside that admitted run; also run seed 42 and the
+other four arithmetic/brace sweeps with their unchanged settings.
+
+Profile and attribute remaining cost before choosing further work. Current
+static candidates are boxed arithmetic `expression` / `parse` / `unary` frames
+and recursive scalar reads in `shell/engine/src/arithmetic.rs`, descriptor and
+`PIPESTATUS` allocations in `interpreter.rs::loop_arithmetic/finish_command`,
+and repeated cancellation checks in `expand.rs::Work::checkpoint`. A persistent
+scheduling quantum must be separate from fresh command admission: persisting
+all of `Work` would eventually reject valid loops; resetting the scheduling
+quantum for each short command would never yield. Do not remove probes merely
+because they look duplicated: they reach foreground ABI interrupt ownership and
+affect cancellation-versus-resource-error ordering. No broad arithmetic-driver
+or scheduler rewrite is mandated without measurements.
+
+Preserve the complete grammar, current-variable reads, recursive scalar values,
+assignment order and durable side effects; pre-growth live admission, bounded
+copies charged to `Work.storage`, cooperative interruption/yielding and small
+poll/drop stacks. Valid long loops never fail for cumulative elapsed work.
+Retain function128/execution256/eval16, exact32/deep127, admission/depth/error
+boundaries, peer progress, cancellation/recovery and actual consuming-ABI
+foreground ownership. Acceptance includes native/WASI/browser controls, six
+unchanged differential sweeps and zero lost corpus IDs. Record target results
+and remaining margin in the final evidence and PR; a green semantic gate alone
+does not close this performance follow-up.
 
 ## Follow-up: redirect word expansion contexts
 
