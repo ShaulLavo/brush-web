@@ -1345,7 +1345,15 @@ fn substitution_end_of_input_and_heredoc_boundaries_follow_bash() {
             "{source}"
         );
     }
-    for source in ["echo $(echo |", "echo $(if true", "echo $( (x)"] {
+    // A trailing line continuation joins the end of input: the EOF error.
+    for source in [
+        "echo $(echo |",
+        "echo $(if true",
+        "echo $( (x)",
+        "echo $(echo <\\\n",
+        "echo $(echo >\\\n",
+        "echo $(echo <<\\\n",
+    ] {
         assert!(
             matches!(strict(source), Err(Error::Parse { .. })),
             "{source}"
@@ -1363,6 +1371,10 @@ fn substitution_end_of_input_and_heredoc_boundaries_follow_bash() {
         "echo $(cat <<-E\n\tx\n\tE)",
         "echo $(cat <<'E'\nx\nE)",
         "echo $(cat <<$(echo E)\nx\n$(echo E)\n)",
+        // Escaped metacharacters belong to the delimiter (`foo)`, `$(`).
+        "echo $(printf x <<foo\\)\nfoo)\n)",
+        "echo $(printf x <<-foo\\)\n\tfoo)\n)",
+        "echo $(printf x <<\\$\\(\n$(\n)",
     ] {
         strict(source).unwrap_or_else(|error| panic!("{source:?}: {error}"));
     }

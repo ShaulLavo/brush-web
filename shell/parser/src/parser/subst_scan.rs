@@ -290,6 +290,19 @@ impl SubstScanner {
                     };
                     return Step::Body;
                 }
+                if quote == Some('\\') {
+                    // An escaped character is part of the delimiter word, even
+                    // a metacharacter (`<<foo\)` waits for the line `foo)`).
+                    word.push(c);
+                    self.mode = Mode::Delimiter {
+                        strip_tabs,
+                        word,
+                        started: true,
+                        quote: None,
+                        parens,
+                    };
+                    return Step::Body;
+                }
                 if let Some(q) = quote {
                     if c != q {
                         word.push(c);
@@ -350,9 +363,17 @@ impl SubstScanner {
                     };
                     return Step::Body;
                 }
-                if c != '\\' {
-                    word.push(c);
+                if c == '\\' {
+                    self.mode = Mode::Delimiter {
+                        strip_tabs,
+                        word,
+                        started: true,
+                        quote: Some('\\'),
+                        parens,
+                    };
+                    return Step::Body;
                 }
+                word.push(c);
                 self.mode = Mode::Delimiter {
                     strip_tabs,
                     word,

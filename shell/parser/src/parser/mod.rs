@@ -717,7 +717,11 @@ impl<'a> Parser<'a> {
         // Bash's reader ends the open text with a newline before the end of
         // input: `$(echo <` is a token error (127), `$(echo |` waits (2).
         let text;
-        let body = if closed {
+        let continued = body
+            .strip_suffix('\n')
+            .is_some_and(|line| line.chars().rev().take_while(|&c| c == '\\').count() % 2 == 1);
+        // A trailing line continuation joins the end of input instead.
+        let body = if closed || continued {
             body
         } else {
             text = format!("{body}\n");
