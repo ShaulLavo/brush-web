@@ -94,8 +94,8 @@ function randomFor(seed) {
 }
 
 // These productions describe scanner boundaries, not arbitrary pre-rendered atoms.
-// All command-bearing exercises have a selected va guard; unsupported command
-// execution is never needed, but syntax failures are still scored normally.
+// Every exercise runs twice: behind a set `va` guard (scanned, never expanded)
+// and selected, so command substitutions in each context also execute.
 export const boundaryContexts = [
   "word",
   "braces",
@@ -414,6 +414,7 @@ export function boundaryCases(seed) {
         ),
     );
   const cases = [];
+  const selected = [];
   // Complete cross product, independent of random sampling and --count. Keep
   // this separate from the original seeded stream so no old case is displaced.
   for (const feature of features)
@@ -422,17 +423,25 @@ export function boundaryCases(seed) {
         let child = feature;
         for (let level = 0; level < depth; level++) child = { kind: "boundary-nest", child };
         child = { kind: "boundary-context", context, child };
-        // When command substitution is implemented, exercise command-bearing
-        // branches selected too, rather than leaving execution behind this guard.
         const guarded = { kind: "boundary-guard", child };
         const children = [guarded, { kind: "list", children: [atom("a"), atom("b")] }];
-        if (random.next() % 2) children.reverse();
+        const reversed = random.next() % 2;
+        if (reversed) children.reverse();
         const node = { kind: "concat", children };
         const closingId =
           feature.closings && feature.closings !== 2 ? `-closings-${feature.closings}` : "";
         const id = `boundary-${feature.form}-${feature.protection ?? feature.body}-${feature.opener}-${feature.open ? "open" : "closed"}-${context}-${depth}${closingId}`;
         for (const mode of modes) cases.push(makeCase(`${id}-${mode}`, node, mode));
+        selected.push({ id, child, reversed });
       }
+  // The same exercises without the guard, after every guarded case so the
+  // original stream keeps its order: command bodies now run in each context.
+  for (const { id, child, reversed } of selected) {
+    const children = [child, { kind: "list", children: [atom("a"), atom("b")] }];
+    if (reversed) children.reverse();
+    const node = { kind: "concat", children };
+    for (const mode of modes) cases.push(makeCase(`${id}-selected-${mode}`, node, mode));
+  }
   // Selected controls distinguish literal dollars and real arithmetic from the
   // inactive scanner exercises. Parentheses remain protected shell-word text.
   for (const protection of boundaryProtections)

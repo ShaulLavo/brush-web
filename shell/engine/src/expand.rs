@@ -7,7 +7,7 @@ use crate::{
     state::SharedState,
 };
 use futures::{FutureExt, future::LocalBoxFuture};
-use shell_parser::parser::{Command, ParameterOp, Word, WordPart};
+use shell_parser::parser::{ParameterOp, Word, WordPart};
 
 mod braces;
 mod case;

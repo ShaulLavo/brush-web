@@ -108,7 +108,7 @@ for (const seed of [1, 42]) {
   test(`seed ${seed} covers every boundary feature/context/depth/mode tuple without exclusions`, () => {
     const cases = boundaryCases(seed);
     assert.deepEqual(cases, boundaryCases(seed));
-    assert.equal(cases.length, 2031);
+    assert.equal(cases.length, 4047);
     assert.deepEqual(boundaryClosings, [1, 2, 3]);
     const matrix = cases.filter((item) => item.tags.includes("boundary-guard"));
     assert.equal(matrix.length, 2016);
@@ -192,7 +192,15 @@ for (const seed of [1, 42]) {
     assert.equal(new Set(actual).size, expected.length);
     assert.deepEqual(actual.sort(), expected.sort());
     const selected = cases.filter((item) => !item.tags.includes("boundary-guard"));
-    assert.equal(selected.length, 15);
+    assert.equal(selected.length, 2031);
+    // Every guarded exercise also runs selected, after all guarded cases.
+    const twins = selected.filter((item) => /-selected-(unquoted|double)$/.test(item.id));
+    assert.equal(twins.length, 2016);
+    assert.deepEqual(
+      twins.map((item) => item.id.replace("-selected-", "-")).sort(),
+      matrix.map((item) => item.id).sort(),
+    );
+    assert.ok(cases.indexOf(twins[0]) > cases.indexOf(matrix.at(-1)));
     assert.equal(
       selected.filter((item) => item.tags.includes("boundary-selected-literal")).length,
       9,

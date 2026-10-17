@@ -229,6 +229,15 @@ function fixedCases() {
     "x=2,${x}",
     "x=2,$((x+1))",
     "0 && ${missing:=4}",
+    "$(echo 2)+1",
+    "`echo 2`+1",
+    "$(printf '%s' \"$x\")*2",
+    "x=$(echo 4),x",
+    "$(exit 3)1",
+    "0 && $(echo 5)",
+    "$(echo 1 +) 2",
+    "$(x=9; echo $x)+x",
+    "$((0 + $(echo 3)))",
   ].entries()) {
     for (const context of ["expansion", "command"])
       add(`textual-${context}-${index}`, context, expr);

@@ -89,6 +89,11 @@ enum Open {
     PipeWrite(Rc<Pipe>),
     File(FileOpen),
     Capture(Rc<CaptureState>),
+    /// Read-only bytes (here-documents and here-strings), shared offset.
+    Bytes {
+        data: Vec<u8>,
+        offset: Cell<usize>,
+    },
     Host(Rc<dyn HostEndpoint>),
     Null,
 }
@@ -133,6 +138,14 @@ impl Endpoint {
     pub fn host(endpoint: Rc<dyn HostEndpoint>) -> Self {
         Self(Rc::new(Open::Host(endpoint)))
     }
+    /// A read-only endpoint over owned bytes, like bash's here-document
+    /// files. Duplicates share the read offset.
+    pub fn bytes(data: Vec<u8>) -> Self {
+        Self(Rc::new(Open::Bytes {
+            data,
+            offset: Cell::new(0),
+        }))
+    }
     pub async fn read(&self, output: &mut [u8]) -> Result<usize, IoError> {
         if output.is_empty() {
             return Ok(0);
@@ -176,6 +189,16 @@ impl Endpoint {
                 Ok(count)
             }
             Open::Host(endpoint) => endpoint.read(output).await,
+            Open::Bytes { data, offset } => {
+                let start = offset.get();
+                let count = output
+                    .len()
+                    .min(PIPE_CAPACITY)
+                    .min(data.len().saturating_sub(start));
+                output[..count].copy_from_slice(&data[start..start + count]);
+                offset.set(start + count);
+                Ok(count)
+            }
             Open::Null => Ok(0),
             _ => Err(IoError::BadDescriptor),
         }
