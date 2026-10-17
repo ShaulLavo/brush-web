@@ -1546,7 +1546,15 @@ async fn redirects(
         .map_err(|error| {
             CommandError::redirect(error.at_line(redirect.expansion_line), fds.get(2))
         })?;
-        let input = matches!(redirect.kind, RedirectKind::Input | RedirectKind::DupInput);
+        let input = matches!(
+            redirect.kind,
+            RedirectKind::Input
+                | RedirectKind::DupInput
+                | RedirectKind::HereDoc
+                | RedirectKind::HereDocStrip
+                | RedirectKind::HereString
+                | RedirectKind::ReadWrite
+        );
         let fd = redirect.fd.unwrap_or(if input { 0 } else { 1 });
         let fd = u32::try_from(fd).map_err(|_| 2)?;
         match redirect.kind {
@@ -1558,20 +1566,40 @@ async fn redirects(
                     fds.insert(fd, fds.get(source).ok_or(1)?);
                 }
             }
+            RedirectKind::HereDoc | RedirectKind::HereDocStrip | RedirectKind::HereString => {
+                // The parser already removed `<<-` tabs; the body expanded
+                // like a double-quoted word. A here-string gains a newline.
+                let mut text = target;
+                if redirect.kind == RedirectKind::HereString {
+                    work.admit_storage(1)?;
+                    text.push('\n');
+                }
+                fds.insert(fd, io::Endpoint::bytes(text.into_bytes()));
+            }
             RedirectKind::Input
             | RedirectKind::Output
             | RedirectKind::Clobber
-            | RedirectKind::Append => {
+            | RedirectKind::Append
+            | RedirectKind::OutputBoth
+            | RedirectKind::ReadWrite => {
                 if let Some(endpoint) = device_endpoint(&target, &fds) {
-                    fds.insert(fd, endpoint?);
+                    let endpoint = endpoint?;
+                    if redirect.kind == RedirectKind::OutputBoth {
+                        fds.insert(2, endpoint.clone());
+                    }
+                    fds.insert(fd, endpoint);
                     continue;
                 }
                 let path = absolute(&state.borrow().cwd, &target);
+                let read_write = redirect.kind == RedirectKind::ReadWrite;
                 let options = OpenOptions {
                     read: input,
-                    write: !input,
-                    create: !input,
-                    truncate: matches!(redirect.kind, RedirectKind::Output | RedirectKind::Clobber),
+                    write: !input || read_write,
+                    create: !input || read_write,
+                    truncate: matches!(
+                        redirect.kind,
+                        RedirectKind::Output | RedirectKind::Clobber | RedirectKind::OutputBoth
+                    ),
                     append: redirect.kind == RedirectKind::Append,
                 };
                 let endpoint = context
@@ -1580,9 +1608,11 @@ async fn redirects(
                     .await
                     .map_err(|_| 130)?
                     .map_err(|e| e.status())?;
+                if redirect.kind == RedirectKind::OutputBoth {
+                    fds.insert(2, endpoint.clone());
+                }
                 fds.insert(fd, endpoint);
             }
-            _ => return Err(2.into()),
         }
     }
     Ok(Rc::new(RefCell::new(fds)))

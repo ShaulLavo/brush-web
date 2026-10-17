@@ -389,14 +389,6 @@ fn bad_substitution(message: &'static str, work: &mut Work) -> Result<(), Error>
     })
 }
 
-fn toggle_quote(current: &mut Quote, quote: Quote) {
-    *current = if *current == quote {
-        Quote::None
-    } else {
-        quote
-    };
-}
-
 fn matches_substring(token: &str) -> bool {
     token
         .strip_prefix("${")
