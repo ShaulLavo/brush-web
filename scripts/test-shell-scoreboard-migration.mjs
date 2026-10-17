@@ -60,12 +60,16 @@ writeFileSync(process.env.BASH_COMPAT_OUT, JSON.stringify({
   })),
 }));
 `;
-function makeOracle() {
+function makeOracle(environment = { nodeVersion: "v26.7.0", stdin: "empty", timeoutMs: 10000 }) {
   return sealOracle({
     schema: 1,
     oracle: { capture: "old" },
-    environment: { nodeVersion: "v26.7.0", stdin: "empty", timeoutMs: 10000 },
-    sources: { oils: { revision: "fixture" } },
+    environment,
+    sources: {
+      oils: { revision: "fixture" },
+      "brush-suite": { revision: "fixture" },
+      "bashkit-suite": { revision: "fixture" },
+    },
     cases: ["YQ==", "Yg=="].map((stdout, index) => ({
       id: `oils:${index}`,
       corpus: "oils",
@@ -172,6 +176,7 @@ async function fixture(
     descendant = false,
     buildFail = false,
     scoreFail = false,
+    entrypoint = false,
   } = {},
 ) {
   const owner = fixtureOwner(); // Teardown and the pre-existing child inventory precede setup.
@@ -195,12 +200,22 @@ async function fixture(
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
       }).trim();
-    const old = makeOracle();
+    const old = makeOracle(
+      entrypoint
+        ? JSON.parse(readFileSync(new URL(`../${oraclePath}`, import.meta.url))).environment
+        : undefined,
+    );
+    const sourcePins = {
+      oils: { revision: "fixture" },
+      brush: { revision: "fixture" },
+      bashkitTerminal: { revision: "fixture" },
+    };
     put(oraclePath, JSON.stringify(old));
     put(baselinePath, JSON.stringify(score(old, wrongBaseline ? ["fail", "pass"] : undefined)));
     put(
       "sources.lock.json",
       JSON.stringify({
+        ...sourcePins,
         shellScoreboard: {
           oracleSha256: badChecksum ? "wrong" : bytesDigest(Buffer.from(JSON.stringify(old))),
         },
@@ -235,6 +250,7 @@ async function fixture(
       put(
         "sources.lock.json",
         JSON.stringify({
+          ...sourcePins,
           shellScoreboard: { oracleSha256: bytesDigest(Buffer.from(JSON.stringify(oracle))) },
         }),
       );
@@ -459,4 +475,76 @@ for (const descendant of [false, true]) {
       );
     });
   }
+}
+
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  test(`${signal} on the compatibility entrypoint awaits its active migration`, async () => {
+    await fixture(
+      async ({ repo, runner, put }) => {
+        // Only the compiler and archived target scorer are stand-ins. The candidate entrypoint,
+        // trusted baseline launcher, migration supervisor and group draining are shipped code.
+        for (const name of [
+          "bash-compat.mjs",
+          "bash-compat-helpers.mjs",
+          "bash-compat-runner.mjs",
+          "shell-scoreboard.mjs",
+          "shell-scoreboard-base.mjs",
+          "shell-scoreboard-migration.mjs",
+          "shell-process-group.mjs",
+        ])
+          put(`scripts/${name}`, readFileSync(new URL(name, import.meta.url)));
+        const child = spawn(process.execPath, [resolve(repo, "scripts/bash-compat.mjs")], {
+          env: {
+            ...process.env,
+            BASH_COMPAT_MODE: "frozen",
+            BASH_COMPAT_SCRATCH: runner,
+            BASH_COMPAT_TIMEOUT_MS: "10000",
+          },
+          stdio: ["ignore", "ignore", "pipe"],
+        });
+        const errors = [];
+        child.stderr.on("data", (chunk) => errors.push(chunk));
+        const exited = new Promise((accept) => child.once("close", (code) => accept(code)));
+        // This independent watchdog also releases the launcher's IPC parent-death cleanup
+        // if the old, uncancellable entrypoint is used as a negative control.
+        const watchdog = setTimeout(() => child.kill("SIGKILL"), 8000).unref();
+        let pid;
+        let start;
+        try {
+          let directory;
+          await until(() => {
+            directory = readdirSync(runner).find((name) =>
+              name.startsWith("audit-oracle-migration-"),
+            );
+            const marker = directory && resolve(runner, directory, "started");
+            if (!marker || !existsSync(marker)) return false;
+            pid = Number(readFileSync(marker, "utf8"));
+            start = processState(pid).start;
+            return start !== undefined;
+          });
+          child.kill(signal);
+          await delay(50);
+          assert.equal(child.exitCode, null, "entrypoint exited before its compiler stopped");
+          assert.equal(existsSync(resolve(runner, directory)), true);
+          const status = await exited;
+          assert.equal(status, signal === "SIGTERM" ? 143 : 130, Buffer.concat(errors).toString());
+          assert.equal(
+            processState(pid).active,
+            false,
+            "compiler outlived entrypoint cancellation",
+          );
+          assert.deepEqual(readdirSync(runner), []);
+        } finally {
+          child.kill("SIGTERM");
+          await exited;
+          clearTimeout(watchdog);
+          if (pid && processState(pid).start === start && processState(pid).active) {
+            process.kill(pid, "SIGKILL");
+            await until(() => !processState(pid).active);
+          }
+        }
+      },
+      { hang: true, entrypoint: true },
+    );
+  });
 }

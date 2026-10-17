@@ -72,6 +72,14 @@ export function migrationEvidence(root, ref, candidateOracle) {
   return { pins, oracle, baseline };
 }
 
+const activeMigrations = new Set();
+
+// Cancellation owns only launchers created here; the trusted three-argument input stays unchanged.
+// Their promises settle after the launcher has drained its consumers and removed its scratch.
+export function cancelTargetMigrations() {
+  for (const child of activeMigrations) child.kill("SIGTERM");
+}
+
 // The launcher owns an isolated rebuild, not an evidence/artifact path supplied by the candidate.
 // Its IPC connection also gives it a parent-death notification for teardown.
 export async function targetBranchBaseline(root, ref, oracle) {
@@ -91,12 +99,17 @@ export async function targetBranchBaseline(root, ref, oracle) {
       env: migrationEnvironment(),
       execArgv: [],
     });
+    activeMigrations.add(child);
     let result;
     child.on("message", (message) => {
       result = message;
     });
-    child.once("error", reject);
+    child.once("error", (error) => {
+      activeMigrations.delete(child);
+      reject(error);
+    });
     child.once("exit", (code, signal) => {
+      activeMigrations.delete(child);
       if (code !== 0 || !result?.score)
         return reject(new Error(result?.error ?? `target rebuild failed (${signal ?? code})`));
       try {

@@ -184,7 +184,7 @@ async function workerLifetime(t, mode) {
   `,
     {
       BASH_COMPAT_MODE: mode,
-      BASH_COMPAT_CORPORA: "bashkit-suite",
+      BASH_COMPAT_CORPORA: mode === "live" ? "bashkit-suite" : undefined,
       BASH_COMPAT_BASHKIT_DIR: scratch,
       BASH_COMPAT_BASH: "/usr/bin/bash",
       BASH_COMPAT_ENGINES: "own-shell",

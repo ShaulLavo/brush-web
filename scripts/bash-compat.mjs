@@ -14,7 +14,7 @@ import {
   createShellRunner,
   normalize,
 } from "./bash-compat-runner.mjs";
-import { targetBranchBaseline } from "./shell-scoreboard-base.mjs";
+import { cancelTargetMigrations, targetBranchBaseline } from "./shell-scoreboard-base.mjs";
 import {
   bytesDigest,
   compactResult,
@@ -369,6 +369,7 @@ const stop = (status) => {
   cancelled = true;
   process.exitCode = status;
   killAll();
+  cancelTargetMigrations();
   shutdown = shutdown.then(closePools);
 };
 process.on("SIGINT", () => stop(130));
@@ -1298,7 +1299,15 @@ async function runFrozen() {
   if (process.env.BASH_COMPAT_RECORD !== "1") {
     const committed = JSON.parse(await readFile(baselineFile, "utf8"));
     baselines.push({ label: "committed baseline", score: committed, requireMembership: true });
-    const target = await targetBranchBaseline(root, process.env.BASH_COMPAT_BASE_REF, oracle);
+    if (cancelled) return;
+    let target;
+    try {
+      target = await targetBranchBaseline(root, process.env.BASH_COMPAT_BASE_REF, oracle);
+    } catch (error) {
+      if (cancelled) return;
+      throw error;
+    }
+    if (cancelled) return;
     if (target) baselines.push({ label: "target branch baseline", score: target });
     for (const baseline of baselines) validateScore(oracle, baseline.score);
   }
