@@ -72,6 +72,43 @@ shared terminal to fake child EOF. When that runtime feature lands, the shell
 hands foreground terminal ownership to the child job and takes it back on exit.
 The current integration does not claim a child PTY/canonical-input implementation.
 
+**Remaining runtime gates (2026-10-17).** The integration may land while these
+runtime-owned limitations remain explicit; step 1 is not fully satisfied until
+they are removed, and they remain mandatory before step 6 replaces Brush:
+
+- **Lifetime process limit.** The shared directory currently has 1,024 slots,
+  including the shell root; completed/reaped processes do not release them.
+  `runtime/proc/worker-client.ts:reserveRecord` monotonically consumes the count.
+  `scripts/fixtures/runtime-process-limit.test.ts` uses the real client, broker,
+  supervisor, wait and reap to pin the known failure after 1,023 sequential
+  controlled commands; it launches no guest. Its TODO preserves the 2,000-command
+  target. Run through admission: `bun test scripts/fixtures/runtime-process-limit.test.ts`;
+  `--todo` additionally attempts that currently failing target. Remove the
+  known-failure assertion and execute the target after runtime slot recycling
+  with PID/generation validation lands. Recheck real browser sessions afterwards.
+- **Bun-created descendants.** Runtime step **7b** will replace the historical Bun
+  subprocess bridge with the shared process service. Today a shell-launched Bun
+  parent is in the directory, but its `Bun.spawn` descendants are not, so shell
+  whole-job interruption cannot reach them. The full foreground-descendant and
+  independent-background browser test remains unchanged but explicitly `fixme`
+  pending 7b; this is a known failure, not passing cancellation evidence.
+- **Filesystem stall/cancellation.** Rust `Runtime::open` currently calls Preview1
+  `path_open`; `FilesystemClient.call` can enter an indefinite `Atomics.wait`.
+  A stalled filesystem service therefore blocks shell task progress and SIGINT
+  handling: `poll` is not yet the sole blocking operation. The runtime will add
+  copied-input open submission, nonblocking take/cancel and kind-3 completion
+  readiness; Rust must use a cancelling RAII request owner with no blocking
+  fallback. `scripts/fixtures/runtime-filesystem-pending.test.ts` records the
+  pending deterministic gate: hold an open indefinitely, advance ready background
+  work, interrupt the foreground to status 130 without releasing the gate, then
+  deliver the late result and prove no fd leak. Success, ENOENT,
+  completion-before-registration, completion/cancel ownership and invalid output
+  memory are separate pending cases. These TODOs are not execution evidence.
+
+Runtime delivery order after its package split is slot recycling, then 7b, then
+asynchronous filesystem requests. The current PR does not implement substitute
+cross-transport job fencing or a blocking filesystem fallback.
+
 2. **Scoreboard.** Add the new shell as an engine in `scripts/bash-compat.mjs`, run all three corpora, commit the fixed GNU bash observations and baseline, and wire the exact-count comparison into CI. Target-branch baseline comparison must prevent lowering the candidate baseline from concealing a regression. Expect a low first score; the point is the number. This step can use tested native/WASI process-host stand-ins. The first fixed baseline is 288/1,682 Oils, 295/1,888 Brush-suite and 445/2,222 Bashkit-suite; two fresh GNU bash nondeterminism exclusions reduce the secondary denominators. Exact category counts and case outcomes are committed in `docs/evidence/own-shell-baseline.json`. The historical Brush targets above use their earlier case sets and must be rescored under the same fixed identity before comparison. Candidate baselines must match current per-case pass membership, including gains, while target-branch comparison enforces corpus nonregression.
 
 3. **Climb the bash rules,** in roughly this order, because later areas build on earlier ones. Each area is one or more PRs, each with its score delta:
