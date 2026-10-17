@@ -1460,3 +1460,47 @@ fn quoted_heredoc_delimiters_preserve_substitution_and_operand_boundaries() {
         }
     }
 }
+
+#[test]
+fn heredoc_backticks_keep_typed_deferred_substitutions() {
+    for (body, expected) in [
+        ("(printf x)", "command"),
+        ("printf '('", "command"),
+        ("fi", "deferred"),
+    ] {
+        let source = format!("cat <<EOF\n`{body}`\nEOF\n");
+        let script = Parser::new(&source)
+            .parse()
+            .unwrap_or_else(|error| panic!("{source:?}: {error}"));
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("expected simple heredoc command: {source:?}");
+        };
+        let target = &command.redirects[0].target;
+        match (expected, target.parts.first()) {
+            ("command", Some(WordPart::CommandSubstitution(_))) => {}
+            ("command", other) => panic!("expected typed command substitution: {other:?}"),
+            ("deferred", Some(WordPart::UnparsedCommandSubstitution { source, .. })) => {
+                assert_eq!(source.as_str(), body);
+            }
+            ("deferred", other) => panic!("expected deferred backtick body: {other:?}"),
+            _ => unreachable!(),
+        }
+    }
+}
+
+#[test]
+fn process_substitution_printer_charges_flat_elif_output() {
+    let mut source = String::from("echo \"${unset:-<(if false; then :;");
+    for _ in 0..256 {
+        source.push_str(" elif false; then :;");
+    }
+    source.push_str(" fi)}\"\n");
+    let result = Parser::new(&source).parse();
+    assert!(
+        matches!(
+            &result,
+            Err(Error::ResourceLimit(LimitExceeded::ParserFuel { .. }))
+        ),
+        "flat elif printing must consume the parser budget: {result:?}"
+    );
+}

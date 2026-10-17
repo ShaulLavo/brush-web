@@ -592,6 +592,55 @@ impl<'a> Parser<'a> {
         parser.parse_word(heredoc_body_escapes(input))
     }
 
+    fn parse_heredoc_word(&self, content: &str) -> Result<Word> {
+        self.tick_units(content.len())?;
+        let mut word: Option<Word> = None;
+        for piece in heredoc_body_parts(content) {
+            let next = match piece {
+                HeredocPiece::Text(text) => self.parse_word(text),
+                HeredocPiece::Backtick { body, closed } => {
+                    let part = self.parse_backtick_body_shared(&body, closed)?;
+                    Word {
+                        parts: vec![part],
+                        quoted: false,
+                        has_unquoted_glob: false,
+                        part_quoted: vec![false],
+                        raw: None,
+                    }
+                }
+            };
+            if let Some(word) = &mut word {
+                word.append_word(next);
+            } else {
+                word = Some(next);
+            }
+        }
+        Ok(word.unwrap_or_else(|| Word::literal("")))
+    }
+
+    fn parse_backtick_body_shared(&self, body: &str, closed: bool) -> Result<WordPart> {
+        // Match the typed lazy backtick path: valid bodies become command
+        // substitutions, while syntax failures stay deferred to expansion.
+        if !closed {
+            return Ok(WordPart::UnparsedCommandSubstitution {
+                source: body.to_string(),
+                error: "no closing backtick".to_string(),
+            });
+        }
+        match self.parse_substitution_body(body) {
+            Ok(script) => Ok(WordPart::CommandSubstitution(script.commands)),
+            Err(error @ Error::ResourceLimit(_)) => Err(error),
+            Err(Error::Parse { message, .. }) => Ok(WordPart::UnparsedCommandSubstitution {
+                source: body.to_string(),
+                error: message,
+            }),
+            Err(Error::ShellWord { line }) => Ok(WordPart::UnparsedCommandSubstitution {
+                source: body.to_string(),
+                error: format!("syntax error while looking for matching `)' at line {line}"),
+            }),
+        }
+    }
+
     /// Prompt reparses must charge the same request budget as their caller.
     pub(crate) fn parse_prompt_body(
         input: &str,
@@ -3702,7 +3751,7 @@ impl<'a> Parser<'a> {
         let mut target = if quoted {
             Word::quoted_literal(content.clone())
         } else {
-            self.parse_word(heredoc_body_escapes(&content))
+            self.parse_heredoc_word(&content)?
         };
         target.raw = Some(content);
 
@@ -5841,7 +5890,21 @@ impl<'a> Parser<'a> {
         body.pop();
         match self.parse_substitution_body(&body) {
             Ok(script) => {
-                let printed = print_cmd::comsub_commands(&script.commands);
+                let printed = match print_cmd::comsub_commands_bounded(
+                    &script.commands,
+                    &self.fuel,
+                    self.max_fuel,
+                    self.execution_budget.as_ref(),
+                ) {
+                    Ok(printed) => printed,
+                    Err(error) => {
+                        let first = self.deferred_error.take();
+                        self.deferred_error.set(first.or(Some(error)));
+                        out.push_str(&body);
+                        out.push(')');
+                        return;
+                    }
+                };
                 if printed.starts_with('(') {
                     out.push(' ');
                 }
@@ -6690,6 +6753,94 @@ fn split_arith_for_parts(body: &str) -> Vec<String> {
 /// `(( ... ))` like `let "..."`).
 pub(crate) fn arith_exec_text(raw: &str) -> String {
     raw.trim().chars().filter(|&c| c != '"').collect()
+}
+
+enum HeredocPiece {
+    Text(String),
+    Backtick { body: String, closed: bool },
+}
+
+fn heredoc_body_parts(content: &str) -> Vec<HeredocPiece> {
+    let mut pieces = Vec::new();
+    let mut text = String::new();
+    let flush = |pieces: &mut Vec<HeredocPiece>, text: &mut String| {
+        if !text.is_empty() {
+            pieces.push(HeredocPiece::Text(std::mem::take(text)));
+        }
+    };
+    let mut chars = content.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.peek() {
+                Some('$' | '`' | '\\') => {
+                    text.push('\x00');
+                    text.push(chars.next().unwrap_or_default());
+                }
+                Some('\n') => {
+                    chars.next();
+                }
+                _ => text.push('\\'),
+            },
+            '$' if chars.peek() == Some(&'\'') => {
+                text.push('\x00');
+                text.push('$');
+            }
+            '$' if matches!(chars.peek(), Some('(' | '{')) => {
+                text.push('$');
+                let open = chars.next().unwrap_or_default();
+                text.push(open);
+                let close = if open == '(' { ')' } else { '}' };
+                let mut depth = 1usize;
+                while let Some(ch) = chars.next() {
+                    if ch == '\\' && chars.peek() == Some(&'\n') {
+                        chars.next();
+                        continue;
+                    }
+                    text.push(ch);
+                    if ch == '\\' {
+                        if let Some(next) = chars.next() {
+                            text.push(next);
+                        }
+                    } else if ch == open {
+                        depth += 1;
+                    } else if ch == close {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                }
+            }
+            '`' => {
+                flush(&mut pieces, &mut text);
+                let mut body = String::new();
+                let mut closed = false;
+                while let Some(ch) = chars.next() {
+                    if ch == '`' {
+                        closed = true;
+                        break;
+                    }
+                    if ch == '\\' {
+                        match chars.next() {
+                            Some(next @ ('$' | '`' | '\\')) => body.push(next),
+                            Some('\n') => {}
+                            Some(next) => {
+                                body.push('\\');
+                                body.push(next);
+                            }
+                            None => body.push('\\'),
+                        }
+                    } else {
+                        body.push(ch);
+                    }
+                }
+                pieces.push(HeredocPiece::Backtick { body, closed });
+            }
+            _ => text.push(c),
+        }
+    }
+    flush(&mut pieces, &mut text);
+    pieces
 }
 
 /// Backslash handling in an unquoted heredoc body, as in double quotes but
