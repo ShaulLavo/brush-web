@@ -1416,6 +1416,20 @@ fn captured_body_validation_uses_substitution_heredoc_boundaries() {
     }
 }
 
+fn trailing_simple_command(script: &Script) -> &shell_parser::parser::SimpleCommand {
+    let mut command = script.commands.last().expect("the script has a command");
+    while let Command::List(list) = command {
+        command = list
+            .rest
+            .last()
+            .map_or(list.first.as_ref(), |(_, command)| command);
+    }
+    let Command::Simple(command) = command else {
+        panic!("expected trailing simple command");
+    };
+    command
+}
+
 #[test]
 fn quoted_heredoc_delimiters_preserve_substitution_and_operand_boundaries() {
     // Bash 5.3.15 accepts the continuation and escaped-quote controls with
@@ -1439,16 +1453,7 @@ fn quoted_heredoc_delimiters_preserve_substitution_and_operand_boundaries() {
                 .with_strict_substitution_bodies()
                 .parse()
                 .unwrap_or_else(|error| panic!("{source:?}: {error}"));
-            let mut command = script.commands.last().expect("the script has a command");
-            while let Command::List(list) = command {
-                command = list
-                    .rest
-                    .last()
-                    .map_or(list.first.as_ref(), |(_, command)| command);
-            }
-            let Command::Simple(command) = command else {
-                panic!("expected trailing simple command: {source:?}");
-            };
+            let command = trailing_simple_command(&script);
             assert_eq!(command.name.to_string(), "args", "{source:?}");
             assert_eq!(command.args.len(), 2, "{source:?}");
             assert_eq!(command.args[1].to_string(), "suffix", "{source:?}");

@@ -294,10 +294,11 @@
           "shell/parser/src/parser/lexer.rs",
           "shell/parser/src/parser/substring.rs",
           "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/print_cmd.rs",
           "shell/parser/tests/api.rs"
         ],
         "classification": "Original shared parameter-boundary correction in the owned Bashkit-derived parser, observed against GNU Bash 5.3.15; no upstream implementation copied.",
-        "change": "Keep backtick bodies opaque to surrounding parameter quote and brace matching. Expose process-substitution boundaries from the shared parameter scanner so the lexer, syntax validator and operand extractor skip the same quote, heredoc and fused spans. Retain child parser fuel in the parent and preserve typed resource errors when producing printed process-substitution operands. Expose captured-body validation with substitution heredoc grammar, reject empty case patterns, and retain EOF token state when an unterminated process body is classified. Existing assertions remain intact.",
+        "change": "Keep backtick bodies opaque to surrounding parameter quote and brace matching. Expose process-substitution boundaries from the shared parameter scanner so the lexer, syntax validator and operand extractor skip the same quote, heredoc and fused spans. Retain child parser fuel in the parent and preserve typed resource errors when producing printed process-substitution operands. Expose captured-body validation with substitution heredoc grammar, reject empty case patterns, and retain EOF token state when an unterminated process body is classified. Preserve fused process tails and normalize printed heredoc delimiter continuations. Following-word controls inspect the final simple command inside a retained command list. Existing upstream assertions remain intact.",
         "reason": "The substitution generator exposed backtick body braces and quotes closing lazy defaults, heredoc delimiter quotes escaping the process body during lexing, and nested process bodies receiving inconsistent boundary handling. All callers now use the same scanner without matching script text or exempting Bash failure statuses."
       }
     ],
