@@ -62,6 +62,16 @@ Step 1 includes the minimum production semantics, fixture commands and session i
 - a non-standard descriptor (`3>&1`, `exec 4<file`) is inherited by a child;
 - `bun dev &` returns to the prompt, keeps streaming, and the next command can `kill %1` or `wait` for it.
 
+**Terminal dependency (2026-10-17).** Step 1's raw shared endpoint carries
+byte-exact pipes and gives the shell guest its own prompt editor. Per-child
+canonical terminal input (echo/editing and one-shot Ctrl+D EOF for a foreground
+child) depends on the shared runtime's step 5, **Terminal**: terminal descriptor
+foreground ownership, cooked mode ported from Brush, and raw mode that passes
+Ctrl+C through. This is approved later work, not a reason to close the whole
+shared terminal to fake child EOF. When that runtime feature lands, the shell
+hands foreground terminal ownership to the child job and takes it back on exit.
+The current integration does not claim a child PTY/canonical-input implementation.
+
 2. **Scoreboard.** Add the new shell as an engine in `scripts/bash-compat.mjs`, run all three corpora, commit the fixed GNU bash observations and baseline, and wire the exact-count comparison into CI. Target-branch baseline comparison must prevent lowering the candidate baseline from concealing a regression. Expect a low first score; the point is the number. This step can use tested native/WASI process-host stand-ins. The first fixed baseline is 288/1,682 Oils, 295/1,888 Brush-suite and 445/2,222 Bashkit-suite; two fresh GNU bash nondeterminism exclusions reduce the secondary denominators. Exact category counts and case outcomes are committed in `docs/evidence/own-shell-baseline.json`. The historical Brush targets above use their earlier case sets and must be rescored under the same fixed identity before comparison. Candidate baselines must match current per-case pass membership, including gains, while target-branch comparison enforces corpus nonregression.
 
 3. **Climb the bash rules,** in roughly this order, because later areas build on earlier ones. Each area is one or more PRs, each with its score delta:

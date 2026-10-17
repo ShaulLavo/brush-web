@@ -50,10 +50,11 @@ export class BrowserRuntime implements ShellRuntimePeer {
       await this.filesystem.mkdirp("/bin");
       await this.filesystem.mkdirp("/usr/local/bin");
       await this.filesystem.mkdirp("/programs");
-      await this.filesystem.writeFile(
-        "/home/guest/welcome.txt",
-        "Files and commands run inside this browser.\n",
-      );
+      if (!(await this.filesystem.lookup("/home/guest/welcome.txt")))
+        await this.filesystem.writeFile(
+          "/home/guest/welcome.txt",
+          "Files and commands run inside this browser.\n",
+        );
       // Names are filesystem-visible; execution resolves through the runtime registry, never eval.
       for (const path of [
         "/bin/bun",
@@ -63,7 +64,8 @@ export class BrowserRuntime implements ShellRuntimePeer {
         "/programs/shell-engine.wasm",
         "/dev/null",
       ])
-        await this.filesystem.writeFile(path, new Uint8Array());
+        if (!(await this.filesystem.lookup(path)))
+          await this.filesystem.writeFile(path, new Uint8Array());
       await this.filesystem.drain();
     })());
   }
@@ -97,6 +99,7 @@ export class BrowserRuntime implements ShellRuntimePeer {
     const { port: _port, ...identity } = filesystem;
     transport.data = { filesystem: identity };
     const broker = new SubprocessBroker(this.filesystem, {
+      canConfirmRoot: () => acknowledged,
       output: (_fd, bytes) => {
         options.terminal.tryWrite([bytes]);
       },
@@ -129,6 +132,9 @@ export class BrowserRuntime implements ShellRuntimePeer {
       resolveStarted = resolve;
       rejectStarted = reject;
     });
+    // A worker load failure can arrive while descriptor/root admission is still awaiting.
+    // Keep its rejection observed until the startup await below owns it.
+    void started.catch(() => {});
     let finished = false;
     let stopped: Promise<void> | undefined;
     let acknowledged = false;
@@ -277,6 +283,7 @@ export class BrowserRuntime implements ShellRuntimePeer {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.modules.clear();
     const roots = Array.from(this.roots);
     this.roots.clear();
     void Promise.all(

@@ -102,7 +102,7 @@ impl Abi for Fake {
                                 .map_err(|_| 1)?;
                         }
                     }
-                    "cat" => {
+                    "runtime-cat" => {
                         let input = fds.get(0).ok_or(1)?;
                         let mut buffer = [0; 97];
                         loop {
@@ -375,7 +375,9 @@ fn runtime_pipeline_builtins_external_and_fs_share_descriptor_namespace() {
     );
     session.set_descriptors(runtime.stdio().unwrap()).unwrap();
     let job = session
-        .start("printf first | cat | cat > /result; cat < /result; emit | cat | cat")
+        // `cat` is an engine builtin. Use a distinct fake executable so these
+        // stages really cross ProcessHost; retain a builtin consumer as well.
+        .start("printf first | runtime-cat | runtime-cat | cat > /result; runtime-cat < /result 3>&1; emit | runtime-cat | runtime-cat")
         .unwrap();
     assert_eq!(finish(&executor, &runtime, job), 0);
     let mut expected = b"first".to_vec();
@@ -385,6 +387,31 @@ fn runtime_pipeline_builtins_external_and_fs_share_descriptor_namespace() {
     assert_eq!(fake.output.bytes(), expected);
     let requests = fake.requests.borrow();
     assert_eq!(requests.len(), 6);
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|request| request.executable == "runtime-cat")
+            .count(),
+        5
+    );
+    let inherited_extra = requests
+        .iter()
+        .find(|request| request.fds.iter().any(|binding| binding.child == 3))
+        .unwrap();
+    assert_eq!(
+        inherited_extra
+            .fds
+            .iter()
+            .find(|binding| binding.child == 3)
+            .unwrap()
+            .parent,
+        inherited_extra
+            .fds
+            .iter()
+            .find(|binding| binding.child == 1)
+            .unwrap()
+            .parent
+    );
     assert!(
         requests
             .iter()

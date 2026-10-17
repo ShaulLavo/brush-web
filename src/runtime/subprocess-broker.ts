@@ -80,6 +80,7 @@ export class SubprocessBroker {
     private options: {
       activate?: () => Promise<Proc>;
       root?: RootProcessOptions;
+      canConfirmRoot?(): boolean;
       output?(fd: 1 | 2, data: Uint8Array): void;
     } = {},
   ) {
@@ -128,7 +129,10 @@ export class SubprocessBroker {
         // A shared ordinary exit can win before queued terminal output reaches this page.
         // The final ordered worker message acknowledges that output and resource release.
         canConfirmExit: (pid) =>
-          this.disposed || this.runtimeChildren.get(pid)?.acknowledged !== false,
+          this.disposed ||
+          (pid === this.root?.pid
+            ? this.options.canConfirmRoot?.() !== false
+            : this.runtimeChildren.get(pid)?.acknowledged !== false),
       });
       this.supervisor = supervisor;
       const pid = supervisor.createRoot({ ...this.options.root, ...this.rootTransport() });
