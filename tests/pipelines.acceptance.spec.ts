@@ -29,6 +29,34 @@ async function file(page: Page, path: string, source: string) {
   await ready(page);
 }
 
+for (const [name, source, expected] of [
+  [
+    "external command capture",
+    `value=$(bun -e 'process.stdout.write("captured\\n\\n")'); printf 'CAPTURE:%s\\n' "$value"`,
+    "CAPTURE:captured",
+  ],
+  [
+    "external process-substitution reader",
+    `bun -e 'console.log("PROCESS:"+await Bun.stdin.text())' < <(printf streamed)`,
+    "PROCESS:streamed",
+  ],
+  [
+    "external here-string reader",
+    `bun -e 'const text=await Bun.stdin.text(); console.log("HERE:"+JSON.stringify(text))' <<< reader`,
+    'HERE:"reader\\n"',
+  ],
+]) {
+  test(`substitution descriptors cross the real runtime boundary, ${name}`, async ({ page }) => {
+    await open(page);
+    await command(page, source);
+    await output(page, expected);
+    await ready(page);
+    await expect.poll(() => page.workers().length).toBe(baselineWorkers.get(page));
+    await command(page, "echo SUBSTITUTION_STATUS:$?");
+    await output(page, "SUBSTITUTION_STATUS:0");
+  });
+}
+
 test("pipeline forwards ticker lines while the producer is running", async ({ page }, info) => {
   await open(page);
   await file(
