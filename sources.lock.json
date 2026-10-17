@@ -861,5 +861,79 @@
       "scripts/fixtures/shell-braces-seed-42.json"
     ],
     "strategy": "Run brace lists and signed, padded numeric/ASCII-letter ranges before parameter-name parsing and field splitting. Unlike the upstream AST placeholder/cloning implementation, borrow raw source spans, preserve quoted/escaped syntax structurally, reparse admitted generated words, and use iterative cooperative expansion. Invalid enclosing groups stay literal while children expand. Every growing vector/string and parser temporary is storage-admitted; raw output is charged only when emitted and shared across variants. Limits fail explicitly, never return literal or partial results. Original GNU Bash 5.3.15 differential generators and engine resource/deep-nesting tests verify behavior. Removed lexical line continuations join range fragments and dollar-opened opaque constructs without normalizing protected quote bodies. Use the original shared substitution scanner for all opaque dollar-parenthesis bodies, distinguishing arithmetic from command grammar and incrementally replaying ambiguous fallback syntax. Checkpoint and storage-admit every source, replay and EOF step so inactive comments, heredocs and case patterns cannot expose brace punctuation or hide uncancellable work. Preserve the initial parser nesting ceiling when reparsing generated words; iterative opaque scanning adds no smaller lexical cap."
+  },
+  "shellSubstitutions": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "classification": "Original asynchronous streaming adapters and GNU Bash 5.3.15 regression controls; existing Bashkit-derived parser and expansion foundations retained, no additional upstream interpreter implementation copied.",
+    "referenceSources": [
+      "crates/bashkit/src/interpreter/expansion.rs",
+      "crates/bashkit/src/parser/mod.rs",
+      "crates/bashkit/src/parser/print_cmd.rs"
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/ast_copy.rs",
+      "shell/engine/src/interpreter.rs",
+      "shell/engine/src/interpreter/eval.rs",
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/expand/command.rs",
+      "shell/engine/src/expand/operand.rs",
+      "shell/engine/src/expand/case_pattern.rs",
+      "shell/engine/src/io.rs",
+      "shell/engine/src/state.rs",
+      "shell/engine/src/builtins.rs"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words/command.rs",
+      "shell/engine/tests/words/case.rs",
+      "shell/engine/tests/words/nounset.rs",
+      "scripts/fuzz-shell-substitution-boundaries.mjs",
+      "scripts/test-fuzz-shell-substitution-boundaries.mjs",
+      "scripts/fixtures/shell-substitutions-seed-1.json",
+      "scripts/fixtures/shell-substitutions-seed-42.json",
+      "scripts/test-shell-wasi.mjs"
+    ],
+    "strategy": "Execute typed command substitutions, backticks and non-arithmetic fused substitutions with bounded captures over live pipes; execute process substitutions through owned descriptors instead of captured text. Admit state/AST snapshots and temporary storage before growth; share work and cancellation, preserve trailing-newline removal and status semantics, and retain asynchronous descendants until scoped cleanup. Here-documents/here-strings, eval, unset, scalar nounset and case execution provide the general execution prerequisites. External/unnamed heredoc readers isolate shell effects; builtin readers retain completed parameter effects. Eval source, parser work, AST copies and active execution/read depth share explicit admission; outlined futures and joined executor tasks avoid native/WASI recursive poll-stack growth without enlarging limits. Internal task identities are separate from visible job numbers. Parser grammar, printing and typed-backtick repairs are separately classified under shellParser.changeLog. Generator results and full native/WASI acceptance are recorded only after actual final-source execution.",
+    "excluded": [
+      "coprocesses",
+      "arrays and indexed namerefs",
+      "complete ANSI-C operand cursor",
+      "browser-worker integration (the process host remains a stand-in)"
+    ]
+  },
+  "shellScalarState": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "classification": "Original bounded scalar-state semantic-reference adapters; test cases adapted separately from the pinned MIT Bashkit corpus.",
+    "referenceSources": [
+      "crates/bashkit/src/builtins/vars.rs",
+      "crates/bashkit/src/interpreter/mod.rs",
+      "crates/bashkit/src/interpreter/declare.rs",
+      "crates/bashkit/src/interpreter/expansion.rs"
+    ],
+    "testSources": [
+      "crates/bashkit/tests/spec_cases/bash/word-split.test.sh",
+      "crates/bashkit/tests/spec_cases/bash/nameref.test.sh"
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/state.rs",
+      "shell/engine/src/builtins.rs",
+      "shell/engine/src/expand.rs",
+      "shell/engine/src/expand/indirect.rs",
+      "shell/engine/src/arithmetic.rs",
+      "shell/engine/src/interpreter.rs"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/words/set_positionals.rs",
+      "shell/engine/tests/words/namerefs.rs"
+    ],
+    "strategy": "Implement positional set operands, explicit clearing and function restoration; retain quoted empty values and validate options. Store genuine ordinary-identifier scalar reference metadata, follow live target mutations, resolve supported reads/presence/writes through one bounded cycle-aware interface, restore local bindings and admit saved metadata in shared snapshots. Resource, cancellation and restoration matrices are original controls. Preserve strict nounset and correct wait-all status rather than restoring accidental earlier corpus passes. Scalar references and positional state are substitution-unit zero-loss prerequisites, not a port of the blocking interpreter.",
+    "excluded": [
+      "array/subscript references",
+      "general declaration options",
+      "integer declarations"
+    ]
   }
 }
