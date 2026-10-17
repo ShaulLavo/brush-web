@@ -275,6 +275,15 @@ impl<'a> Parser<'a> {
         self
     }
 
+    /// Validate captured command text with substitution grammar, including
+    /// here-document delimiters followed by a closing parenthesis.
+    pub fn with_substitution_body(mut self) -> Self {
+        self.strict_command_separators = true;
+        self.strict_substitution_bodies = true;
+        self.lexer.set_substitution_body(true);
+        self
+    }
+
     fn set_options(&mut self, options: ParseOptions) {
         self.lexer.set_track_plain(options.aliases.is_some());
         self.lexer.set_extglob_bang(options.extglob);
@@ -2283,6 +2292,11 @@ impl<'a> Parser<'a> {
                 } else {
                     break;
                 }
+            }
+
+            if patterns.is_empty() {
+                self.pop_depth();
+                return Err(self.error("expected case pattern"));
             }
 
             // Expect )
@@ -4461,6 +4475,7 @@ impl<'a> Parser<'a> {
                 if direct && !scanned {
                     // Same end-of-input rules as an unterminated `$(`.
                     self.classify_unterminated_token(true)?;
+                    self.current_token = None;
                     return Err(self.error("unexpected EOF while looking for matching `)'"));
                 }
                 // A fused `<((` span is raw text until it expands (bash).

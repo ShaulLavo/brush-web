@@ -701,7 +701,9 @@ fn execute(
                 subshell(commands, redirs, state.clone(), fds, context.clone()).await
             }
             Command::Compound(compound, redirs) => {
-                let fds = Rc::new(RefCell::new(fds.borrow().clone()));
+                let table = fds.borrow().clone();
+                drop(fds);
+                let fds = Rc::new(RefCell::new(table));
                 let mut work = substitution_work(&context, &fds);
                 match command_redirects(&redirs, &state, fds, &context, &mut work).await {
                     Err(outcome) => outcome,
@@ -1615,8 +1617,12 @@ async fn dispatch_simple_command(
         if !assigned.is_empty() {
             return Err(2);
         }
+        // Function syntax has a source-size budget independent of argv bytes.
+        // Admit its execution copy before cloning even with a tiny argv ceiling.
+        let source_bytes = context.limits().source_bytes;
+        let mut copy_work = expand::Work::new(source_bytes, source_bytes, 0);
         if let Err(error) =
-            crate::ast_copy::command(body.as_ref(), &context.cancel, &mut work).await
+            crate::ast_copy::command(body.as_ref(), &context.cancel, &mut copy_work).await
         {
             return Ok(expansion_failure(error.into(), &fds, &context).await);
         }
