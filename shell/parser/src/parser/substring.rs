@@ -43,9 +43,12 @@ impl Parser<'_> {
                 continue;
             }
             angle = matches!(c, '<' | '>') && !angle;
-            if angle && scanner.substring_unquoted() && chars.peek() == Some(&'(') {
+            // Bash parses `<(`/`>(` bodies in every `${...}` operand
+            // (`parse_matched_pair`, P_DOLBRACE with LEX_GTLT), outside quotes.
+            if angle && scanner.unquoted() && chars.peek() == Some(&'(') {
+                let slice = scanner.substring_unquoted();
                 chars.next();
-                self.read_parameter_command(&mut chars, bodies, true)?;
+                self.read_parameter_command(&mut chars, bodies, slice)?;
                 angle = false;
                 continue;
             }

@@ -83,6 +83,7 @@ pub(crate) fn is_builtin(name: &str) -> bool {
             | "return"
             | "wait"
             | "kill"
+            | "unset"
     )
 }
 fn valid_name(name: &str) -> bool {
@@ -205,6 +206,10 @@ pub(crate) async fn run(
                 copy(endpoint(&fds, 0)?, &fds, &context).await?;
             } else {
                 for path in args {
+                    if let Some(input) = crate::interpreter::device_endpoint(&path, &fds) {
+                        copy(input?, &fds, &context).await?;
+                        continue;
+                    }
                     let path = absolute(&state.borrow().cwd, &path);
                     let options = OpenOptions::default();
                     let input = context
@@ -285,6 +290,7 @@ pub(crate) async fn run(
         "export" | "local" | "readonly" => {
             return declarations(name, args, &state, &fds, &context).await;
         }
+        "unset" => return unset(args, &state, &fds, &context).await,
         "cd" => {
             if args.len() != 1 {
                 return Err(2);
@@ -369,6 +375,84 @@ fn apply_declaration(
         state.assign_parameter(key.to_owned(), value)?;
     }
     state.exported.insert(key.to_owned());
+    Ok(())
+}
+
+/// `unset [-f] [-v] [-n] [--] name...`. Bash 5.3 ignores names that are not
+/// identifiers. Without `-v` a name with no variable unsets a function.
+/// `-n` (namerefs) is not implemented and fails closed.
+async fn unset(
+    args: Vec<String>,
+    state: &SharedState,
+    fds: &FdTable,
+    context: &Context,
+) -> Result<Outcome, i32> {
+    let mut functions = false;
+    let mut variables = false;
+    let mut names = args.iter().peekable();
+    while let Some(option) = names.next_if(|arg| arg.starts_with('-') && arg.len() > 1) {
+        if option == "--" {
+            break;
+        }
+        for flag in option[1..].chars() {
+            match flag {
+                'f' => functions = true,
+                'v' => variables = true,
+                'n' => return Err(2),
+                _ => {
+                    let diagnostic = format!(
+                        "/usr/bin/bash: unset: -{flag}: invalid option\nunset: usage: unset [-f] [-v] [-n] [name ...]\n"
+                    );
+                    diagnose(fds, &diagnostic, context).await?;
+                    return Ok(Outcome::status(2));
+                }
+            }
+        }
+    }
+    if functions && variables {
+        diagnose(
+            fds,
+            "/usr/bin/bash: unset: cannot simultaneously unset a function and a variable\n",
+            context,
+        )
+        .await?;
+        return Ok(Outcome::status(1));
+    }
+    let mut code = 0;
+    let mut budget = Budget::default();
+    for name in names {
+        budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
+        if !valid_name(name) {
+            continue;
+        }
+        if functions {
+            state.borrow_mut().functions.remove(name);
+            continue;
+        }
+        let removed = state.borrow_mut().unset_variable(name);
+        match removed {
+            Err(()) => {
+                let diagnostic =
+                    format!("/usr/bin/bash: unset: {name}: cannot unset: readonly variable\n");
+                diagnose(fds, &diagnostic, context).await?;
+                code = 1;
+            }
+            Ok(false) if !variables => {
+                state.borrow_mut().functions.remove(name);
+            }
+            Ok(_) => {}
+        }
+    }
+    Ok(Outcome::status(code))
+}
+
+async fn diagnose(fds: &FdTable, diagnostic: &str, context: &Context) -> Result<(), i32> {
+    if let Some(stderr) = fds.get(2) {
+        stderr
+            .write_all(diagnostic.as_bytes(), &context.cancel)
+            .await
+            .map_err(|error| error.status())?;
+    }
     Ok(())
 }
 

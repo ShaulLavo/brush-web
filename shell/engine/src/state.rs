@@ -130,6 +130,45 @@ impl State {
             .filter_map(|name| self.variables.get(name).map(|v| (name.clone(), v.clone())))
             .collect()
     }
+    /// Unset a variable. A local declared in the current function stays
+    /// local (and unset) until the function returns. A local declared by a
+    /// calling function is removed from that frame instead, revealing the
+    /// value it shadowed, as Bash's dynamic scoping does. Returns whether a
+    /// variable existed; readonly variables are an error.
+    pub(crate) fn unset_variable(&mut self, name: &str) -> Result<bool, ()> {
+        if self.is_readonly(name) {
+            return Err(());
+        }
+        let frame = self
+            .locals
+            .iter()
+            .rposition(|locals| locals.contains_key(name));
+        if let Some(index) = frame
+            && index + 1 != self.locals.len()
+        {
+            let local = self.locals[index].remove(name).ok_or(())?;
+            if local.exported {
+                self.exported.insert(name.to_owned());
+            } else {
+                self.exported.remove(name);
+            }
+            let existed = self.variables.contains_key(name);
+            match local.previous {
+                Some(value) => self.variables.insert(name.to_owned(), value),
+                None => self.variables.remove(name),
+            };
+            return Ok(existed);
+        }
+        if let Some(saved) = self
+            .prefixes
+            .last_mut()
+            .and_then(|frame| frame.get_mut(name))
+        {
+            *saved = None;
+        }
+        self.exported.remove(name);
+        Ok(self.variables.remove(name).is_some())
+    }
     pub(crate) fn local(&mut self, name: String, value: String) -> Result<(), i32> {
         if self.readonly.contains(&name) || self.current_local_readonly(&name) {
             return Err(1);
