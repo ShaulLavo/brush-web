@@ -41,17 +41,19 @@ const eligible = oracle.cases.filter((item) => !item.excluded && item.kind === "
 await mkdir(scratchRoot, { recursive: true });
 const scratch = await mkdtemp(resolve(scratchRoot, "audit-"));
 const activeChildren = new Map();
-let cleaned = false;
+let cancelled = false;
 const killAll = () => {
   for (const kill of activeChildren.keys()) kill();
 };
-// Install teardown before creating helpers or starting any guest. Only our mkdtemp is removed.
-process.on("SIGINT", () => process.exit(130));
-process.on("SIGTERM", () => process.exit(143));
-process.on("exit", () => {
+// Signals enter awaited teardown; scratch is never removed ahead of its consumers.
+const stop = (status) => {
+  cancelled = true;
+  process.exitCode = status;
   killAll();
-  if (!cleaned) execFileSync("rm", ["-rf", "--", scratch]);
-});
+};
+process.on("SIGINT", () => stop(130));
+process.on("SIGTERM", () => stop(143));
+process.on("exit", killAll);
 const pack = (value) => ({
   status: value.status,
   stdout: value.stdout.toString("base64"),
@@ -66,7 +68,6 @@ const sameAll = (first, second) =>
   Boolean(first.timeout) === Boolean(second.timeout) &&
   Boolean(first.outputLimit) === Boolean(second.outputLimit);
 const observed = new Array(eligible.length);
-let cancelled = false;
 let workers = [];
 try {
   const helpers = resolve(scratch, "helpers");
@@ -81,6 +82,7 @@ try {
     activeChildren,
   });
   const path = `${helpers}:/usr/local/bin:/usr/bin:/bin`;
+  assert.ok(!cancelled, "audit interrupted");
   const preflight = await runShell(
     shell,
     "printf compat-oracle-ready >/dev/stdout; exit 37",
@@ -124,6 +126,7 @@ try {
     }
   });
   await Promise.all(workers);
+  assert.ok(!cancelled, "audit interrupted");
   assert.equal(
     bytesDigest(await readFile(oraclePath)),
     bytesDigest(originalBytes),
@@ -194,11 +197,14 @@ try {
     ),
   );
   if (report.incomplete.length || report.nondeterministic.length) process.exitCode = 1;
+} catch (error) {
+  if (!cancelled) throw error;
+  console.error("oracle audit interrupted");
 } finally {
   cancelled = true;
   killAll();
   await Promise.allSettled(workers);
   await Promise.allSettled(activeChildren.values());
+  assert.equal(activeChildren.size, 0, `audit consumers remain; scratch retained at ${scratch}`);
   await rm(scratch, { recursive: true, force: true });
-  cleaned = true;
 }

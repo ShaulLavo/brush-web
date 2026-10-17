@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
 import { rmSync } from "node:fs";
 import { link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -134,4 +136,93 @@ test("read-only transport audit preserves input and reports incomplete controls"
     assert.equal(report.cases[0].pipe.timeout, undefined);
     assert.deepEqual(await readdir(scratch), ["oracle.json", "report.json"]);
   });
+
+  await t.test(
+    "SIGTERM awaits consumer termination before removing audit scratch",
+    async (subtest) => {
+      const oracle = fixture('sleep 30 & printf ready > "$TMP/live"; wait');
+      oracle.environment.timeoutMs = 30000;
+      await writeFile(input, JSON.stringify(sealOracle(oracle)));
+      await rm(output);
+      const child = spawn(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `
+          const signal = process.kill;
+          const groups = new Set();
+          let released = false;
+          process.kill = (pid, kind) => {
+            if (!released && pid < 0 && kind === 'SIGKILL') {
+              groups.add(pid);
+              process.send('deferred');
+              return true;
+            }
+            return signal(pid, kind);
+          };
+          const release = () => {
+            released = true;
+            for (const pid of groups) {
+              try { signal(pid, 'SIGKILL'); }
+              catch (error) { if (error.code !== 'ESRCH') throw error; }
+            }
+          };
+          process.on('message', release);
+          try {
+            await import(${JSON.stringify(new URL("./audit-bash-oracle-pipe.mjs", import.meta.url).href)});
+          } finally {
+            release();
+            process.disconnect();
+          }
+        `,
+        ],
+        {
+          env: {
+            ...process.env,
+            BASH_COMPAT_ORACLE: input,
+            BASH_ORACLE_AUDIT_OUT: output,
+            BASH_COMPAT_SCRATCH: scratch,
+            BASH_COMPAT_JOBS: "1",
+          },
+          stdio: ["ignore", "ignore", "pipe", "ipc"],
+        },
+      );
+      children.add(child);
+      const closed = once(child, "close");
+      const stderr = [];
+      child.stderr.on("data", (chunk) => stderr.push(chunk));
+      child.once("close", () => children.delete(child));
+      subtest.after(async () => {
+        if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+        await closed;
+      });
+      let marker;
+      const deadline = Date.now() + 5000;
+      while (!marker) {
+        assert.ok(Date.now() < deadline, "audit guest did not become ready");
+        for (const audit of await readdir(scratch)) {
+          if (!audit.startsWith("audit-")) continue;
+          const directory = resolve(scratch, audit);
+          for (const name of await readdir(directory).catch(() => [])) {
+            if (!name.startsWith("bash-")) continue;
+            const path = resolve(directory, name, "tmp/live");
+            if ((await readFile(path, "utf8").catch(() => "")) === "ready") marker = path;
+          }
+        }
+        if (!marker) await delay(5);
+      }
+      // Delay owned-group signal delivery so deleting scratch first is observable,
+      // rather than relying on a race between SIGKILL scheduling and filesystem IO.
+      const deferred = once(child, "message");
+      child.kill("SIGTERM");
+      await deferred;
+      await delay(50);
+      assert.equal(child.exitCode, null, "audit exited instead of awaiting its consumer");
+      assert.equal(await readFile(marker, "utf8"), "ready");
+      child.send("release");
+      assert.equal((await closed)[0], 143, Buffer.concat(stderr).toString());
+      assert.deepEqual(await readdir(scratch), ["oracle.json"]);
+    },
+  );
 });

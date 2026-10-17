@@ -5,6 +5,26 @@ import { bytesDigest, verifyOracle, validateScore } from "./shell-scoreboard.mjs
 export const oraclePath = "docs/evidence/own-shell-oracle.json";
 export const baselinePath = "docs/evidence/own-shell-baseline.json";
 
+// Filter before fork startup, not only after the launcher has loaded Node hooks.
+export function migrationEnvironment() {
+  return Object.fromEntries(
+    [
+      "PATH",
+      "HOME",
+      "CARGO_HOME",
+      "RUSTUP_HOME",
+      "TMPDIR",
+      "RUNNER_TEMP",
+      "SYSTEMROOT",
+      "HTTPS_PROXY",
+      "HTTP_PROXY",
+      "NO_PROXY",
+    ]
+      .filter((name) => process.env[name] !== undefined)
+      .map((name) => [name, process.env[name]]),
+  );
+}
+
 export function baseFile(root, ref, path) {
   assert.match(ref, /^[a-f0-9]{40}$/, "BASH_COMPAT_BASE_REF must be a full commit SHA");
   const env = { ...process.env, GIT_NO_REPLACE_OBJECTS: "1" };
@@ -68,6 +88,8 @@ export async function targetBranchBaseline(root, ref, oracle) {
   return new Promise((resolve, reject) => {
     const child = fork(new URL("./shell-scoreboard-migration.mjs", import.meta.url), [root, ref], {
       stdio: ["ignore", "inherit", "inherit", "ipc"],
+      env: migrationEnvironment(),
+      execArgv: [],
     });
     let result;
     child.on("message", (message) => {

@@ -288,6 +288,27 @@ test("migration rebuilds immutable target and lowered candidate baseline cannot 
   });
 });
 
+test("migration launcher excludes inherited Node startup hooks", async () => {
+  await fixture(async ({ repo, ref, next, put }) => {
+    const marker = resolve(repo, "preload-ran");
+    const preload = resolve(repo, "preload.cjs");
+    put("preload.cjs", `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'loaded');`);
+    const args = process.execArgv.slice();
+    try {
+      process.env.NODE_OPTIONS = `--require=${preload}`;
+      process.execArgv.push("--require", preload);
+      const target = await targetBranchBaseline(repo, ref, next);
+      assert.deepEqual(
+        target.cases.map((item) => item.outcome),
+        ["fail", "pass"],
+      );
+      assert.equal(existsSync(marker), false, "launcher ran an inherited startup hook");
+    } finally {
+      process.execArgv.splice(0, process.execArgv.length, ...args);
+    }
+  });
+});
+
 test("migration rejects incorrect immutable baseline membership", async () => {
   await fixture(
     async ({ repo, ref, next }) => {

@@ -1,55 +1,17 @@
 // Internal launcher: no baseline or binary inputs. The target commit supplies the scorer and source.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { migrationEvidence, oraclePath } from "./shell-scoreboard-base.mjs";
+import { migrationEnvironment, migrationEvidence, oraclePath } from "./shell-scoreboard-base.mjs";
 import { bytesDigest, compareScores, validateScore, verifyOracle } from "./shell-scoreboard.mjs";
+import { drainGroup, killGroup } from "./shell-process-group.mjs";
 
 const root = resolve(process.argv[2] ?? ".");
 const ref = process.argv[3];
 const children = new Map();
 let interrupted = false;
-function killGroup(pid, signal) {
-  if (!pid) return;
-  try {
-    process.kill(-pid, signal);
-  } catch (error) {
-    if (error.code !== "ESRCH") throw error;
-  }
-}
-async function drainGroup(pid) {
-  if (!pid) return;
-  killGroup(pid, "SIGKILL");
-  const deadline = Date.now() + 10000;
-  for (;;) {
-    try {
-      process.kill(-pid, 0);
-    } catch (error) {
-      if (error.code === "ESRCH") return;
-      throw error;
-    }
-    // Linux CI/local hosts: an orphaned zombie cannot consume scratch, but a live descendant can.
-    const processes = (await readdir("/proc")).filter((name) => /^\d+$/.test(name));
-    const active = await Promise.all(
-      processes.map(async (name) => {
-        try {
-          const stat = await readFile(`/proc/${name}/stat`, "utf8");
-          const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-          return fields[2] === String(pid) && !["Z", "X"].includes(fields[0]);
-        } catch (error) {
-          if (["ENOENT", "ESRCH", "EACCES"].includes(error.code)) return false;
-          throw error;
-        }
-      }),
-    );
-    if (!active.some(Boolean)) return;
-    assert.ok(Date.now() < deadline, `target process group ${pid} did not stop`);
-    await delay(20);
-  }
-}
 function stop() {
   interrupted = true;
   for (const [pid, child] of children) {
@@ -61,21 +23,7 @@ for (const signal of ["SIGTERM", "SIGINT", "disconnect"]) process.on(signal, sto
 
 // Do not inherit compiler wrappers/flags, alternate Cargo targets, Node hooks, Git replacements,
 // scorer overrides, or any candidate-provided artifacts. Shared dependency caches remain usable.
-const env = Object.fromEntries(
-  [
-    "PATH",
-    "HOME",
-    "CARGO_HOME",
-    "RUSTUP_HOME",
-    "TMPDIR",
-    "SYSTEMROOT",
-    "HTTPS_PROXY",
-    "HTTP_PROXY",
-    "NO_PROXY",
-  ]
-    .filter((name) => process.env[name] !== undefined)
-    .map((name) => [name, process.env[name]]),
-);
+const env = migrationEnvironment();
 env.GIT_NO_REPLACE_OBJECTS = "1";
 function run(command, args, cwd, extraEnv = {}) {
   assert.ok(!interrupted, "target rebuild interrupted");

@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { constants } from "node:os";
 import { resolve } from "node:path";
+import { drainGroup, killGroup } from "./shell-process-group.mjs";
 
 const pipeLauncher = resolve(import.meta.dirname, "bash-compat-pipe.py");
 export const bashStdoutTransport =
@@ -16,7 +17,7 @@ export function createShellRunner({ scratch, timeoutMs, activeChildren = new Map
     const directory = await mkdtemp(resolve(scratch, "bash-"));
     const tmp = resolve(directory, "tmp");
     const home = resolve(directory, "home");
-    let kill = () => {};
+    let ownership;
     try {
       await mkdir(tmp);
       await mkdir(home);
@@ -68,18 +69,22 @@ export function createShellRunner({ scratch, timeoutMs, activeChildren = new Map
           detached: true,
         },
       );
-      kill = () => {
+      const kill = () => killGroup(child.pid, "SIGKILL");
+      ownership = (async () => {
         try {
-          process.kill(-child.pid, "SIGKILL");
-        } catch {}
-      };
-      const running = collectShell(child, kill, tmp, home, timeoutMs, realPipe);
-      activeChildren.set(kill, running);
-      return await running;
+          return await collectShell(child, kill, tmp, home, timeoutMs, realPipe);
+        } finally {
+          kill();
+          await drainGroup(child.pid);
+          await rm(directory, { recursive: true, force: true });
+          activeChildren.delete(kill);
+        }
+      })();
+      // Teardown callers await the whole lifetime, including the termination barrier.
+      activeChildren.set(kill, ownership);
+      return await ownership;
     } finally {
-      kill();
-      activeChildren.delete(kill);
-      await rm(directory, { recursive: true, force: true });
+      if (!ownership) await rm(directory, { recursive: true, force: true });
     }
   };
 }

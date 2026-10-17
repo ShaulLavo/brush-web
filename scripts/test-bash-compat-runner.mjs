@@ -250,3 +250,60 @@ test("Bash capture uses real stdout pipe without changing shell input or status"
   }
   assert.deepEqual(leaked, [], "task-created supervisors or sandboxes survived teardown");
 });
+
+test("capture teardown retains scratch and ownership until its process group stops", async (t) => {
+  const scratch = await mkdtemp(resolve(root, "audit-runner-barrier-"));
+  const activeChildren = new Map();
+  const signal = process.kill;
+  const groups = new Set();
+  let pending;
+  // Model delayed signal delivery without leaving a real consumer unowned. The
+  // test releases only its recorded groups, and always restores the global hook.
+  const release = () => {
+    process.kill = signal;
+    for (const pid of groups) {
+      try {
+        signal(pid, "SIGKILL");
+      } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+      }
+    }
+  };
+  t.after(async () => {
+    release();
+    for (const kill of activeChildren.keys()) kill();
+    await pending?.catch(() => {});
+    await Promise.allSettled(activeChildren.values());
+    await rm(scratch, { recursive: true, force: true });
+  });
+  process.kill = (pid, kind) => {
+    if (pid < 0 && kind === "SIGKILL") {
+      groups.add(pid);
+      return true;
+    }
+    return signal(pid, kind);
+  };
+  const run = createShellRunner({ scratch, timeoutMs: 5000, activeChildren });
+  pending = run(
+    "/usr/bin/bash",
+    'sleep 30 >/dev/null 2>&1 & printf "%s" "$!" > "$TMP/live"; printf done',
+    "/usr/bin:/bin",
+    false,
+    "socket",
+  );
+  let directory;
+  const deadline = Date.now() + 5000;
+  while (!groups.size) {
+    assert.ok(Date.now() < deadline, "capture did not reach owned-group teardown");
+    directory = (await readdir(scratch)).find((name) => name.startsWith("bash-"));
+    await delay(5);
+  }
+  await delay(50);
+  assert.equal(activeChildren.size, 1, "capture dropped ownership before its consumer stopped");
+  assert.ok(directory, "capture scratch was not created");
+  assert.match(await readFile(resolve(scratch, directory, "tmp/live"), "utf8"), /^\d+$/);
+  release();
+  assert.equal((await pending).stdout.toString(), "done");
+  assert.equal(activeChildren.size, 0);
+  assert.deepEqual(await readdir(scratch), []);
+});
