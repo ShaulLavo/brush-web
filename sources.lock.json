@@ -300,6 +300,17 @@
         "classification": "Original shared parameter-boundary correction in the owned Bashkit-derived parser, observed against GNU Bash 5.3.15; no upstream implementation copied.",
         "change": "Keep backtick bodies opaque to surrounding parameter quote and brace matching. Expose process-substitution boundaries from the shared parameter scanner so the lexer, syntax validator and operand extractor skip the same quote, heredoc and fused spans. Retain child parser fuel in the parent and preserve typed resource errors when producing printed process-substitution operands. Expose captured-body validation with substitution heredoc grammar, reject empty case patterns, and retain EOF token state when an unterminated process body is classified. Preserve fused process tails and normalize printed heredoc delimiter continuations. Following-word controls inspect the final simple command inside a retained command list. Existing upstream assertions remain intact.",
         "reason": "The substitution generator exposed backtick body braces and quotes closing lazy defaults, heredoc delimiter quotes escaping the process body during lexing, and nested process bodies receiving inconsistent boundary handling. All callers now use the same scanner without matching script text or exempting Bash failure statuses."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/subst_scan.rs",
+          "shell/engine/tests/words/command.rs"
+        ],
+        "classification": "Original boundary corrections in the owned parser. GNU Bash 5.3 subst.c was read to confirm arithmetic classification semantics and all controls use Bash 5.3.15; no upstream implementation copied.",
+        "change": "Apply raw arithmetic parenthesis checks after filtering comments with the existing structural command scanner, retaining backtick and case-pattern parentheses. Reject arithmetic-command openers after words that aliases cannot remove, while preserving unresolved unquoted alias chains. Recognize locale-quoted segments when a word continues after a closing quote. Add engine controls for arithmetic containing command comments and selected operands with protected dollars.",
+        "reason": "The brace generator exposed comment parentheses changing arithmetic classification, quoted dollar boundaries changing selected operand meaning, and protected arithmetic lookalikes being accepted as a later command. The fixes preserve the full generator matrices and strict Bash failure-status comparison."
       }
     ],
     "removedUpstreamTests": [
