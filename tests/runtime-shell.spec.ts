@@ -273,13 +273,13 @@ test("a background Bun server streams while the next command can kill and wait f
   await expect.poll(() => page.workers().length).toBe(baseline);
 });
 
-test("a background shell loop kills and waits for members added after its first Bun exits", async ({
+test("a background shell group kills and waits for sequential members after its first Bun exits", async ({
   page,
 }) => {
   const baseline = await open(page);
   await command(
     page,
-    `{ for member in first later; do if [ "$member" = first ]; then bun -e 'console.log("FIRST_MEMBER")'; else bun -e 'console.log("LATER_MEMBER");setInterval(()=>{},250)'; fi; done; echo BAD_AFTER_JOB_KILL; } &`,
+    `{ bun -e 'console.log("FIRST_MEMBER")'; bun -e 'console.log("LATER_MEMBER");setInterval(()=>{},250)'; echo BAD_AFTER_JOB_KILL; } &`,
   );
   await output(page, "FIRST_MEMBER", true);
   await output(page, "LATER_MEMBER", true);

@@ -161,6 +161,12 @@ per direct child and retains every job ID under the logical shell group. Group
 kill closes admission before signaling every job; group wait confirms and reaps
 all jobs, including descendants and members admitted while an earlier wait was
 pending. Background groups remain separate from each other and the foreground.
+The browser acceptance uses a supported background brace sequence: a short Bun
+exits, a later persistent Bun starts, then `kill %1; wait %1` confirms cleanup
+without executing the following command. The original fixture used unsupported
+`for`/`if` syntax from the parked control-flow climb; restore that additional
+loop-form acceptance there,
+without treating this sequential-members gate as loop-compatibility evidence.
 This fanout is not the final runtime job model. After slot recycling, add an
 explicit creator hold that keeps a job open across temporarily empty membership:
 job-empty/wait-job becomes true only after release and no remaining members,

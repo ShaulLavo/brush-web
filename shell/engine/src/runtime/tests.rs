@@ -574,6 +574,71 @@ fn external_after_builtin_pipeline_starts_a_fresh_runtime_job() {
 }
 
 #[test]
+fn background_brace_sequence_kill_and_wait_cover_later_runtime_members() {
+    let (executor, fake, runtime) = setup();
+    let session = Session::new(
+        executor.clone(),
+        Rc::new(runtime.clone()),
+        Rc::new(runtime.clone()),
+        Limits::default(),
+    );
+    session.set_descriptors(runtime.stdio().unwrap()).unwrap();
+    let job = session
+        .start("{ emit; sleep; echo BAD_AFTER_JOB_KILL; } &")
+        .unwrap();
+    assert_eq!(finish(&executor, &runtime, job), 0);
+    for _ in 0..100 {
+        executor.drive(64);
+        if fake.requests.borrow().len() == 2 {
+            break;
+        }
+        runtime.poll(0).unwrap();
+    }
+    assert_eq!(
+        fake.requests.borrow().len(),
+        2,
+        "later member must really spawn"
+    );
+    assert!(
+        fake.requests
+            .borrow()
+            .iter()
+            .all(|request| request.job == -1)
+    );
+    assert_eq!(
+        fake.children
+            .borrow()
+            .values()
+            .map(|child| child.status.get())
+            .collect::<Vec<_>>(),
+        vec![Some(0), None],
+        "first member exited before persistent later member started"
+    );
+    let job = session
+        .start("kill %1; wait %1; echo MEMBERS_REAPED")
+        .unwrap();
+    assert_eq!(finish(&executor, &runtime, job), 0);
+    let mut expected = b"runtime bytes\n".repeat(64);
+    expected.extend_from_slice(b"MEMBERS_REAPED\n");
+    assert_eq!(
+        fake.output.bytes(),
+        expected,
+        "no command after the killed member runs"
+    );
+    assert_eq!(session.background_jobs(), 0);
+    assert_eq!(runtime.retained_count(), 0);
+    assert!(runtime.0.groups.borrow().is_empty());
+    assert_eq!(fake.reaped_jobs.borrow().len(), 2);
+    assert_eq!(fake.signals.borrow().len(), 2);
+    finish(
+        &executor,
+        &runtime,
+        executor.spawn(async move { session.shutdown().await }),
+    );
+    assert!(fake.fds.borrow().keys().all(|fd| *fd < 3));
+}
+
+#[test]
 fn group_wait_includes_later_children_and_every_descendant_confirmation() {
     let (executor, fake, runtime) = setup();
     let group = runtime.allocate_group();
