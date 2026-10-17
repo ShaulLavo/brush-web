@@ -600,7 +600,7 @@ fn strict_separator_policy_reaches_nested_shell_bodies() {
     for source in [
         "echo $( (missing)+(2) )",
         "echo $( (echo x) echo y )",
-        "echo <((missing)+(2))",
+        "echo <( (missing)+(2) )",
     ] {
         assert!(Parser::new(source).parse().is_ok(), "{source}");
         assert!(
@@ -611,7 +611,12 @@ fn strict_separator_policy_reaches_nested_shell_bodies() {
             "{source}"
         );
     }
-    for source in ["echo $( (echo x); echo y )", "echo <((echo x); echo y)"] {
+    // A fused `<((` span is raw text until it expands, as `$((` is in bash.
+    for source in [
+        "echo $( (echo x); echo y )",
+        "echo <((echo x); echo y)",
+        "echo <((missing)+(2))",
+    ] {
         assert!(
             Parser::new(source)
                 .with_strict_command_separators()
@@ -1317,5 +1322,48 @@ fn resolved_substitution_kind_controls_the_ast_without_rewriting_source() {
         let word = argument(&format!("args {source} suffix"));
         assert!(word.parts.iter().any(|part| matches!(part, WordPart::ArithmeticExpansion(expression) if expression == "1 << 2")), "{source}: {word:?}");
         assert_eq!(word.raw.as_deref(), Some(source));
+    }
+}
+
+#[test]
+fn substitution_end_of_input_and_heredoc_boundaries_follow_bash() {
+    let strict = |source: &str| {
+        Parser::new(source)
+            .with_strict_substitution_bodies()
+            .parse()
+    };
+    // A redirection with no target before the end of input is bash's token
+    // error (127); an operator that waits for more input is the EOF error (2).
+    for source in [
+        "echo $(echo <",
+        "echo $(echo >",
+        "echo $(echo <<",
+        "echo <(echo <",
+    ] {
+        assert!(
+            matches!(strict(source), Err(Error::ShellWord { .. })),
+            "{source}"
+        );
+    }
+    for source in ["echo $(echo |", "echo $(if true", "echo $( (x)"] {
+        assert!(
+            matches!(strict(source), Err(Error::Parse { .. })),
+            "{source}"
+        );
+    }
+    assert!(matches!(
+        strict("echo <(echo <)"),
+        Err(Error::ShellWord { .. })
+    ));
+    // Fused `<((` text is not parsed before it expands; here-documents may end
+    // at `delimiter)` and their delimiter may spell a `$(...)` word.
+    for source in [
+        "echo <((if true; then : fi))",
+        "echo $(cat <<E\nx\nE)",
+        "echo $(cat <<-E\n\tx\n\tE)",
+        "echo $(cat <<'E'\nx\nE)",
+        "echo $(cat <<$(echo E)\nx\n$(echo E)\n)",
+    ] {
+        strict(source).unwrap_or_else(|error| panic!("{source:?}: {error}"));
     }
 }

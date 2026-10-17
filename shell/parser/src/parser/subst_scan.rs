@@ -89,6 +89,8 @@ enum Mode {
         word: String,
         started: bool,
         quote: Option<char>,
+        /// Open parentheses of a `$(` inside the delimiter word.
+        parens: usize,
     },
     /// Inside heredoc bodies; `line` accumulates the current line.
     Body {
@@ -219,6 +221,18 @@ impl SubstScanner {
                 Step::Body
             }
             Mode::Body { mut line } => {
+                if c == ')' && self.delimiter_line(&line) {
+                    // Bash, in a command substitution: a line that is the
+                    // delimiter followed by the closing `)` ends the
+                    // here-document ("delimited by end-of-file") and the `)`
+                    // is read again as code.
+                    self.code
+                        .last_mut()
+                        .expect("code state")
+                        .pending_heredocs
+                        .pop_front();
+                    return self.feed_normal(c);
+                }
                 if c != '\n' {
                     line.push(c);
                     self.mode = Mode::Body { line };
@@ -255,7 +269,27 @@ impl SubstScanner {
                 mut word,
                 started,
                 quote,
+                mut parens,
             } => {
+                // A `$(...)` in the delimiter is part of its word (bash reads
+                // the word with its substitutions; the body line matches the
+                // literal text).
+                if quote.is_none() && (parens > 0 || (c == '(' && word.ends_with('$'))) {
+                    word.push(c);
+                    match c {
+                        '(' => parens += 1,
+                        ')' => parens -= 1,
+                        _ => {}
+                    }
+                    self.mode = Mode::Delimiter {
+                        strip_tabs,
+                        word,
+                        started: true,
+                        quote,
+                        parens,
+                    };
+                    return Step::Body;
+                }
                 if let Some(q) = quote {
                     if c != q {
                         word.push(c);
@@ -266,6 +300,7 @@ impl SubstScanner {
                         word,
                         started: true,
                         quote,
+                        parens: 0,
                     };
                     return Step::Body;
                 }
@@ -275,6 +310,7 @@ impl SubstScanner {
                         word,
                         started: false,
                         quote: None,
+                        parens: 0,
                     };
                     return Step::Body;
                 }
@@ -284,6 +320,7 @@ impl SubstScanner {
                         word,
                         started,
                         quote: None,
+                        parens: 0,
                     };
                     return Step::Body;
                 }
@@ -309,6 +346,7 @@ impl SubstScanner {
                         word,
                         started: true,
                         quote: Some(c),
+                        parens: 0,
                     };
                     return Step::Body;
                 }
@@ -320,11 +358,24 @@ impl SubstScanner {
                     word,
                     started: true,
                     quote: None,
+                    parens: 0,
                 };
                 Step::Body
             }
             Mode::Normal => self.feed_normal(c),
         }
+    }
+
+    fn delimiter_line(&self, line: &str) -> bool {
+        let Some(doc) = self.code.last().and_then(|st| st.pending_heredocs.front()) else {
+            return false;
+        };
+        let candidate = if doc.strip_tabs {
+            line.trim_start_matches('\t')
+        } else {
+            line
+        };
+        candidate == doc.delimiter
     }
 
     fn on_newline(&mut self) {
@@ -643,6 +694,7 @@ impl SubstScanner {
                 word: String::new(),
                 started: false,
                 quote: None,
+                parens: 0,
             };
             return self.feed_inner(c);
         }

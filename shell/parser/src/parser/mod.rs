@@ -670,21 +670,7 @@ impl<'a> Parser<'a> {
             return Err(self.limit_error(limit));
         }
         if let Some(tokens::Token::Error(msg)) = &self.current_token {
-            // Bash has parsed the substitutions this token closed before it
-            // reached the end of input.
-            for body in self.lexer.token_substitutions() {
-                self.classify_substitution_text(body, true)?;
-            }
-            if msg == "unterminated command substitution"
-                && let Some(span) = self.lexer.unterminated_substitution()
-            {
-                for body in &span.closed {
-                    self.classify_substitution_text(body, true)?;
-                }
-                if let Some(body) = &span.open {
-                    self.classify_substitution_text(body, false)?;
-                }
-            }
+            self.classify_unterminated_token(msg == "unterminated command substitution")?;
             // bash: `unexpected EOF while looking for matching `"'`.
             let close = match msg.as_str() {
                 "unterminated double quote" => Some('"'),
@@ -703,6 +689,24 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// Before an end-of-input error: bash has parsed the substitutions this
+    /// token closed, then (for an unterminated `$(`/`<(` span) its open body.
+    #[inline(never)]
+    fn classify_unterminated_token(&self, substitution: bool) -> Result<()> {
+        for body in self.lexer.token_substitutions() {
+            self.classify_substitution_text(body, true)?;
+        }
+        if substitution && let Some(span) = self.lexer.unterminated_substitution() {
+            for body in &span.closed {
+                self.classify_substitution_text(body, true)?;
+            }
+            if let Some(body) = &span.open {
+                self.classify_substitution_text(body, false)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Bash parses the command text of an unterminated span before it sees
     /// the end of input. Any error in a body closed inside it, or stopping
     /// at an unexpected token in the open body, is a command-substitution
@@ -710,6 +714,15 @@ impl<'a> Parser<'a> {
     /// the plain EOF error (status 2).
     #[inline(never)]
     fn classify_substitution_text(&self, body: &str, closed: bool) -> Result<()> {
+        // Bash's reader ends the open text with a newline before the end of
+        // input: `$(echo <` is a token error (127), `$(echo |` waits (2).
+        let text;
+        let body = if closed {
+            body
+        } else {
+            text = format!("{body}\n");
+            text.as_str()
+        };
         let mut parser = self.nested_parser(body)?;
         let result = parser.parse_inner();
         self.fuel.set(self.fuel.get().min(parser.fuel.get()));
@@ -4315,7 +4328,15 @@ impl<'a> Parser<'a> {
                 // Find the end the way `$(...)` does (quote/case/heredoc
                 // aware, see subst_scan), so `<(case a in a) ...;; esac)`
                 // does not stop at the pattern's `)`.
-                let scanned = self.peeked_token.is_none() && self.lexer.skip_subst_body();
+                let direct = self.peeked_token.is_none();
+                let scanned = direct && self.lexer.skip_subst_body();
+                if direct && !scanned {
+                    // Same end-of-input rules as an unterminated `$(`.
+                    self.classify_unterminated_token(true)?;
+                    return Err(self.error("unexpected EOF while looking for matching `)'"));
+                }
+                // A fused `<((` span is raw text until it expands (bash).
+                let fused = scanned && self.lexer.last_substitution_fused();
                 if scanned {
                     // The closing `)` is one byte, just consumed.
                     body_end_offset = self.lexer.position().offset.saturating_sub(1);
@@ -4415,6 +4436,7 @@ impl<'a> Parser<'a> {
                 let commands = match parse_result {
                     Ok(commands) => commands,
                     Err(err @ Error::ResourceLimit(_)) => return Err(err),
+                    Err(_) if fused => Vec::new(),
                     // Bash parses the body with the script and exits 127.
                     Err(_) if self.strict_substitution_bodies => {
                         return Err(Error::ShellWord { line: start_line });

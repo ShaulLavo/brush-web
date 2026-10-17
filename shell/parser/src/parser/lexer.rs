@@ -123,6 +123,8 @@ pub struct Lexer<'a> {
     /// Command text of the last `$(`/`<(` span that reached end of input,
     /// which bash parses before it notices the end of input.
     unterminated_substitution: Option<UnterminatedSubstitution>,
+    /// The last closed substitution span opened as `$((`/`<((`.
+    last_substitution_fused: bool,
     /// Substitution bodies closed so far in the current token. Bash parses
     /// each as it reads it, so they come before a later end-of-input error.
     token_substitutions: Vec<String>,
@@ -168,6 +170,7 @@ impl<'a> Lexer<'a> {
             boundary_scan_work: 0,
             unterminated_substitution: None,
             token_substitutions: Vec::new(),
+            last_substitution_fused: false,
         }
     }
 
@@ -177,6 +180,10 @@ impl<'a> Lexer<'a> {
 
     pub(crate) fn unterminated_substitution(&self) -> Option<&UnterminatedSubstitution> {
         self.unterminated_substitution.as_ref()
+    }
+
+    pub(crate) fn last_substitution_fused(&self) -> bool {
+        self.last_substitution_fused
     }
 
     /// Bodies of the substitutions the last token closed, in source order.
@@ -2337,6 +2344,7 @@ impl<'a> Lexer<'a> {
                     Some(out) => &out[start..out.len() - 1],
                     None => &skipped[..skipped.len() - 1],
                 };
+                self.last_substitution_fused = scanner.arithmetic_start().is_some();
                 // A fused span is raw text; bash parses only its nested bodies.
                 match scanner.arithmetic_start() {
                     Some(_) => self.token_substitutions.extend(
