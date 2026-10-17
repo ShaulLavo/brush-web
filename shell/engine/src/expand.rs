@@ -990,7 +990,7 @@ impl Expansion<'_> {
     }
     /// Brace extraction parses process-substitution lookalikes before lazy
     /// selection. Nested command/arithmetic substitutions stay opaque here.
-    async fn slice_boundaries(&mut self, source: &str) -> Result<(), Error> {
+    async fn slice_boundaries(&mut self, source: &str, raw_fused: bool) -> Result<(), Error> {
         // Ordinary operands already have a cooperative scanner. Avoid a
         // second charged pass when no shell boundary can be present.
         if !source.contains(['<', '>']) {
@@ -1025,7 +1025,7 @@ impl Expansion<'_> {
             }
             let begin = index + 2;
             let (mut end, fused) = self.slice_body_end(source, begin, false).await?;
-            if c != '$' {
+            if c != '$' && !(raw_fused && fused) {
                 // Bash reads a process substitution here by parsing commands
                 // up to their closing `)` (`xparse_dolparen`), so a fused
                 // `<((` span ends where command grammar ends it.
@@ -1102,9 +1102,9 @@ impl Expansion<'_> {
             return Err(2.into());
         }
         self.work.checkpoint(self.cancel).await?;
-        self.slice_boundaries(offset).await?;
+        self.slice_boundaries(offset, false).await?;
         if let Some(length) = length {
-            self.slice_boundaries(length).await?;
+            self.slice_boundaries(length, false).await?;
         }
         // Resolve the source before arithmetic side effects. An unset scalar
         // skips both expressions; an out-of-range start skips the length.
@@ -1253,7 +1253,7 @@ impl Expansion<'_> {
         depth: usize,
         error_pointer: Option<&str>,
     ) -> Result<(), Error> {
-        self.slice_boundaries(operand).await?;
+        self.slice_boundaries(operand, true).await?;
         if error_pointer.is_none() && !operand::scalar_name(name) || depth >= operand::MAX_DEPTH {
             return Err(2.into());
         }

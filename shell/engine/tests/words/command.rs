@@ -152,6 +152,22 @@ fn operands_and_arithmetic_run_substitutions_lazily() {
 }
 
 #[test]
+fn backtick_bodies_do_not_close_surrounding_parameter_operands() {
+    check(
+        r#"v=set; unset u; args "${v:-`f() { :; }; f`}" "${u:-`f() { :; }; f`}" "${v:-`'open`}" "${u:-`\"open`}" "${v:-`$(open`}""#,
+        &[&["set", "", "set", "", "set"]],
+    );
+}
+
+#[test]
+fn fused_process_text_in_quoted_defaults_keeps_raw_heredoc_boundaries() {
+    check(
+        "v=set; unset u; args \"${v:-<((: <<EOF\nbody\nEOF))}\" \"${u:-<((: <<EOF\nbody\nEOF))}\"",
+        &[&["set", "<((: <<EOF\nbody\nEOF))"]],
+    );
+}
+
+#[test]
 fn unparsed_and_backtick_syntax_errors_fail_only_the_substitution() {
     let rig = Rig::new(Limits::default());
     assert_eq!(

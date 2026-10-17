@@ -5684,17 +5684,7 @@ impl<'a> Parser<'a> {
             self.max_depth,
         );
         let mut out = String::new();
-        // Bash parses an unquoted `<(`/`>(` in a `${...}` operand at parse
-        // time and keeps its printed form (`parse_comsub`, `print_comsub`).
-        let mut angle = false;
         while let Some(&ch) = chars.peek() {
-            if angle && ch == '(' && scanner.unquoted() {
-                angle = false;
-                out.extend(chars.next());
-                self.copy_process_substitution(chars, &mut out);
-                continue;
-            }
-            angle = matches!(ch, '<' | '>') && !angle && scanner.unquoted();
             let mut lookahead = chars.clone();
             lookahead.next();
             match scanner.feed(ch, lookahead.peek().copied()) {
@@ -5718,6 +5708,10 @@ impl<'a> Parser<'a> {
                         Step::Command => {
                             out.extend(chars.next());
                             self.copy_replace_substitution(chars, &mut out);
+                        }
+                        Step::Process => {
+                            out.extend(chars.next());
+                            self.copy_process_substitution(chars, &mut out);
                         }
                         _ => {}
                     }

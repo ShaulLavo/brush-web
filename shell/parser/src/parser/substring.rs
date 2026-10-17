@@ -35,21 +35,9 @@ impl Parser<'_> {
             pattern,
             self.max_depth.saturating_sub(self.current_depth),
         );
-        let mut angle = false;
         while let Some(c) = chars.next() {
             self.tick()?;
             if chars.literal() {
-                angle = false;
-                continue;
-            }
-            angle = matches!(c, '<' | '>') && !angle;
-            // Bash parses `<(`/`>(` bodies in every `${...}` operand
-            // (`parse_matched_pair`, P_DOLBRACE with LEX_GTLT), outside quotes.
-            if angle && scanner.unquoted() && chars.peek() == Some(&'(') {
-                let slice = scanner.substring_unquoted();
-                chars.next();
-                self.read_parameter_command(&mut chars, bodies, slice)?;
-                angle = false;
                 continue;
             }
             if self.parameter_boundary_step(&mut scanner, &mut chars, c, bodies)? {
@@ -66,6 +54,7 @@ impl Parser<'_> {
         c: char,
         bodies: &mut Vec<String>,
     ) -> Result<bool> {
+        let slice = scanner.substring_unquoted();
         match scanner.feed(c, chars.peek().copied()) {
             Step::Closed => Ok(true),
             Step::Escape | Step::Open => {
@@ -75,6 +64,11 @@ impl Parser<'_> {
             Step::Command => {
                 chars.next();
                 self.read_parameter_command(chars, bodies, false)?;
+                Ok(false)
+            }
+            Step::Process => {
+                chars.next();
+                self.read_parameter_command(chars, bodies, slice)?;
                 Ok(false)
             }
             Step::Limit => Err(self.limit_error(LimitExceeded::ParameterBoundaryDepth)),

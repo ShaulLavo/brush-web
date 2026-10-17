@@ -1812,7 +1812,7 @@ impl<'a> Lexer<'a> {
             match scanner.feed(c, next) {
                 Step::Copy => {}
                 Step::Escape | Step::Open => word.extend(self.advance()),
-                Step::Command => {
+                Step::Command | Step::Process => {
                     word.extend(self.advance());
                     if !self.read_command_subst_body(word) {
                         return Err("unterminated command substitution".to_string());

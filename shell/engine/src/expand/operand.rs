@@ -306,6 +306,7 @@ impl<'a> Scanner<'a> {
                     self.take().ok_or(2)?;
                 }
                 Step::Command => self.skip_command(start, work, cancel).await?,
+                Step::Process => self.skip_body(start, false, work, cancel).await?,
                 Step::Closed => return Ok(()),
                 Step::Limit | Step::Delimiter => return Err(2.into()),
             }
