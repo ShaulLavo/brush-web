@@ -1617,6 +1617,8 @@ impl<'a> Lexer<'a> {
                         }
                         Self::push_literal_with_escaped_dollar(content, &segment);
                         flags.quoted_ranges.push((start, content.len()));
+                    } else if self.peek_char() == Some('"') {
+                        // The next iteration reads the locale-quoted segment.
                     } else {
                         flags.has_unquoted_expansion = true;
                         content.push('$');

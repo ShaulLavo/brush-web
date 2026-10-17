@@ -4,6 +4,7 @@ use super::{Error, Work};
 use crate::executor::Cancel;
 use shell_parser::parser::parameter_scan::{ParameterScan, Step};
 use shell_parser::parser::{ParameterOp, Parser, WordPart};
+use std::borrow::Cow;
 
 // Keep scalar expansion/parser recursion below the native test-thread stack
 // limit. The parser's general hard cap is intentionally higher for scripts,
@@ -213,6 +214,14 @@ impl<'a> Scanner<'a> {
         work: &mut Work,
         cancel: &Cancel,
     ) -> Result<Piece<'a>, Error> {
+        let joined = self.outer_quoted
+            && !self.literal_single
+            && self.quote == Quote::Double
+            && self.peek() == Some('"');
+        if joined {
+            self.take();
+            self.quote = Quote::None;
+        }
         match self.peek() {
             Some('\'') if self.literal_single || self.quote == Quote::Double => {
                 return Ok(self.text("$", self.protected()));
@@ -227,7 +236,8 @@ impl<'a> Scanner<'a> {
             }
             Some('(') => {
                 self.skip_command(start, work, cancel).await?;
-                let part = substitution(&self.source[start..self.cursor], work, cancel).await?;
+                let token = self.token(start, joined, work, cancel).await?;
+                let part = substitution(&token, work, cancel).await?;
                 return Ok(Piece::Expansion {
                     part,
                     protected: self.protected(),
@@ -243,7 +253,8 @@ impl<'a> Scanner<'a> {
             Some('\'' | '"' | '@' | '*' | '!' | '$' | '-') => return Err(2.into()),
             _ => return Ok(self.text("$", self.protected())),
         }
-        let token = &self.source[start..self.cursor];
+        let token = self.token(start, joined, work, cancel).await?;
+        let token = token.as_ref();
         if self.case_positionals && matches!(token, "${@}" | "${*}") {
             return Ok(Piece::Positional {
                 at: token == "${@}",
@@ -287,6 +298,34 @@ impl<'a> Scanner<'a> {
             part,
             protected: self.protected(),
         })
+    }
+
+    async fn token(
+        &self,
+        start: usize,
+        joined: bool,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<Cow<'a, str>, Error> {
+        if !joined {
+            return Ok(Cow::Borrowed(&self.source[start..self.cursor]));
+        }
+        let tail = &self.source[start + 2..self.cursor];
+        let bytes = tail.len().checked_add(1).ok_or(2)?;
+        if bytes > MAX_TOKEN_BYTES {
+            return Err(2.into());
+        }
+        work.admit_storage(bytes)?;
+        for _ in 0..bytes {
+            work.checkpoint(cancel).await?;
+        }
+        let mut token = String::new();
+        token
+            .try_reserve_exact(bytes)
+            .map_err(|_| Error::Status(2))?;
+        token.push('$');
+        token.push_str(tail);
+        Ok(Cow::Owned(token))
     }
     async fn identifier(&mut self, work: &mut Work, cancel: &Cancel) -> Result<(), Error> {
         while self

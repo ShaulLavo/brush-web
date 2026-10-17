@@ -3927,8 +3927,14 @@ impl<'a> Parser<'a> {
             }
             // `echo a(b)`, `foo $x() {`: a `(` after a command word is a
             // syntax error in bash, not the start of a subshell.
-            Some(tokens::Token::LeftParen | tokens::Token::DoubleLeftParen)
-                if !parts.words.is_empty() =>
+            Some(tokens::Token::LeftParen) if !parts.words.is_empty() => {
+                return Err(self.error("unexpected token"));
+            }
+            Some(tokens::Token::DoubleLeftParen)
+                if parts.words.len() > 1
+                    || !parts.assignments.is_empty()
+                    || self.strict_command_separators
+                    || self.strict_substitution_bodies =>
             {
                 return Err(self.error("unexpected token"));
             }

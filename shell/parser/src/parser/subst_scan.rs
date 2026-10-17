@@ -930,7 +930,10 @@ pub(crate) fn arithmetic_expression(body: &str, start: usize) -> Option<&str> {
 /// Bash `chk_arithsub`: raw parentheses balance outside quotes and escapes.
 fn balanced_arithmetic(text: &str) -> bool {
     let mut depth = 0usize;
-    let mut chars = text.chars().peekable();
+    let mut chars = ArithmeticText {
+        source: text.chars(),
+        scanner: SubstScanner::with_frame(Frame::Arithmetic),
+    };
     while let Some(c) = chars.next() {
         match c {
             '(' => depth += 1,
@@ -941,8 +944,6 @@ fn balanced_arithmetic(text: &str) -> bool {
             '\\' => {
                 chars.next();
             }
-            '$' if chars.peek() == Some(&'(') => skip_arithmetic_command(&mut chars),
-            '`' => skip_arithmetic_backtick(&mut chars),
             '\'' => {
                 if !chars.by_ref().any(|c| c == '\'') {
                     break;
@@ -965,23 +966,23 @@ fn balanced_arithmetic(text: &str) -> bool {
     depth == 0
 }
 
-fn skip_arithmetic_command(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
-    chars.next();
-    let mut scanner = SubstScanner::new();
-    for c in chars.by_ref() {
-        if scanner.feed(c) == Step::Close {
-            return;
-        }
-    }
+struct ArithmeticText<'a> {
+    source: std::str::Chars<'a>,
+    scanner: SubstScanner,
 }
 
-fn skip_arithmetic_backtick(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) {
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            chars.next();
-        } else if c == '`' {
-            return;
+impl Iterator for ArithmeticText<'_> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<char> {
+        for c in self.source.by_ref() {
+            let comment = matches!(self.scanner.mode, Mode::Comment);
+            self.scanner.feed(c);
+            if !comment {
+                return Some(c);
+            }
         }
+        None
     }
 }
 
