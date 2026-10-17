@@ -57,6 +57,10 @@ struct CodeState {
     /// The next word starts a command.
     cmd_pos: bool,
     cases: Vec<CaseCtx>,
+    /// Operators and heredocs belong to this scope, not nested substitutions.
+    lt_run: usize,
+    arith_at: Option<usize>,
+    pending_heredocs: std::collections::VecDeque<Heredoc>,
 }
 
 /// Longest keyword we need to recognise (`case`, `esac`).
@@ -72,7 +76,9 @@ struct Heredoc {
 enum Mode {
     Normal,
     /// After a backslash: the next char is literal.
-    Escape,
+    Escape {
+        previous: Option<char>,
+    },
     /// A continuation after `$(` must not hide an arithmetic second `(`.
     SubstitutionEscape,
     /// `#` comment, until newline.
@@ -97,6 +103,19 @@ pub enum Step {
     Body,
     /// Char is the closing `)`; it is not part of the body.
     Close,
+    /// Ambiguous-source replay exhausted its independent work ceiling.
+    Limit,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Replay {
+    Source(usize),
+    /// Drop at most one suspended frame per work item before restarting code.
+    Unwind {
+        stack: usize,
+        code: usize,
+        start: usize,
+    },
 }
 
 /// Incremental scanner for a `$(...)` body. Create it after consuming `$(`.
@@ -110,12 +129,14 @@ pub struct SubstScanner {
     code: Vec<CodeState>,
     mode: Mode,
     prev: Option<char>,
-    /// `<` chars seen in a row in code context.
-    lt_run: usize,
-    pending_heredocs: Vec<Heredoc>,
-    /// Paren depth at which an arithmetic `((` started in the top code frame;
-    /// `<<` inside it is a shift, not a heredoc.
-    arith_at: Option<usize>,
+    /// One source buffer shared by all tentative arithmetic frames.
+    history: String,
+    replay: Option<Replay>,
+    tentative: Vec<(usize, usize, usize)>,
+    command_openers: std::collections::BTreeSet<usize>,
+    input_finished: bool,
+    offset: usize,
+    replay_work: usize,
 }
 
 impl Default for SubstScanner {
@@ -144,15 +165,169 @@ impl SubstScanner {
             }],
             mode: Mode::Normal,
             prev: None,
-            lt_run: 0,
-            pending_heredocs: Vec::new(),
-            arith_at: None,
+            history: String::new(),
+            replay: None,
+            tentative: Vec::new(),
+            command_openers: std::collections::BTreeSet::new(),
+            input_finished: false,
+            offset: 0,
+            replay_work: 0,
         }
     }
 
+    /// Feed fresh source only after all pending work has been resumed.
     pub fn feed(&mut self, c: char) -> Step {
+        assert!(
+            !self.input_finished && !self.has_pending(),
+            "resume pending substitution work first"
+        );
+        self.history.push(c);
+        self.offset = self.history.len();
+        self.process(c)
+    }
+
+    pub fn has_pending(&self) -> bool {
+        self.replay.is_some()
+    }
+
+    /// Mark source EOF. Tentative arithmetic may have hidden a valid command
+    /// boundary inside a comment or heredoc; schedule its command interpretation.
+    pub fn finish(&mut self) -> Step {
+        assert!(
+            !self.has_pending(),
+            "resume before finishing substitution source"
+        );
+        self.input_finished = true;
+        self.schedule_eof_fallback();
+        Step::Body
+    }
+
+    /// `None` denotes one bounded frame-unwind item, not a source character.
+    pub fn pending_char(&self) -> Option<char> {
+        match self.replay? {
+            Replay::Source(cursor) => self.history[cursor..].chars().next(),
+            Replay::Unwind { .. } => None,
+        }
+    }
+
+    /// Process at most one buffered character or one frame-unwind item.
+    /// Callers charge/checkpoint every call. No input-length loop is hidden.
+    pub fn resume(&mut self) -> Step {
+        const MAX_REPLAY_WORK: usize = 1_048_576;
+        self.replay_work = self.replay_work.saturating_add(1);
+        if self.replay_work > MAX_REPLAY_WORK {
+            self.replay = None;
+            return Step::Limit;
+        }
+        match self.replay.take().expect("pending substitution replay") {
+            Replay::Unwind { stack, code, start } => {
+                if self.stack.len() > stack + 1 {
+                    if matches!(
+                        self.top(),
+                        Frame::Code | Frame::Substitution | Frame::Arithmetic
+                    ) && !self
+                        .code
+                        .last_mut()
+                        .expect("suspended code")
+                        .pending_heredocs
+                        .is_empty()
+                    {
+                        self.code
+                            .last_mut()
+                            .expect("suspended code")
+                            .pending_heredocs
+                            .pop_back();
+                        self.replay = Some(Replay::Unwind { stack, code, start });
+                        return Step::Body;
+                    }
+                    let frame = self.stack.pop().expect("suspended frame");
+                    if matches!(frame, Frame::Code | Frame::Substitution | Frame::Arithmetic) {
+                        if frame == Frame::Arithmetic {
+                            self.tentative.pop();
+                        }
+                        self.code.pop();
+                        self.parens.pop();
+                    }
+                    self.replay = Some(Replay::Unwind { stack, code, start });
+                } else {
+                    debug_assert_eq!(self.code.len(), code + 1);
+                    self.stack[stack] = Frame::Code;
+                    self.parens[code] = 0;
+                    self.code[code] = CodeState {
+                        cmd_pos: true,
+                        ..CodeState::default()
+                    };
+                    self.tentative.pop();
+                    self.mode = Mode::Normal;
+                    self.prev = None;
+                    self.replay = Some(Replay::Source(start));
+                }
+                Step::Body
+            }
+            Replay::Source(cursor) => {
+                let c = self.history[cursor..]
+                    .chars()
+                    .next()
+                    .expect("replay character");
+                self.offset = cursor + c.len_utf8();
+                self.replay =
+                    (self.offset < self.history.len()).then_some(Replay::Source(self.offset));
+                self.process(c)
+            }
+        }
+    }
+
+    fn schedule_fallback(&mut self, target: (usize, usize, usize)) {
+        let (stack, code, start) = target;
+        self.command_openers.insert(start);
+        self.replay = Some(Replay::Unwind { stack, code, start });
+    }
+
+    fn schedule_eof_fallback(&mut self) {
+        if let Some(&target) = self.tentative.first() {
+            self.schedule_fallback(target);
+        }
+    }
+
+    /// Byte offset just past the last processed source character. A replayed
+    /// close can precede the latest lookahead, so callers use this, not its index.
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    pub fn replay_work(&self) -> usize {
+        self.replay_work
+    }
+
+    pub fn limit_exceeded(&self) -> crate::limits::LimitExceeded {
+        crate::limits::LimitExceeded::ParserFuel {
+            used: self.replay_work,
+            limit: 1_048_576,
+        }
+    }
+
+    fn process(&mut self, c: char) -> Step {
+        let escaped = match self.mode {
+            Mode::Escape { previous } => Some(previous),
+            Mode::SubstitutionEscape => Some(None),
+            _ => None,
+        };
         let step = self.feed_inner(c);
-        self.prev = Some(c);
+        // A consumed escape is data, never a fresh dollar/quote opener. A
+        // continuation alone preserves the preceding logical character.
+        self.prev = match escaped {
+            Some(previous) => {
+                if c == '\n' {
+                    previous
+                } else {
+                    None
+                }
+            }
+            None => Some(c),
+        };
+        if step == Step::Body && self.input_finished && !self.has_pending() {
+            self.schedule_eof_fallback();
+        }
         step
     }
 
@@ -162,7 +337,17 @@ impl SubstScanner {
 
     fn feed_inner(&mut self, c: char) -> Step {
         match std::mem::replace(&mut self.mode, Mode::Normal) {
-            Mode::Escape => Step::Body,
+            Mode::Escape { previous } => {
+                if previous == Some(')')
+                    && c != '\n'
+                    && self.top() == Frame::Arithmetic
+                    && self.parens.last() == Some(&0)
+                {
+                    let target = *self.tentative.last().expect("arithmetic opener");
+                    self.schedule_fallback(target);
+                }
+                Step::Body
+            }
             Mode::SubstitutionEscape => {
                 if c != '\n' {
                     *self.stack.last_mut().expect("substitution frame") = Frame::Code;
@@ -184,16 +369,26 @@ impl SubstScanner {
                     self.mode = Mode::Body { line };
                     return Step::Body;
                 }
-                let doc = &self.pending_heredocs[0];
+                let doc = &self.code.last_mut().expect("code state").pending_heredocs[0];
                 let candidate = if doc.strip_tabs {
                     line.trim_start_matches('\t')
                 } else {
                     line.as_str()
                 };
                 if candidate == doc.delimiter {
-                    self.pending_heredocs.remove(0);
+                    self.code
+                        .last_mut()
+                        .expect("code state")
+                        .pending_heredocs
+                        .pop_front();
                 }
-                if !self.pending_heredocs.is_empty() {
+                if !self
+                    .code
+                    .last_mut()
+                    .expect("code state")
+                    .pending_heredocs
+                    .is_empty()
+                {
                     self.mode = Mode::Body {
                         line: String::new(),
                     };
@@ -241,10 +436,14 @@ impl SubstScanner {
                     c.is_whitespace() || matches!(c, ';' | '|' | '&' | '(' | ')' | '<' | '>');
                 if ends {
                     if !word.is_empty() {
-                        self.pending_heredocs.push(Heredoc {
-                            delimiter: word,
-                            strip_tabs,
-                        });
+                        self.code
+                            .last_mut()
+                            .expect("code state")
+                            .pending_heredocs
+                            .push_back(Heredoc {
+                                delimiter: word,
+                                strip_tabs,
+                            });
                     }
                     // The terminator is ordinary code: reprocess it.
                     return self.feed_inner(c);
@@ -274,7 +473,13 @@ impl SubstScanner {
     }
 
     fn on_newline(&mut self) {
-        if !self.pending_heredocs.is_empty() {
+        if !self
+            .code
+            .last_mut()
+            .expect("code state")
+            .pending_heredocs
+            .is_empty()
+        {
             self.mode = Mode::Body {
                 line: String::new(),
             };
@@ -289,17 +494,30 @@ impl SubstScanner {
                     return Step::Body;
                 }
                 *self.stack.last_mut().expect("substitution frame") = if c == '(' {
-                    Frame::Arithmetic
+                    let start = self.offset - c.len_utf8();
+                    if self.command_openers.contains(&start) {
+                        Frame::Code
+                    } else {
+                        self.tentative
+                            .push((self.stack.len() - 1, self.code.len() - 1, start));
+                        Frame::Arithmetic
+                    }
                 } else {
                     Frame::Code
                 };
+                // The consumed dollar opener is outside this scope. In
+                // particular it is not an earlier command `(` when a known
+                // failed arithmetic span is replayed as a subshell.
+                self.prev = None;
                 self.feed_normal(c)
             }
             Frame::Arithmetic => self.feed_arithmetic(c),
             Frame::Parameter => self.feed_parameter(c),
             Frame::Ansi => {
                 if c == '\\' {
-                    self.mode = Mode::Escape;
+                    self.mode = Mode::Escape {
+                        previous: self.prev,
+                    };
                 } else if c == '\'' {
                     self.stack.pop();
                 }
@@ -313,7 +531,11 @@ impl SubstScanner {
             }
             Frame::Double => {
                 match c {
-                    '\\' => self.mode = Mode::Escape,
+                    '\\' => {
+                        self.mode = Mode::Escape {
+                            previous: self.prev,
+                        }
+                    }
                     '"' => {
                         self.stack.pop();
                     }
@@ -326,7 +548,11 @@ impl SubstScanner {
             }
             Frame::Backtick => {
                 match c {
-                    '\\' => self.mode = Mode::Escape,
+                    '\\' => {
+                        self.mode = Mode::Escape {
+                            previous: self.prev,
+                        }
+                    }
                     '`' => {
                         self.stack.pop();
                     }
@@ -350,7 +576,9 @@ impl SubstScanner {
     fn pop_code(&mut self) -> Step {
         self.parens.pop();
         self.code.pop();
-        self.stack.pop();
+        if self.stack.pop() == Some(Frame::Arithmetic) {
+            self.tentative.pop();
+        }
         if self.stack.is_empty() {
             Step::Close
         } else {
@@ -361,12 +589,19 @@ impl SubstScanner {
     fn feed_arithmetic(&mut self, c: char) -> Step {
         // `$(( cmd ) )` falls back to a command subshell when the inner
         // closing paren is not immediately followed by its arithmetic mate.
-        if self.parens.last() == Some(&0) && self.prev == Some(')') && c != ')' {
-            *self.stack.last_mut().expect("arithmetic frame") = Frame::Code;
-            return self.feed_code(c);
+        if self.parens.last() == Some(&0) && self.prev == Some(')') && !matches!(c, ')' | '\\') {
+            // Command grammar must restart at the opener, not at the first
+            // arithmetic close: earlier case/comment/heredoc state matters.
+            let target = *self.tentative.last().expect("arithmetic opener");
+            self.schedule_fallback(target);
+            return Step::Body;
         }
         match c {
-            '\\' => self.mode = Mode::Escape,
+            '\\' => {
+                self.mode = Mode::Escape {
+                    previous: self.prev,
+                }
+            }
             '\'' => self.stack.push(if self.prev == Some('$') {
                 Frame::Ansi
             } else {
@@ -391,7 +626,11 @@ impl SubstScanner {
 
     fn feed_parameter(&mut self, c: char) -> Step {
         match c {
-            '\\' => self.mode = Mode::Escape,
+            '\\' => {
+                self.mode = Mode::Escape {
+                    previous: self.prev,
+                }
+            }
             '\'' => self.stack.push(if self.prev == Some('$') {
                 Frame::Ansi
             } else {
@@ -509,9 +748,15 @@ impl SubstScanner {
     }
 
     fn feed_code(&mut self, c: char) -> Step {
-        let lt_run = if c == '<' { self.lt_run + 1 } else { 0 };
-        let heredoc_op = self.lt_run == 2 && c != '<' && self.arith_at.is_none();
-        self.lt_run = lt_run;
+        let lt_run = if c == '<' {
+            self.code.last_mut().expect("code state").lt_run + 1
+        } else {
+            0
+        };
+        let heredoc_op = self.code.last_mut().expect("code state").lt_run == 2
+            && c != '<'
+            && self.code.last_mut().expect("code state").arith_at.is_none();
+        self.code.last_mut().expect("code state").lt_run = lt_run;
         if heredoc_op {
             // `<<` followed by something other than a third `<`.
             self.mode = Mode::Delimiter {
@@ -554,7 +799,9 @@ impl SubstScanner {
         match c {
             '\\' => {
                 self.quote_word();
-                self.mode = Mode::Escape;
+                self.mode = Mode::Escape {
+                    previous: self.prev,
+                };
             }
             '\'' => {
                 self.quote_word();
@@ -591,8 +838,11 @@ impl SubstScanner {
                 }
                 if let Some(depth) = self.parens.last_mut() {
                     *depth += 1;
-                    if self.prev == Some('(') && self.arith_at.is_none() {
-                        self.arith_at = Some(depth.saturating_sub(2));
+                    if self.prev == Some('(')
+                        && self.code.last_mut().expect("code state").arith_at.is_none()
+                    {
+                        self.code.last_mut().expect("code state").arith_at =
+                            Some(depth.saturating_sub(2));
                     }
                 }
                 self.set_cmd_pos(true);
@@ -608,8 +858,14 @@ impl SubstScanner {
                 let depth = self.parens.last_mut().expect("code frame");
                 if *depth > 0 {
                     *depth -= 1;
-                    if self.arith_at.is_some_and(|at| *depth <= at) {
-                        self.arith_at = None;
+                    if self
+                        .code
+                        .last_mut()
+                        .expect("code state")
+                        .arith_at
+                        .is_some_and(|at| *depth <= at)
+                    {
+                        self.code.last_mut().expect("code state").arith_at = None;
                     }
                     self.set_cmd_pos(false);
                 } else {
@@ -642,10 +898,28 @@ impl SubstScanner {
 /// the byte offset just past the `)`, or `None` when unterminated.
 fn split_subst_body(s: &str) -> Option<(&str, usize)> {
     let mut scanner = SubstScanner::new();
-    for (i, c) in s.char_indices() {
-        if scanner.feed(c) == Step::Close {
-            return Some((&s[..i], i + 1));
+    let mut chars = s.chars();
+    let mut step = Step::Body;
+    loop {
+        match step {
+            Step::Close => {
+                let end = scanner.offset();
+                return Some((&s[..end - 1], end));
+            }
+            Step::Limit => return None,
+            Step::Body => {}
         }
+        step = if scanner.has_pending() {
+            scanner.resume()
+        } else if let Some(c) = chars.next() {
+            scanner.feed(c)
+        } else {
+            scanner.finish();
+            if !scanner.has_pending() {
+                break;
+            }
+            scanner.resume()
+        };
     }
     None
 }
@@ -744,6 +1018,63 @@ mod tests {
         ] {
             assert_eq!(body(source), Some(expected), "{source}");
         }
+    }
+
+    #[test]
+    fn arithmetic_fallback_replays_complete_command_context() {
+        for (source, expected) in [
+            (
+                "(case x in x) :;; esac) ) suffix",
+                "(case x in x) :;; esac) ",
+            ),
+            ("(echo ok # (\n)) suffix", "(echo ok # (\n)"),
+            ("(cat <<E\n(\nE\n) ) suffix", "(cat <<E\n(\nE\n) "),
+            ("(printf é # (\n)) suffix", "(printf é # (\n)"),
+            (
+                "(echo $((case x in x) :;; esac) )) ) suffix",
+                "(echo $((case x in x) :;; esac) )) ",
+            ),
+        ] {
+            assert_eq!(body(source), Some(expected), "{source}");
+            let (_, end) = split_subst_body(source).unwrap();
+            assert_eq!(&source[end..], " suffix", "{source}");
+        }
+    }
+
+    #[test]
+    fn escaped_dollars_cannot_introduce_nested_syntax() {
+        for source in [
+            r#"echo "${u:-\${x}") suffix"#,
+            r#"echo "${u:-\$(x}") suffix"#,
+            r#"echo "${u:-\$$(printf x)}") suffix"#,
+            r#"echo "\$(case") suffix"#,
+        ] {
+            let (_, end) = split_subst_body(source).unwrap();
+            assert_eq!(&source[end..], " suffix", "{source}");
+        }
+    }
+
+    #[test]
+    fn arithmetic_continuations_preserve_logical_parens() {
+        for source in ["\\\n(1 << 2\n)) suffix", "(1 << 2)\\\n) suffix"] {
+            let (_, end) = split_subst_body(source).unwrap();
+            assert_eq!(&source[end..], " suffix", "{source}");
+        }
+    }
+
+    #[test]
+    fn replay_limit_is_a_typed_resource_failure() {
+        let mut scanner = SubstScanner::new();
+        for c in "(x) ".chars() {
+            assert_eq!(scanner.feed(c), Step::Body);
+        }
+        assert!(scanner.has_pending());
+        scanner.replay_work = 1_048_576;
+        assert_eq!(scanner.resume(), Step::Limit);
+        assert!(matches!(
+            scanner.limit_exceeded(),
+            crate::limits::LimitExceeded::ParserFuel { .. }
+        ));
     }
 
     #[test]

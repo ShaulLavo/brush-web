@@ -119,6 +119,7 @@ pub struct Lexer<'a> {
     /// source text); this is where the input resumes after the body.
     heredoc_resume: Option<Position>,
     literal_escapes: Vec<LiteralEscape>,
+    boundary_replay_work: usize,
 }
 
 impl<'a> Lexer<'a> {
@@ -147,11 +148,16 @@ impl<'a> Lexer<'a> {
             extglob_bang: true,
             heredoc_resume: None,
             literal_escapes: Vec::new(),
+            boundary_replay_work: 0,
         }
     }
 
     pub(crate) fn limit_exceeded(&self) -> Option<crate::limits::LimitExceeded> {
         self.limit_exceeded
+    }
+
+    pub(crate) fn take_boundary_replay_work(&mut self) -> usize {
+        std::mem::take(&mut self.boundary_replay_work)
     }
 
     /// Move the line count forward by `by` (for input embedded at a later line).
@@ -2329,27 +2335,61 @@ impl<'a> Lexer<'a> {
     /// found. The scanner is iterative, so deep nesting cannot overflow the
     /// host stack here (TM-DOS-044).
     fn read_command_subst_body(&mut self, content: &mut String) -> bool {
-        let mut scanner = super::subst_scan::SubstScanner::new();
-        while let Some(c) = self.advance() {
-            content.push(c);
-            if scanner.feed(c) == super::subst_scan::Step::Close {
-                return true;
-            }
-        }
-        false
+        self.consume_subst_body(Some(content), false)
     }
 
-    /// Consume a `<(...)`/`>(...)` body after its opening token, through the
-    /// closing `)`, with the same scanner as `$(...)`. Nothing is copied; the
-    /// caller slices the source. Returns whether the `)` was found.
+    /// Consume a process substitution in command, not arithmetic, context.
     pub fn skip_subst_body(&mut self) -> bool {
-        let mut scanner = super::subst_scan::SubstScanner::new_command();
-        while let Some(c) = self.advance() {
-            if scanner.feed(c) == super::subst_scan::Step::Close {
-                return true;
+        self.consume_subst_body(None, true)
+    }
+
+    fn consume_subst_body(&mut self, mut content: Option<&mut String>, command: bool) -> bool {
+        use super::subst_scan::{Step, SubstScanner};
+        let mut scanner = if command {
+            SubstScanner::new_command()
+        } else {
+            SubstScanner::new()
+        };
+        // Arithmetic may fail only at EOF. Scan a borrowed lookahead, then
+        // consume exactly the resolved boundary so replay never loses suffixes,
+        // source positions, alias state, or raw source capture.
+        let mut step = Step::Body;
+        {
+            let mut chars = self.lookahead();
+            let mut finished = false;
+            loop {
+                if step != Step::Body {
+                    break;
+                }
+                step = if scanner.has_pending() {
+                    scanner.resume()
+                } else if let Some(c) = chars.next() {
+                    scanner.feed(c)
+                } else if !finished {
+                    finished = true;
+                    scanner.finish()
+                } else {
+                    break;
+                };
             }
         }
-        false
+        self.boundary_replay_work = self
+            .boundary_replay_work
+            .saturating_add(scanner.replay_work());
+        if step == Step::Limit {
+            self.limit_exceeded = Some(scanner.limit_exceeded());
+        }
+        let mut consumed = 0;
+        while consumed < scanner.offset() {
+            let Some(c) = self.advance() else {
+                break;
+            };
+            consumed += c.len_utf8();
+            if let Some(out) = content.as_mut() {
+                out.push(c);
+            }
+        }
+        step == Step::Close
     }
 
     /// Read parameter expansion content after `${`, handling nested braces and quotes.

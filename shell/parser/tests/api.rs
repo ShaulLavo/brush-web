@@ -1174,3 +1174,74 @@ fn arithmetic_boundaries_stay_opaque_in_quotes_and_parameter_operands() {
         }
     }
 }
+
+#[test]
+fn ambiguous_substitutions_preserve_inactive_defaults_and_suffixes() {
+    for source in [
+        r#"v=ok; printf '<%s>\n' ${v:-$((case x in x) :;; esac) )}{a,b}"#,
+        r#"v=ok; printf '<%s>\n' "${v:-$((case x in x) :;; esac) )}{a,b}""#,
+        r#"v=ok; printf '<%s>\n' ${v:-$(echo "${u:-\${x}")}{a,b}"#,
+        r#"v=ok; printf '<%s>\n' "${v:-$(echo "${u:-\${x}")}{a,b}""#,
+    ] {
+        Parser::new(source)
+            .parse()
+            .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+    }
+    for source in [
+        "${v:-$((printf é # (\n))}{a,b}",
+        "\"${v:-$((printf é # (\n))}{a,b}\"",
+        r#"${v:-$(echo "${u:-\$$(printf x)}")}{a,b}"#,
+        "$((1 << 2)\\\n){a,b}",
+    ] {
+        let word = argument(&format!("args {source} suffix"));
+        assert_eq!(word.raw.as_deref(), Some(source), "{source}");
+        let generated = Parser::parse_expanded_word_with_limits(source, 100, 16384).unwrap();
+        assert_eq!(generated.raw.as_deref(), Some(source), "{source}");
+    }
+}
+
+#[test]
+fn replayed_utf8_closes_preserve_later_tokens() {
+    for source in [
+        "$((printf é # (\n))",
+        "${v:-$((printf é # (\n))}",
+        "\"${v:-$((printf é # (\n))}\"",
+    ] {
+        let script = Parser::new(&format!("args é {source} suffix"))
+            .parse()
+            .unwrap();
+        let Command::Simple(command) = &script.commands[0] else {
+            panic!("{script:?}");
+        };
+        assert_eq!(command.args.len(), 3, "{source}: {command:?}");
+        assert_eq!(command.args[0].raw.as_deref(), Some("é"));
+        assert_eq!(command.args[1].raw.as_deref(), Some(source));
+        assert_eq!(command.args[2].to_string(), "suffix");
+    }
+}
+
+#[test]
+fn arithmetic_replay_is_charged_to_parser_fuel() {
+    let source = format!("args $((printf '%s' '{}') )", "x".repeat(128));
+    let error = Parser::with_limits(&source, 100, 64).parse().unwrap_err();
+    assert!(
+        matches!(
+            error,
+            Error::ResourceLimit(LimitExceeded::ParserFuel { .. })
+        ),
+        "{error:?}"
+    );
+    let limits = ExecutionLimits {
+        max_work_units: 64,
+        ..ExecutionLimits::default()
+    };
+    assert!(matches!(
+        parse(&source, &limits),
+        Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
+    ));
+    let eof_source = format!("args $((printf '{}' # (\n)) suffix", "x".repeat(128));
+    assert!(matches!(
+        parse(&eof_source, &limits),
+        Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
+    ));
+}

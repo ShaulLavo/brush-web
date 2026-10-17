@@ -38,7 +38,7 @@ impl Parser<'_> {
             angle = matches!(c, '<' | '>') && !angle;
             if angle && scanner.substring_unquoted() && chars.peek() == Some(&'(') {
                 chars.next();
-                self.read_parameter_command(&mut chars)?;
+                self.read_parameter_command(&mut chars, true)?;
                 angle = false;
                 continue;
             }
@@ -63,7 +63,7 @@ impl Parser<'_> {
             }
             Step::Command => {
                 chars.next();
-                self.read_parameter_command(chars)?;
+                self.read_parameter_command(chars, false)?;
                 Ok(false)
             }
             Step::Limit => Err(self.limit_error(LimitExceeded::ParameterBoundaryDepth)),
@@ -71,27 +71,52 @@ impl Parser<'_> {
         }
     }
 
-    fn read_parameter_command(&self, chars: &mut WordChars<'_>) -> Result<()> {
-        let body = self.parameter_command_body(chars)?;
-        if body.starts_with('(') {
+    fn read_parameter_command(&self, chars: &mut WordChars<'_>, process: bool) -> Result<()> {
+        let body = self.parameter_command_body(chars, process)?;
+        if !process && body.starts_with('(') {
             return Ok(());
         }
         self.validate_parameter_command(body)
     }
 
-    fn parameter_command_body<'a>(&self, chars: &mut WordChars<'a>) -> Result<&'a str> {
+    fn parameter_command_body<'a>(
+        &self,
+        chars: &mut WordChars<'a>,
+        process: bool,
+    ) -> Result<&'a str> {
         let source = chars.remaining();
-        let mut scanner = SubstScanner::new();
+        let mut scanner = if process {
+            SubstScanner::new_command()
+        } else {
+            SubstScanner::new()
+        };
         let mut end = None;
-        for (index, c) in source.char_indices() {
+        let mut input = source.chars();
+        let mut finished = false;
+        let mut step = CommandStep::Body;
+        loop {
+            match step {
+                CommandStep::Close => {
+                    end = Some(scanner.offset() - 1);
+                    break;
+                }
+                CommandStep::Limit => return Err(self.limit_error(scanner.limit_exceeded())),
+                CommandStep::Body => {}
+            }
             self.tick()?;
-            if index > 4096 {
+            if scanner.offset() > 4096 {
                 return Err(self.limit_error(LimitExceeded::ParameterCommandFuel));
             }
-            if scanner.feed(c) == CommandStep::Close {
-                end = Some(index);
+            step = if scanner.has_pending() {
+                scanner.resume()
+            } else if let Some(c) = input.next() {
+                scanner.feed(c)
+            } else if !finished {
+                finished = true;
+                scanner.finish()
+            } else {
                 break;
-            }
+            };
         }
         let end = end.ok_or(Error::ShellWord {
             line: self.current_span.start.line,
@@ -119,7 +144,9 @@ impl Parser<'_> {
         parser.strict_command_separators = true;
         parser.current_depth = self.current_depth + 1;
         parser.started_at = self.started_at;
-        parser.execution_budget = self.execution_budget.clone();
+        if let Some(budget) = &self.execution_budget {
+            parser.attach_execution_budget(budget.clone());
+        }
         let result = parser.parse_inner();
         self.fuel.set(parser.fuel.get());
         match result {

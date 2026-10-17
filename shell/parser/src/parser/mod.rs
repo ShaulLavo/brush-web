@@ -177,7 +177,10 @@ impl<'a> Parser<'a> {
             max_depth,
             max_fuel,
             timeout,
-            ParseOptions { aliases: None, extglob: true },
+            ParseOptions {
+                aliases: None,
+                extglob: true,
+            },
         )
     }
 
@@ -313,15 +316,20 @@ impl<'a> Parser<'a> {
 
     /// Attach the non-resettable aggregate budget for this request.
     pub fn with_execution_budget(mut self, budget: crate::limits::ExecutionBudget) -> Self {
-        if !self.current_escapes.is_empty()
-            && let Err(err) =
-                budget.consume_work(u64::try_from(self.current_escapes.len()).unwrap_or(u64::MAX))
-        {
+        self.attach_execution_budget(budget);
+        self
+    }
+
+    fn attach_execution_budget(&mut self, budget: crate::limits::ExecutionBudget) {
+        // The first token is lexed during construction, before the parent's
+        // shared budget can be attached. Include its replay/escape work too.
+        if let Err(err) = budget.consume_work(
+            u64::try_from(self.max_fuel.saturating_sub(self.fuel.get())).unwrap_or(u64::MAX),
+        ) {
             let first = self.deferred_error.take();
             self.deferred_error.set(first.or(Some(err.into())));
         }
         self.execution_budget = Some(budget);
-        self
     }
 
     /// Get the current token's span.
@@ -360,7 +368,10 @@ impl<'a> Parser<'a> {
         // words and standalone braces. Remove only that prefix structurally.
         let size = input.len().checked_add(3)
             .filter(|size| *size <= max_fuel)
-            .ok_or(LimitExceeded::ParserFuel { used: max_fuel, limit: max_fuel })?;
+            .ok_or(LimitExceeded::ParserFuel {
+                used: max_fuel,
+                limit: max_fuel,
+            })?;
         // Admit storage before copying, then share work across every child:
         // sibling substitutions must not each receive a fresh allowance.
         let budget = crate::limits::ExecutionBudget::new(
@@ -576,7 +587,10 @@ impl<'a> Parser<'a> {
         }
         if self.fuel.get() == 0 {
             let used = self.max_fuel;
-            return Err(self.limit_error(LimitExceeded::ParserFuel { used, limit: self.max_fuel }));
+            return Err(self.limit_error(LimitExceeded::ParserFuel {
+                used,
+                limit: self.max_fuel,
+            }));
         }
         self.fuel.set(self.fuel.get() - 1);
         Ok(())
@@ -597,7 +611,10 @@ impl<'a> Parser<'a> {
         }
         if self.fuel.get() < units {
             let used = self.max_fuel;
-            return Err(self.limit_error(LimitExceeded::ParserFuel { used, limit: self.max_fuel }));
+            return Err(self.limit_error(LimitExceeded::ParserFuel {
+                used,
+                limit: self.max_fuel,
+            }));
         }
         self.fuel.set(self.fuel.get() - units);
         Ok(())
@@ -693,10 +710,9 @@ impl<'a> Parser<'a> {
                     }
                 }
                 let keep = match &e {
-                    Error::ShellWord { line } => commands
-                        .iter()
-                        .take_while(|(_, end)| end < line)
-                        .count(),
+                    Error::ShellWord { line } => {
+                        commands.iter().take_while(|(_, end)| end < line).count()
+                    }
                     Error::Parse { .. } if !self.error_was_deferred => {
                         let failed_line = self.failed_command_line;
                         commands
@@ -820,10 +836,11 @@ impl<'a> Parser<'a> {
     }
 
     fn charge_literal_escapes(&mut self) {
-        if self.current_escapes.is_empty() {
-            return;
-        }
-        if let Err(err) = self.tick_units(self.current_escapes.len()) {
+        let units = self
+            .current_escapes
+            .len()
+            .saturating_add(self.lexer.take_boundary_replay_work());
+        if let Err(err) = self.tick_units(units) {
             let first = self.deferred_error.take();
             self.deferred_error.set(first.or(Some(err)));
         }
@@ -833,6 +850,11 @@ impl<'a> Parser<'a> {
     fn peek_next(&mut self) -> Option<&tokens::Token> {
         if self.peeked_token.is_none() {
             self.peeked_token = self.lexer.next_spanned_token();
+            let units = self.lexer.take_boundary_replay_work();
+            if let Err(err) = self.tick_units(units) {
+                let first = self.deferred_error.take();
+                self.deferred_error.set(first.or(Some(err)));
+            }
         }
         self.peeked_token.as_ref().map(|st| &st.token)
     }
@@ -4189,7 +4211,9 @@ impl<'a> Parser<'a> {
                         self.fuel.get(),
                         self.timeout,
                     );
-                    inner_parser.execution_budget = self.execution_budget.clone();
+                    if let Some(budget) = &self.execution_budget {
+                        inner_parser.attach_execution_budget(budget.clone());
+                    }
                     inner_parser.strict_command_separators = self.strict_command_separators;
                     inner_parser.current_depth = self.current_depth + 1;
                     inner_parser.started_at = self.started_at;
@@ -4204,7 +4228,12 @@ impl<'a> Parser<'a> {
                 self.fuel.set(remaining_fuel);
                 let commands = match parse_result {
                     Ok(commands) => commands,
-                    Err(err) if self.strict_command_separators || matches!(err, Error::ResourceLimit(_)) => return Err(err),
+                    Err(err)
+                        if self.strict_command_separators
+                            || matches!(err, Error::ResourceLimit(_)) =>
+                    {
+                        return Err(err);
+                    }
                     Err(_) => Vec::new(),
                 };
 
@@ -4284,7 +4313,9 @@ impl<'a> Parser<'a> {
         ));
         parser.current_depth = self.current_depth + 1;
         parser.started_at = self.started_at;
-        parser.execution_budget = self.execution_budget.clone();
+        if let Some(budget) = &self.execution_budget {
+            parser.attach_execution_budget(budget.clone());
+        }
         parser.set_options(self.options.clone());
         parser.strict_command_separators = self.strict_command_separators;
         // `$( )` spans count from the outer word's line, so `$LINENO` and
@@ -4317,9 +4348,9 @@ impl<'a> Parser<'a> {
         }
         // ${VAR} format with possible parameter expansion
         chars.next(); // consume '{'
-        if let Err(error) = self.validate_parameter_shell_boundaries(
-            chars, in_quoted_segment, pattern_context,
-        ) {
+        if let Err(error) =
+            self.validate_parameter_shell_boundaries(chars, in_quoted_segment, pattern_context)
+        {
             let first = self.deferred_error.take();
             self.deferred_error.set(first.or(Some(error)));
         }
@@ -5075,11 +5106,23 @@ impl<'a> Parser<'a> {
                         // Command substitution $(...): quote/heredoc-aware end.
                         let mut cmd_str = String::new();
                         let mut scanner = subst_scan::SubstScanner::new();
-                        for c in chars.by_ref() {
-                            if scanner.feed(c) == subst_scan::Step::Close {
-                                break;
+                        match self.scan_word_substitution(&mut scanner, &chars) {
+                            Ok((end, closed)) => {
+                                let mut consumed = 0;
+                                while consumed < end {
+                                    let Some(c) = chars.next() else {
+                                        break;
+                                    };
+                                    consumed += c.len_utf8();
+                                    if !closed || consumed < end {
+                                        cmd_str.push(c);
+                                    }
+                                }
                             }
-                            cmd_str.push(c);
+                            Err(err) => {
+                                let first = self.deferred_error.take();
+                                self.deferred_error.set(first.or(Some(err)));
+                            }
                         }
                         // A failed inner parse must never make the part vanish:
                         // dropping it splices the literals on either side into a
@@ -5215,7 +5258,7 @@ impl<'a> Parser<'a> {
                         Step::Escape | Step::Open => out.extend(chars.next()),
                         Step::Command => {
                             out.extend(chars.next());
-                            copy_replace_substitution(chars, &mut out);
+                            self.copy_replace_substitution(chars, &mut out);
                         }
                         _ => {}
                     }
@@ -5224,14 +5267,52 @@ impl<'a> Parser<'a> {
         }
         out
     }
-}
 
-fn copy_replace_substitution(chars: &mut WordChars<'_>, out: &mut String) {
-    let mut scanner = subst_scan::SubstScanner::new();
-    for ch in chars.by_ref() {
-        out.push(ch);
-        if scanner.feed(ch) == subst_scan::Step::Close {
-            break;
+    fn scan_word_substitution(
+        &self,
+        scanner: &mut subst_scan::SubstScanner,
+        chars: &WordChars<'_>,
+    ) -> Result<(usize, bool)> {
+        let mut lookahead = chars.clone();
+        let mut finished = false;
+        let mut step = subst_scan::Step::Body;
+        loop {
+            match step {
+                subst_scan::Step::Close => return Ok((scanner.offset(), true)),
+                subst_scan::Step::Limit => return Err(self.limit_error(scanner.limit_exceeded())),
+                subst_scan::Step::Body => {}
+            }
+            self.tick()?;
+            step = if scanner.has_pending() {
+                scanner.resume()
+            } else if let Some(c) = lookahead.next() {
+                scanner.feed(c)
+            } else if !finished {
+                finished = true;
+                scanner.finish()
+            } else {
+                return Ok((scanner.offset(), false));
+            };
+        }
+    }
+
+    fn copy_replace_substitution(&self, chars: &mut WordChars<'_>, out: &mut String) {
+        let mut scanner = subst_scan::SubstScanner::new();
+        match self.scan_word_substitution(&mut scanner, chars) {
+            Ok((end, _)) => {
+                let mut consumed = 0;
+                while consumed < end {
+                    let Some(c) = chars.next() else {
+                        break;
+                    };
+                    consumed += c.len_utf8();
+                    out.push(c);
+                }
+            }
+            Err(err) => {
+                let first = self.deferred_error.take();
+                self.deferred_error.set(first.or(Some(err)));
+            }
         }
     }
 }
@@ -5942,7 +6023,11 @@ fn cond_word_text(tok: Option<&CondTok>) -> Option<&str> {
     }
 }
 
-fn cond_or(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result<(), ConditionalError> {
+fn cond_or(
+    t: &[CondTok],
+    pos: &mut usize,
+    depth: usize,
+) -> std::result::Result<(), ConditionalError> {
     if depth > COND_MAX_DEPTH {
         return Err(ConditionalError::Depth);
     }
@@ -5954,7 +6039,11 @@ fn cond_or(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result<
     Ok(())
 }
 
-fn cond_and(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result<(), ConditionalError> {
+fn cond_and(
+    t: &[CondTok],
+    pos: &mut usize,
+    depth: usize,
+) -> std::result::Result<(), ConditionalError> {
     cond_term(t, pos, depth)?;
     while matches!(t.get(*pos), Some(CondTok::Op("&&"))) {
         *pos += 1;
@@ -5963,16 +6052,24 @@ fn cond_and(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result
     Ok(())
 }
 
-fn cond_term(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Result<(), ConditionalError> {
+fn cond_term(
+    t: &[CondTok],
+    pos: &mut usize,
+    depth: usize,
+) -> std::result::Result<(), ConditionalError> {
     if depth > COND_MAX_DEPTH {
         return Err(ConditionalError::Depth);
     }
     match t.get(*pos) {
-        None => Err(ConditionalError::Syntax("syntax error in conditional expression".to_string())),
+        None => Err(ConditionalError::Syntax(
+            "syntax error in conditional expression".to_string(),
+        )),
         Some(CondTok::Op("(")) => {
             *pos += 1;
             if matches!(t.get(*pos), Some(CondTok::Op(")"))) {
-                return Err(ConditionalError::Syntax("unexpected token `)' in conditional command".to_string()));
+                return Err(ConditionalError::Syntax(
+                    "unexpected token `)' in conditional command".to_string(),
+                ));
             }
             cond_or(t, pos, depth + 1)?;
             if !matches!(t.get(*pos), Some(CondTok::Op(")"))) {
@@ -6008,7 +6105,9 @@ fn cond_term(t: &[CondTok], pos: &mut usize, depth: usize) -> std::result::Resul
                 _ => false,
             };
             if !binary {
-                return Err(ConditionalError::Syntax("conditional binary operator expected".to_string()));
+                return Err(ConditionalError::Syntax(
+                    "conditional binary operator expected".to_string(),
+                ));
             }
             *pos += 1;
             if !matches!(t.get(*pos), Some(CondTok::Word(_))) {
