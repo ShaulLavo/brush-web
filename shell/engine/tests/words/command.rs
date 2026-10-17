@@ -80,7 +80,10 @@ fn output_beyond_the_expansion_bound_fails_explicitly() {
 #[test]
 fn interrupt_cancels_a_running_body() {
     let rig = Rig::new(Limits::default());
-    let job = rig.shell.start("x=$(while :; do :; done); args never").unwrap();
+    let job = rig
+        .shell
+        .start("x=$(while :; do :; done); args never")
+        .unwrap();
     for _ in 0..200 {
         rig.ex.drive(16);
     }
@@ -93,11 +96,7 @@ fn interrupt_cancels_a_running_body() {
 #[test]
 fn deeply_nested_substitutions_run_as_separate_tasks() {
     let depth = 40;
-    let source = format!(
-        "args {}x{}",
-        "\"$(echo ".repeat(depth),
-        ")\"".repeat(depth)
-    );
+    let source = format!("args {}x{}", "\"$(echo ".repeat(depth), ")\"".repeat(depth));
     check(&source, &[&["x"]]);
 }
 
