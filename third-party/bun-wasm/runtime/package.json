@@ -1,0 +1,22 @@
+{
+  "name": "@bun-wasm/runtime",
+  "version": "0.0.11",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./core": "./core/index.ts",
+    "./core/memory-views": "./core/memory-views.js",
+    "./fs": "./fs/index.ts",
+    "./fs/memory": "./fs/memory.ts",
+    "./proc": "./proc/index.ts",
+    "./proc/stub": "./proc/stub.ts"
+  },
+  "scripts": {
+    "test": "bun test ./tests",
+    "check": "tsc -p ."
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "typescript": "^7.0.2"
+  }
+}

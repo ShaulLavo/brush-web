@@ -68,24 +68,29 @@
   },
   "bunWasm": {
     "repository": "https://github.com/ShaulLavo/bun-wasm",
-    "revision": "c81bcce890c5b121d7fee0a3eeaf3c8fef34e5cc",
+    "revision": "525762749bcc8ea05ca6ceb46fbbccb4d29ce224",
+    "legacyHostRevision": "c81bcce890c5b121d7fee0a3eeaf3c8fef34e5cc",
     "engine": "quickjs",
-    "wasmSha256": "0ad375ace9c032730745655fe32056d2163b640fa882c1683c3635d54b79287d",
-    "wasmBytes": 10860006,
+    "wasmSha256": "01fe8b51cc2afb429fcad2bea0cb56657d9ebca713e3c50147c135b2245559ce",
+    "wasmBytes": 14958992,
     "hostFiles": [
       "web/src/fs.ts",
       "web/src/wasi.ts",
       "web/src/subprocess-fs.ts",
       "web/src/net/trampoline.ts"
     ],
-    "strategy": "Vendored unmodified host files and compressed WASI binary rebuilt from the revision; build verifies artifact checksums.",
-    "artifactOrigin": "Local QuickJS rebuild with scripts/build.sh from the unmodified pinned revision.",
+    "strategy": "Bun guest binary built from revision; runtime package separately pinned by runtimeRevision. Old Brush host files retain legacyHostRevision. Build verifies artifact and runtime source checksums.",
+    "artifactOrigin": "QuickJS deployment build at 525762749bcc8ea05ca6ceb46fbbccb4d29ce224. Runtime owner validated these exact guest bytes in the 4b final gate at c0a12226, whose tree matches runtimeRevision 8d3d416a.",
     "sourceArtifact": "third-party/bun-wasm/bun.wasm.gz",
-    "sourceArtifactSha256": "87d85b1b9183fd49261ad23640591bc559135c55b4f177e2aa50298e415e3998",
+    "sourceArtifactSha256": "3dab519c48397dfb7b2fc679344e4fefb8c48dea0d8ec430293a468f943a89b3",
     "buildToolchain": {
       "rust": "nightly-2026-09-15",
       "binaryen": "133"
-    }
+    },
+    "runtimeRevision": "8d3d416aa9cb23718ed3487a33d0b06e8e373672",
+    "runtimeDirectory": "third-party/bun-wasm/runtime",
+    "runtimeTreeSha256": "82be8c453beded43115182f5cecd4ad45199d6d57eac075bf0d8bbacc5be582f",
+    "runtimeStrategy": "Vendored unmodified runtime package files from runtimeRevision. Legacy host files retain legacyHostRevision and the Bun artifact retains revision above; the new shell uses runtime/core and runtime/proc, never the legacy host."
   },
   "shellParser": {
     "repository": "https://github.com/everruns/bashkit",
