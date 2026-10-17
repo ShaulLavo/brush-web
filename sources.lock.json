@@ -287,6 +287,17 @@
         "classification": "Original quoted-heredoc delimiter correction and regression tests in the owned substitution scanner; observed against GNU Bash 5.3.15, with no upstream implementation copied. Parser base remains everruns/bashkit crates/bashkit/src/parser at 491c3281f668b76d64b15210b8f5d7bf97244be0.",
         "change": "Track a pending backslash inside a double-quoted here-document delimiter without closing the quote. Drop backslash-newline continuations and quote-remove backslashes before double quotes, backslashes, dollars and backticks, while preserving non-special backslashes and every single-quoted character. Add scanner and strict parser API controls for command and process substitutions, including unselected parameter defaults and following-word boundaries.",
         "reason": "The raw delimiter helper already removed double-quoted continuations, but the substitution boundary scanner retained them or ended a quote at an escaped double quote. Valid Bash substitutions therefore appeared unterminated before the parser could consume their delimiter. Preserve the existing shared scanner, resource accounting and syntax-status classification rather than allowing a special-case failure."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/parameter_scan.rs",
+          "shell/parser/src/parser/lexer.rs",
+          "shell/parser/src/parser/substring.rs",
+          "shell/parser/src/parser/mod.rs"
+        ],
+        "classification": "Original shared parameter-boundary correction in the owned Bashkit-derived parser, observed against GNU Bash 5.3.15; no upstream implementation copied.",
+        "change": "Keep backtick bodies opaque to surrounding parameter quote and brace matching. Expose process-substitution boundaries from the shared parameter scanner so the lexer, syntax validator and operand extractor skip the same quote, heredoc and fused spans. Retain child parser fuel in the parent and preserve typed resource errors when producing printed process-substitution operands. Existing assertions remain intact.",
+        "reason": "The substitution generator exposed backtick body braces and quotes closing lazy defaults, heredoc delimiter quotes escaping the process body during lexing, and nested process bodies receiving inconsistent boundary handling. All callers now use the same scanner without matching script text or exempting Bash failure statuses."
       }
     ],
     "removedUpstreamTests": [
