@@ -6,6 +6,7 @@ import {
   bound,
   boundaryBodies,
   boundaryCases,
+  boundaryClosings,
   boundaryContexts,
   boundaryOpeners,
   boundaryProtections,
@@ -107,9 +108,10 @@ for (const seed of [1, 42]) {
   test(`seed ${seed} covers every boundary feature/context/depth/mode tuple without exclusions`, () => {
     const cases = boundaryCases(seed);
     assert.deepEqual(cases, boundaryCases(seed));
-    assert.equal(cases.length, 1071);
+    assert.equal(cases.length, 2031);
+    assert.deepEqual(boundaryClosings, [1, 2, 3]);
     const matrix = cases.filter((item) => item.tags.includes("boundary-guard"));
-    assert.equal(matrix.length, 1056);
+    assert.equal(matrix.length, 2016);
     const actual = [];
     for (const item of matrix) {
       const nodes = nodesIn(item.node);
@@ -126,6 +128,7 @@ for (const seed of [1, 42]) {
           feature.opener,
           feature.protection ?? feature.body,
           Boolean(feature.open),
+          feature.closings ?? 0,
           context,
           depth,
           item.mode,
@@ -138,7 +141,11 @@ for (const seed of [1, 42]) {
       assert.ok(!Object.hasOwn(item, "skip"));
       if (feature.form === "ambiguity") {
         assert.ok(spelling(feature).startsWith(feature.opener === "fused" ? "$((" : "$( ("));
-        assert.ok(spelling(feature).endsWith(") )"));
+        assert.ok(item.tags.includes(`boundary-closings-${feature.closings}`));
+        assert.equal(
+          /\)(?: \))*$/.exec(spelling(feature))[0],
+          Array.from({ length: feature.closings }, () => ")").join(" "),
+        );
         if (feature.body.includes("case")) {
           assert.ok(spelling(feature).includes("case x in x)"));
           assert.ok(spelling(feature).includes("esac"));
@@ -157,7 +164,11 @@ for (const seed of [1, 42]) {
       }
     }
     const features = boundarySpellings
-      .flatMap((opener) => boundaryBodies.map((body) => ["ambiguity", opener, body, false]))
+      .flatMap((opener) =>
+        boundaryBodies.flatMap((body) =>
+          boundaryClosings.map((closings) => ["ambiguity", opener, body, false, closings]),
+        ),
+      )
       .concat(
         boundaryProtections.flatMap((protection) =>
           boundaryOpeners.flatMap((opener) =>
@@ -166,6 +177,7 @@ for (const seed of [1, 42]) {
               opener,
               protection,
               open,
+              0,
             ]),
           ),
         ),
@@ -206,6 +218,7 @@ test("boundary reductions preserve guards, context and protected/ambiguous opene
       assert.equal(smaller.opener, feature.opener);
       assert.equal(smaller.protection, feature.protection);
       assert.equal(smaller.open, feature.open);
+      assert.equal(smaller.closings, feature.closings);
       assert.equal(
         nodes.some((node) => node.kind === "boundary-guard"),
         guard,

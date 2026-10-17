@@ -275,37 +275,12 @@ async fn command_end(
     // Initial frame/parens/code-state vectors are allocated by `new`.
     work.admit_storage(std::mem::size_of::<CommandBoundaryScanner>().saturating_add(512))?;
     let mut scanner = CommandBoundaryScanner::new();
-    let mut chars = source[after_open..].chars();
-    let mut finished = false;
-    loop {
+    for ch in source[after_open..].chars() {
         work.checkpoint(cancel).await?;
-        let (ch, replay) = if scanner.has_pending() {
-            (scanner.pending_char(), true)
-        } else if let Some(ch) = chars.next() {
-            (Some(ch), false)
-        } else if !finished {
-            finished = true;
-            (None, false)
-        } else {
-            break;
-        };
-        // The raw tape and literal buffers grow with text. Structural steps
-        // also admit frame/case/heredoc vectors and fallback-opener storage.
-        // Replayed characters and EOF frame unwinds pay the same admission.
-        let structural =
-            ch.is_none_or(|ch| ch.is_whitespace() || matches!(ch, '$' | '(' | ')' | '<' | '>'));
+        let structural = ch.is_whitespace() || matches!(ch, '$' | '(' | ')' | '<' | '>');
         work.admit_storage(16 + usize::from(structural) * 512)?;
-        let step = if replay {
-            scanner.resume()
-        } else if let Some(ch) = ch {
-            scanner.feed(ch)
-        } else {
-            scanner.finish()
-        };
-        match step {
-            CommandBoundaryStep::Close => return Ok(after_open + scanner.offset()),
-            CommandBoundaryStep::Limit => return Err(Error::Status(2)),
-            CommandBoundaryStep::Body => {}
+        if matches!(scanner.feed(ch), CommandBoundaryStep::Close) {
+            return Ok(after_open + scanner.offset());
         }
     }
     Ok(source.len())

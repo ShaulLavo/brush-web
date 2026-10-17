@@ -72,8 +72,9 @@ impl Parser<'_> {
     }
 
     fn read_parameter_command(&self, chars: &mut WordChars<'_>, process: bool) -> Result<()> {
-        let (body, arithmetic) = self.parameter_command_body(chars, process)?;
-        if arithmetic {
+        // Bash never parses a `$((` span as commands before it expands.
+        let (body, fused) = self.parameter_command_body(chars, process)?;
+        if fused {
             return Ok(());
         }
         self.validate_parameter_command(body)
@@ -91,32 +92,15 @@ impl Parser<'_> {
             SubstScanner::new()
         };
         let mut end = None;
-        let mut input = source.chars();
-        let mut finished = false;
-        let mut step = CommandStep::Body;
-        loop {
-            match step {
-                CommandStep::Close => {
-                    end = Some(scanner.offset() - 1);
-                    break;
-                }
-                CommandStep::Limit => return Err(self.limit_error(scanner.limit_exceeded())),
-                CommandStep::Body => {}
-            }
+        for c in source.chars() {
             self.tick()?;
             if scanner.offset() > 4096 {
                 return Err(self.limit_error(LimitExceeded::ParameterCommandFuel));
             }
-            step = if scanner.has_pending() {
-                scanner.resume()
-            } else if let Some(c) = input.next() {
-                scanner.feed(c)
-            } else if !finished {
-                finished = true;
-                scanner.finish()
-            } else {
+            if scanner.feed(c) == CommandStep::Close {
+                end = Some(scanner.offset() - 1);
                 break;
-            };
+            }
         }
         let end = end.ok_or(Error::ShellWord {
             line: self.current_span.start.line,

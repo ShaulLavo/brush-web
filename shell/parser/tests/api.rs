@@ -1028,11 +1028,13 @@ fn expanded_word_api_preserves_initial_depth_for_skipped_defaults() {
 
 #[test]
 fn expanded_word_api_shares_work_across_sibling_substitutions() {
+    // Boundary scans charge each body character once per pass (lexer and
+    // word); the rest is one child's grammar work, which siblings must share.
     let child = "$(a;a;a;a)";
-    Parser::parse_expanded_word_with_limits(child, 16, child.len() + 3 + 20).unwrap();
+    Parser::parse_expanded_word_with_limits(child, 16, 2 * child.len() + 3 + 20).unwrap();
     let source = child.repeat(16);
     assert!(matches!(
-        Parser::parse_expanded_word_with_limits(&source, 16, source.len() + 3 + 20),
+        Parser::parse_expanded_word_with_limits(&source, 16, 2 * source.len() + 3 + 20),
         Err(Error::ResourceLimit(LimitExceeded::WorkUnits { .. }))
     ));
 }
@@ -1188,8 +1190,8 @@ fn ambiguous_substitutions_preserve_inactive_defaults_and_suffixes() {
             .unwrap_or_else(|error| panic!("{source}: {error:?}"));
     }
     for source in [
-        "${v:-$((printf é # (\n))}{a,b}",
-        "\"${v:-$((printf é # (\n))}{a,b}\"",
+        "${v:-$((printf é) )}{a,b}",
+        "\"${v:-$((printf é) )}{a,b}\"",
         r#"${v:-$(echo "${u:-\$$(printf x)}")}{a,b}"#,
         "$((1 << 2)\\\n){a,b}",
     ] {
@@ -1201,13 +1203,15 @@ fn ambiguous_substitutions_preserve_inactive_defaults_and_suffixes() {
 }
 
 #[test]
-fn replayed_utf8_closes_preserve_later_tokens() {
+fn arithmetic_command_spans_preserve_utf8_and_later_tokens() {
     for source in [
-        "$((printf é # (\n))",
-        "\"$((printf é # (\n))\"",
-        "\"\"$((printf é # (\n))",
-        "${v:-$((printf é # (\n))}",
-        "\"${v:-$((printf é # (\n))}\"",
+        "$((printf é) )",
+        "\"$((printf é) )\"",
+        "\"\"$((printf é) )",
+        "${v:-$((printf é) )}",
+        "\"${v:-$((printf é) )}\"",
+        "$( (printf é # (\n) )",
+        "\"$( (printf é # (\n) )\"",
     ] {
         let script = Parser::new(&format!("args é {source} suffix"))
             .parse()
@@ -1223,7 +1227,39 @@ fn replayed_utf8_closes_preserve_later_tokens() {
 }
 
 #[test]
-fn arithmetic_replay_is_charged_to_parser_fuel() {
+fn arithmetic_candidates_cannot_reinterpret_unmatched_raw_parens_as_comments() {
+    for candidate in ["$((printf é # (\n))", "$((# (\nprintf é) )"] {
+        for source in [
+            candidate.to_string(),
+            format!("\"{candidate}\""),
+            format!("${{v:-{candidate}}}"),
+            format!("\"${{v:-{candidate}}}\""),
+        ] {
+            assert!(
+                Parser::new(&format!("args {source} suffix"))
+                    .parse()
+                    .is_err(),
+                "{source}"
+            );
+            assert!(
+                Parser::parse_expanded_word_with_limits(&source, 100, 16384).is_err(),
+                "{source}"
+            );
+        }
+    }
+    // Three raw closes balance the lexical candidate. Its malformed command
+    // body is not eagerly parsed when the containing default is unselected.
+    for source in [
+        "${v:-$((# (\nprintf é) ) )}",
+        "\"${v:-$((# (\nprintf é) ) )}\"",
+    ] {
+        let word = argument(&format!("args {source} suffix"));
+        assert_eq!(word.raw.as_deref(), Some(source));
+    }
+}
+
+#[test]
+fn substitution_boundary_scanning_is_charged_to_parser_fuel() {
     let source = format!("args $((printf '%s' '{}') )", "x".repeat(128));
     let error = Parser::with_limits(&source, 100, 64).parse().unwrap_err();
     assert!(
@@ -1251,10 +1287,10 @@ fn arithmetic_replay_is_charged_to_parser_fuel() {
 #[test]
 fn resolved_substitution_kind_controls_the_ast_without_rewriting_source() {
     for source in [
-        "$((printf é # (\n))",
-        "\"$((printf é # (\n))\"",
-        "\"\"$((printf é # (\n))",
-        "$((case x in x) :;; esac) )",
+        "$((printf é) )",
+        "\"$((printf é) )\"",
+        "\"\"$((printf é) )",
+        "$( (case x in x) :;; esac) )",
     ] {
         let word = argument(&format!("args {source} suffix"));
         assert!(

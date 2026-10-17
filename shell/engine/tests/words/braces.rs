@@ -416,6 +416,50 @@ fn brace_deepest_source_nesting_is_iterative_or_rejected_by_explicit_admission()
 }
 
 #[test]
+fn command_substitution_deepest_nesting_is_rejected_without_stack_overflow() {
+    // Shared with WASI: every nesting level re-enters the parser's grammar, so
+    // the frames of the deepest admitted level must fit the wasm stack. 120
+    // levels exceed the hard AST depth cap of 100, which the parse reaches.
+    for template in [
+        "echo $(true; BODY)",
+        "echo $(true | BODY)",
+        "x=$(BODY)",
+        "echo $(>out BODY)",
+        "a=($(BODY))",
+        "declare a=($(BODY))",
+        "echo $(echo ${v:-x}; BODY)",
+        "echo \"$(BODY)\"",
+        "echo $((true); BODY)",
+        "if $(BODY); then :; fi",
+    ] {
+        let mut source = String::from("echo ok");
+        for _ in 0..120 {
+            source = template.replace("BODY", &source);
+        }
+        // Work sized so the hard AST cap, not parser fuel, stops the parse.
+        let fuel = source.len().saturating_mul(100).saturating_mul(4);
+        let error = shell_parser::Parser::with_limits(&source, usize::MAX, fuel)
+            .parse()
+            .expect_err("120 levels exceed the hard AST cap");
+        assert!(
+            error.to_string().contains("AST nesting too deep"),
+            "{template}: {error}"
+        );
+        // The engine's own limits may stop it earlier, by depth or by work.
+        let rig = Rig::new(Limits::default());
+        match rig.shell.start(&source) {
+            Err(error) => assert!(
+                error.contains("AST nesting too deep") || error.contains("fuel exhausted"),
+                "{template}: {error}"
+            ),
+            Ok(job) => assert_eq!(rig.finish(job), 2, "{template}"),
+        }
+        assert_eq!(rig.run("args recovered"), 0);
+        assert_eq!(rig.calls.borrow().last().unwrap(), &["recovered"]);
+    }
+}
+
+#[test]
 fn braces_preserve_inactive_command_comments_and_deep_parameter_text() {
     check(
         "v=ok; args ${v:-$(# ) }\necho {a,b}\n)} {a,b}${v:-$(# ) }\necho {x,y}\n)}",

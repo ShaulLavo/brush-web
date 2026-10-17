@@ -672,32 +672,29 @@ impl<'a> Parser<'a> {
 
     // Child parsers remain heap-owned throughout recursion; consuming a
     // boxed Parser through `parse(self)` would move it back onto the stack.
+    // THREAT[TM-DOS-044]: every nested substitution re-enters here.
     fn parse_inner(&mut self) -> Result<Script> {
         let mut commands = Vec::new();
         let start_span = self.current_span;
         self.parse_script_into(&mut commands)?;
+        Ok(self.finish_script(commands, start_span))
+    }
+
+    #[inline(never)]
+    fn finish_script(&mut self, commands: Vec<(Command, usize)>, start_span: Span) -> Script {
         let end_span = self.current_span;
         let (commands, command_end_lines) = commands.into_iter().unzip();
         let command_starts = std::mem::take(&mut self.top_starts);
-        Ok(Script {
+        Script {
             commands,
             span: start_span.merge(end_span),
             trailing_error: None,
             command_end_lines,
             source: Some(Arc::from(self.input)),
             command_starts,
-        })
+        }
     }
 
-    /// Parse like bash reads a script: on a syntax error, also return the
-    /// complete commands that ended on lines *before* the line where the
-    /// failing command starts, so the caller can run them first (bash executes
-    /// line by line and only then reports the error, exit 2). Commands sharing
-    /// that line are dropped, as bash parses a whole line before running any
-    /// of it.
-    ///
-    /// Errors deferred from a `$(...)` body carry no reliable position, so
-    /// they keep whole-script semantics: no prefix is returned.
     pub fn parse_recovering(mut self) -> (Script, Option<Error>) {
         let mut commands = Vec::new();
         let start_span = self.current_span;
@@ -756,48 +753,73 @@ impl<'a> Parser<'a> {
 
     /// Top-level command loop. Each command is stored with the line its
     /// terminator (newline, `;`, `&` or EOF) sits on.
+    // THREAT[TM-DOS-044]: on the recursive path; bookkeeping is out of line.
     fn parse_script_into(&mut self, commands: &mut Vec<(Command, usize)>) -> Result<()> {
-        // Check if the very first token is an error
         self.check_error_token()?;
-
-        while self.current_token.is_some() {
-            self.tick()?;
-            self.skip_newlines()?;
-            self.check_error_token()?;
-            if self.current_token.is_none() {
-                break;
-            }
-            let start_offset = self.current_span.start.offset;
-            let start_line = self.current_span.start.line;
-            self.failed_command_line = start_line;
-            self.failed_command_start = (start_offset, start_line);
-            self.top_level_list = true;
-            let parsed = self.parse_command_list()?.map(|cmd| {
-                self.top_starts.push((start_offset, start_line));
-                commands.push((*cmd, self.current_span.start.line));
-            });
-            self.check_error_token()?;
-            // parse_command_list consumes semicolon/background separators.
-            // A remaining token on this line cannot silently start a second
-            // command after a completed compound command or its redirections.
-            if self.strict_command_separators
-                && parsed.is_some()
-                && self.current_token.is_some()
-                && !matches!(self.current_token, Some(tokens::Token::Newline))
-            {
-                return Err(self.error("unexpected token"));
-            }
-            if parsed.is_none()
-                && self.current_token.is_some()
-                && self.current_span.start.offset == start_offset
-            {
-                return Err(self.error("unexpected token"));
-            }
+        while let Some(start) = self.next_script_command()? {
+            let parsed = self.parse_command_list()?;
+            self.end_script_command(commands, parsed, start)?;
         }
+        self.take_script_deferred_error()
+    }
 
-        // A `$(...)` body that failed to parse is a syntax error in the whole
-        // script, exactly as in bash. Surfaced here because `parse_word` cannot
-        // return `Result`.
+    /// Skip to the next top-level command; `None` at the end of input.
+    #[inline(never)]
+    fn next_script_command(&mut self) -> Result<Option<(usize, usize)>> {
+        if self.current_token.is_none() {
+            return Ok(None);
+        }
+        self.tick()?;
+        self.skip_newlines()?;
+        self.check_error_token()?;
+        if self.current_token.is_none() {
+            return Ok(None);
+        }
+        let start_offset = self.current_span.start.offset;
+        let start_line = self.current_span.start.line;
+        self.failed_command_line = start_line;
+        self.failed_command_start = (start_offset, start_line);
+        // bash reads a top-level command up to the end of its line.
+        self.top_level_list = true;
+        Ok(Some((start_offset, start_line)))
+    }
+
+    #[inline(never)]
+    fn end_script_command(
+        &mut self,
+        commands: &mut Vec<(Command, usize)>,
+        parsed: Option<Box<Command>>,
+        (start_offset, start_line): (usize, usize),
+    ) -> Result<()> {
+        let parsed = parsed.is_some_and(|cmd| {
+            self.top_starts.push((start_offset, start_line));
+            commands.push((*cmd, self.current_span.start.line));
+            true
+        });
+        self.check_error_token()?;
+        // A remaining token on this line cannot silently start a second
+        // command after a completed compound command or its redirections.
+        if self.strict_command_separators
+            && parsed
+            && self.current_token.is_some()
+            && !matches!(self.current_token, Some(tokens::Token::Newline))
+        {
+            return Err(self.error("unexpected token"));
+        }
+        if !parsed
+            && self.current_token.is_some()
+            && self.current_span.start.offset == start_offset
+        {
+            return Err(self.error("unexpected token"));
+        }
+        Ok(())
+    }
+
+    /// A `$(...)` body that failed to parse is a syntax error in the whole
+    /// script, exactly as in bash. Surfaced here because word parsing cannot
+    /// return `Result`.
+    #[inline(never)]
+    fn take_script_deferred_error(&mut self) -> Result<()> {
         if let Some(err) = self.deferred_error.take() {
             self.error_was_deferred = true;
             return Err(err);
@@ -845,7 +867,7 @@ impl<'a> Parser<'a> {
         let units = self
             .current_escapes
             .len()
-            .saturating_add(self.lexer.take_boundary_replay_work());
+            .saturating_add(self.lexer.take_boundary_scan_work());
         if let Err(err) = self.tick_units(units) {
             let first = self.deferred_error.take();
             self.deferred_error.set(first.or(Some(err)));
@@ -856,7 +878,7 @@ impl<'a> Parser<'a> {
     fn peek_next(&mut self) -> Option<&tokens::Token> {
         if self.peeked_token.is_none() {
             self.peeked_token = self.lexer.next_spanned_token();
-            let units = self.lexer.take_boundary_replay_work();
+            let units = self.lexer.take_boundary_scan_work();
             if let Err(err) = self.tick_units(units) {
                 let first = self.deferred_error.take();
                 self.deferred_error.set(first.or(Some(err)));
@@ -877,7 +899,31 @@ impl<'a> Parser<'a> {
     // avoid retaining their move temporaries on every recursive parser frame.
     // Unbox only when inserting into the public AST's command vectors.
     /// Parse a command list (commands connected by && or ||)
+    // THREAT[TM-DOS-044]: on the recursive path of every nested substitution.
+    // Operator handling and Command moves live in out-of-line helpers.
     fn parse_command_list(&mut self) -> Result<Option<Box<Command>>> {
+        let top_level = self.begin_command_list()?;
+        let start_span = self.current_span;
+        let first = self.parse_pipeline()?;
+        if first.is_none() {
+            return Ok(None);
+        }
+        let mut rest = Vec::new();
+        while let Some(op) = self.list_operator(top_level, &mut rest)? {
+            match self.parse_pipeline()? {
+                Some(cmd) => push_list_command(&mut rest, op, cmd),
+                None => {
+                    end_list_without_command(&mut rest, op, self.current_span);
+                    break;
+                }
+            }
+        }
+        self.check_list_end()?;
+        finish_command_list(first, rest, start_span.merge(self.current_span))
+    }
+
+    #[inline(never)]
+    fn begin_command_list(&mut self) -> Result<bool> {
         self.tick()?;
         let top_level = std::mem::take(&mut self.top_level_list);
         match self.current_token {
@@ -886,75 +932,68 @@ impl<'a> Parser<'a> {
             Some(tokens::Token::Or) => return Err(self.error("unexpected token: ||")),
             _ => {}
         }
-        let start_span = self.current_span;
-        let first = self.parse_pipeline()?;
-        if first.is_none() {
-            return Ok(None);
-        }
+        Ok(top_level)
+    }
 
-        let mut rest = Vec::new();
-
-        loop {
-            let op = match &self.current_token {
-                Some(tokens::Token::And) => {
-                    self.advance();
-                    ListOperator::And
-                }
-                Some(tokens::Token::Or) => {
-                    self.advance();
-                    ListOperator::Or
-                }
-                Some(tokens::Token::Semicolon) => {
-                    self.advance();
-                    // bash's reader ends a top-level command at the end
-                    // of its line: `{ls;` NL `}` runs `{ls` first.
-                    if top_level && matches!(self.current_token, Some(tokens::Token::Newline)) {
-                        break;
-                    }
-                    self.skip_newlines()?;
-                    // Check if there's more to parse
-                    if self.current_token.is_none()
-                        || matches!(self.current_token, Some(tokens::Token::Newline))
-                    {
-                        break;
-                    }
-                    ListOperator::Semicolon
-                }
-                Some(tokens::Token::Background) => {
-                    self.advance();
-                    if top_level && matches!(self.current_token, Some(tokens::Token::Newline)) {
-                        rest.push(empty_background(self.current_span));
-                        break;
-                    }
-                    self.skip_newlines()?;
-                    // Check if there's more to parse after &
-                    if self.current_token.is_none()
-                        || matches!(self.current_token, Some(tokens::Token::Newline))
-                    {
-                        // Just & at end - return as background
-                        rest.push(empty_background(self.current_span));
-                        break;
-                    }
-                    ListOperator::Background
-                }
-                _ => break,
-            };
-
-            self.skip_newlines()?;
-
-            let parsed = self.parse_pipeline()?.map(|cmd| rest.push((op, *cmd)));
-            if parsed.is_none() {
-                // `{ cmd & }`, `do cmd & done`: the `&` before a closing
-                // keyword still backgrounds `cmd`.
-                if matches!(op, ListOperator::Background) {
-                    rest.push(empty_background(self.current_span));
-                }
-                break;
+    /// Consume the operator after a pipeline and the newlines after it. `None`
+    /// ends the list (a trailing `;` or `&` before a newline or EOF included).
+    #[inline(never)]
+    fn list_operator(
+        &mut self,
+        top_level: bool,
+        rest: &mut Vec<(ListOperator, Command)>,
+    ) -> Result<Option<ListOperator>> {
+        let op = match &self.current_token {
+            Some(tokens::Token::And) => {
+                self.advance();
+                ListOperator::And
             }
-        }
+            Some(tokens::Token::Or) => {
+                self.advance();
+                ListOperator::Or
+            }
+            Some(tokens::Token::Semicolon) => {
+                self.advance();
+                // bash's reader ends a top-level command at the end
+                // of its line: `{ls;` NL `}` runs `{ls` first.
+                if top_level && matches!(self.current_token, Some(tokens::Token::Newline)) {
+                    return Ok(None);
+                }
+                self.skip_newlines()?;
+                // Check if there's more to parse
+                if self.current_token.is_none()
+                    || matches!(self.current_token, Some(tokens::Token::Newline))
+                {
+                    return Ok(None);
+                }
+                ListOperator::Semicolon
+            }
+            Some(tokens::Token::Background) => {
+                self.advance();
+                if top_level && matches!(self.current_token, Some(tokens::Token::Newline)) {
+                    rest.push(empty_background(self.current_span));
+                    return Ok(None);
+                }
+                self.skip_newlines()?;
+                // Check if there's more to parse after &
+                if self.current_token.is_none()
+                    || matches!(self.current_token, Some(tokens::Token::Newline))
+                {
+                    // Just & at end - return as background
+                    rest.push(empty_background(self.current_span));
+                    return Ok(None);
+                }
+                ListOperator::Background
+            }
+            _ => return Ok(None),
+        };
 
-        // No grammar level may silently begin another command without an
-        // operator. Parentheses and reserved terminators belong to its caller.
+        self.skip_newlines()?;
+        Ok(Some(op))
+    }
+
+    #[inline(never)]
+    fn check_list_end(&self) -> Result<()> {
         if self.strict_command_separators
             && matches!(
                 self.current_token,
@@ -963,66 +1002,73 @@ impl<'a> Parser<'a> {
         {
             return Err(self.error("unexpected token"));
         }
-        finish_command_list(first, rest, start_span.merge(self.current_span))
+        Ok(())
     }
 
-    /// Parse a pipeline (commands connected by |)
-    ///
-    /// Handles `!` pipeline negation: `! cmd | cmd2` negates the exit code.
+    // THREAT[TM-DOS-044]: on the recursive path; helpers hold the rest.
     fn parse_pipeline(&mut self) -> Result<Option<Box<Command>>> {
         let start_span = self.current_span;
+        let negated = self.pipeline_negation();
+        let first = self.parse_command()?;
+        if !self.pipeline_continues(first.is_some(), negated)? {
+            return Ok(first);
+        }
+        let mut commands = pipeline_commands(first);
+        while self.next_pipeline_stage(&mut commands)? {
+            match self.parse_command()? {
+                Some(cmd) => push_pipeline_command(&mut commands, cmd),
+                None => return Err(self.error("expected command after |")),
+            }
+        }
+        finish_pipeline(commands, negated, start_span.merge(self.current_span))
+    }
 
-        // Check for pipeline negation: `! command`
-        let negated = match &self.current_token {
+    #[inline(never)]
+    fn pipeline_negation(&mut self) -> bool {
+        match &self.current_token {
             Some(tokens::Token::Word(w)) if w == "!" && self.current_escapes.is_empty() => {
                 self.advance();
                 true
             }
             _ => false,
-        };
+        }
+    }
 
-        let first = self.parse_command()?;
-        if first.is_none() {
+    /// Whether the first command starts a multi-stage or negated pipeline.
+    #[inline(never)]
+    fn pipeline_continues(&self, parsed: bool, negated: bool) -> Result<bool> {
+        if !parsed {
             if negated {
                 return Err(self.error("expected command after !"));
             }
-            return Ok(None);
+            return Ok(false);
         }
-        if !negated
-            && !matches!(
+        Ok(negated
+            || matches!(
                 self.current_token,
                 Some(tokens::Token::Pipe | tokens::Token::PipeBoth)
-            )
-        {
-            return Ok(first);
-        }
-        let mut commands: Vec<Command> = first.into_iter().map(|cmd| *cmd).collect();
+            ))
+    }
 
-        while matches!(
+    /// Consume `|` or `|&` (and newlines after it) before the next stage.
+    #[inline(never)]
+    fn next_pipeline_stage(&mut self, commands: &mut [Command]) -> Result<bool> {
+        if !matches!(
             self.current_token,
             Some(tokens::Token::Pipe | tokens::Token::PipeBoth)
         ) {
-            if matches!(self.current_token, Some(tokens::Token::PipeBoth))
-                && let Some(prev) = commands.last_mut()
-            {
-                add_stderr_to_pipe(prev);
-            }
-            self.advance();
-            self.skip_newlines()?;
-
-            if self
-                .parse_command()?
-                .map(|cmd| commands.push(*cmd))
-                .is_none()
-            {
-                return Err(self.error("expected command after |"));
-            }
+            return Ok(false);
         }
-
-        finish_pipeline(commands, negated, start_span.merge(self.current_span))
+        if matches!(self.current_token, Some(tokens::Token::PipeBoth))
+            && let Some(prev) = commands.last_mut()
+        {
+            add_stderr_to_pipe(prev);
+        }
+        self.advance();
+        self.skip_newlines()?;
+        Ok(true)
     }
 
-    /// Parse redirections that follow a compound command (>, >>, 2>, etc.)
     fn parse_trailing_redirects(&mut self) -> Result<Vec<Redirect>> {
         let mut redirects = Vec::new();
         loop {
@@ -1377,30 +1423,36 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a single command (simple or compound)
+    // THREAT[TM-DOS-044]: on the recursive path. Classification and the
+    // compound dispatch (with its closure instantiations) stay out of line.
     fn parse_command(&mut self) -> Result<Option<Box<Command>>> {
+        match self.command_start()? {
+            CommandStart::Simple => self.parse_simple_command(),
+            start => self.parse_compound_start(start),
+        }
+    }
+
+    #[inline(never)]
+    fn command_start(&mut self) -> Result<CommandStart> {
         self.skip_newlines()?;
         self.check_error_token()?;
         self.expand_command_alias();
 
-        // Check for compound commands and function keyword
         if let Some(tokens::Token::Word(w)) = &self.current_token
             && self.current_escapes.is_empty()
         {
             let word = w.clone();
-            match word.as_str() {
-                "if" => return self.parse_compound_with_redirects(|s| s.parse_if()),
-                "for" => return self.parse_compound_with_redirects(|s| s.parse_for()),
-                "while" => return self.parse_compound_with_redirects(|s| s.parse_while()),
-                "until" => return self.parse_compound_with_redirects(|s| s.parse_until()),
-                "case" => return self.parse_compound_with_redirects(|s| s.parse_case()),
-                "select" => return self.parse_compound_with_redirects(|s| s.parse_select()),
-                "time" => return self.parse_compound_with_redirects(|s| s.parse_time()),
-                "coproc" => return self.parse_compound_with_redirects(|s| s.parse_coproc()),
-                "function" => return self.parse_function_keyword().map(|cmd| Some(Box::new(cmd))),
+            let start = match word.as_str() {
+                "if" => CommandStart::If,
+                "for" => CommandStart::For,
+                "while" => CommandStart::While,
+                "until" => CommandStart::Until,
+                "case" => CommandStart::Case,
+                "select" => CommandStart::Select,
+                "time" => CommandStart::Time,
+                "coproc" => CommandStart::Coproc,
+                "function" => CommandStart::FunctionKeyword,
                 _ => {
-                    // Check for POSIX-style function: name() { body }
-                    // Don't match if word contains '=' (that's an assignment like arr=(a b c))
-                    // Reserved words (`then (cmd)`) never name a function.
                     if !Self::is_assignment_like(&word)
                         && !matches!(
                             word.as_str(),
@@ -1408,38 +1460,56 @@ impl<'a> Parser<'a> {
                         )
                         && matches!(self.peek_next(), Some(tokens::Token::LeftParen))
                     {
-                        return self.parse_function_posix().map(|cmd| Some(Box::new(cmd)));
+                        CommandStart::FunctionPosix
+                    } else {
+                        CommandStart::Simple
                     }
                 }
+            };
+            if start != CommandStart::Simple {
+                return Ok(start);
             }
         }
-
-        // Check for conditional expression [[ ... ]]
-        if matches!(self.current_token, Some(tokens::Token::DoubleLeftBracket)) {
-            return self.parse_compound_with_redirects(|s| s.parse_conditional());
-        }
-
-        // Check for arithmetic command ((expression))
-        if matches!(self.current_token, Some(tokens::Token::DoubleLeftParen)) {
-            return self.parse_compound_with_redirects(|s| s.parse_arithmetic_command());
-        }
-
-        // Check for subshell
-        if matches!(self.current_token, Some(tokens::Token::LeftParen)) {
-            return self.parse_compound_with_redirects(|s| s.parse_subshell());
-        }
-
-        // Check for brace group
-        if matches!(self.current_token, Some(tokens::Token::LeftBrace)) {
-            return self.parse_compound_with_redirects(|s| s.parse_brace_group());
-        }
-
-        // Default to simple command
-        self.parse_simple_command()
-            .map(|cmd| cmd.map(|cmd| Box::new(Command::Simple(cmd))))
+        Ok(match self.current_token {
+            Some(tokens::Token::DoubleLeftBracket) => CommandStart::Conditional,
+            Some(tokens::Token::DoubleLeftParen) => CommandStart::Arithmetic,
+            Some(tokens::Token::LeftParen) => CommandStart::Subshell,
+            Some(tokens::Token::LeftBrace) => CommandStart::BraceGroup,
+            _ => CommandStart::Simple,
+        })
     }
 
-    /// Parse an if statement
+    #[inline(never)]
+    fn parse_compound_start(&mut self, start: CommandStart) -> Result<Option<Box<Command>>> {
+        match start {
+            CommandStart::If => self.parse_compound_with_redirects(|s| s.parse_if()),
+            CommandStart::For => self.parse_compound_with_redirects(|s| s.parse_for()),
+            CommandStart::While => self.parse_compound_with_redirects(|s| s.parse_while()),
+            CommandStart::Until => self.parse_compound_with_redirects(|s| s.parse_until()),
+            CommandStart::Case => self.parse_compound_with_redirects(|s| s.parse_case()),
+            CommandStart::Select => self.parse_compound_with_redirects(|s| s.parse_select()),
+            CommandStart::Time => self.parse_compound_with_redirects(|s| s.parse_time()),
+            CommandStart::Coproc => self.parse_compound_with_redirects(|s| s.parse_coproc()),
+            CommandStart::FunctionKeyword => {
+                self.parse_function_keyword().map(|cmd| Some(Box::new(cmd)))
+            }
+            CommandStart::FunctionPosix => {
+                self.parse_function_posix().map(|cmd| Some(Box::new(cmd)))
+            }
+            CommandStart::Conditional => {
+                self.parse_compound_with_redirects(|s| s.parse_conditional())
+            }
+            CommandStart::Arithmetic => {
+                self.parse_compound_with_redirects(|s| s.parse_arithmetic_command())
+            }
+            CommandStart::Subshell => self.parse_compound_with_redirects(|s| s.parse_subshell()),
+            CommandStart::BraceGroup => {
+                self.parse_compound_with_redirects(|s| s.parse_brace_group())
+            }
+            CommandStart::Simple => unreachable!("simple commands are parsed directly"),
+        }
+    }
+
     fn parse_if(&mut self) -> Result<CompoundCommand> {
         let start_span = self.current_span;
         self.push_depth()?;
@@ -3177,7 +3247,23 @@ impl<'a> Parser<'a> {
     /// The bool indicates whether the caller must call `self.advance()` afterward.
     /// Literal text is already quote-removed data. Protection stays in
     /// `part_quoted` and literal-escape metadata, including for mixed globs.
+    // THREAT[TM-DOS-044]: array elements and scalar values parse words that
+    // may hold nested substitutions, so this frame is on the recursive path.
+    // Source slicing and Assignment assembly live in out-of-line helpers.
     fn try_parse_assignment(&mut self, w: &str) -> Option<(Assignment, bool)> {
+        let mut source = self.assignment_source(w)?;
+        let (value, advanced) = if source.is_array_literal() {
+            (self.assignment_array_value(&source), true)
+        } else if source.value.is_empty() {
+            self.empty_assignment_value(&mut source)
+        } else {
+            (self.assignment_scalar_value(&mut source), true)
+        };
+        Some(finish_assignment(source, value, advanced))
+    }
+
+    #[inline(never)]
+    fn assignment_source(&self, w: &str) -> Option<Box<AssignmentSource>> {
         let (name, index, value, is_append) = Self::is_assignment(w)?;
         let value_start = w.len() - value.len();
         let operator_start = value_start - if is_append { 2 } else { 1 };
@@ -3217,108 +3303,71 @@ impl<'a> Parser<'a> {
             }),
         };
         let value_str = value.to_string();
-
-        // Array literal in the token itself: arr=(a b c)
-        if value_str.starts_with('(')
-            && value_str.ends_with(')')
-            && !value_escapes
-                .iter()
-                .any(|escape| escape.start == 0 || escape.end == value_str.len())
-        {
-            let inner = &value_str[1..value_str.len() - 1];
-            let mut elements: Vec<Word> = Self::split_array_elements(inner)
-                .into_iter()
-                .map(|(s, quoted)| {
-                    if quoted {
-                        let mut w = self.parse_word(s);
-                        w.quoted = true;
-                        w
-                    } else {
-                        self.parse_word(s)
-                    }
-                })
-                .collect();
-            if let Some(raw) = value_raw.as_deref() {
-                let raw_inner = raw
-                    .strip_prefix('(')
-                    .and_then(|r| r.strip_suffix(')'))
-                    .unwrap_or(raw);
-                let raws = split_raw_words(raw_inner);
-                if raws.len() == elements.len() {
-                    for (elem, r) in elements.iter_mut().zip(raws) {
-                        elem.raw = Some(r);
-                    }
-                }
-            }
-            return Some((
-                Assignment {
-                    name,
-                    index,
-                    value: AssignmentValue::Array(elements),
-                    append: is_append,
-                },
-                true,
-            ));
-        }
-
-        // Empty value — check for arr=(...) syntax with separate tokens
-        if value_str.is_empty() {
-            let word_end = self.current_span.end.offset;
-            self.advance();
-            // `a= (1 2)` is not an array literal: the blank ends the
-            // assignment and `(` is then a syntax error (bash).
-            if matches!(self.current_token, Some(tokens::Token::LeftParen))
-                && self.current_span.start.offset == word_end
-            {
-                self.advance(); // consume '('
-                let elements = self.collect_array_elements();
-                return Some((
-                    Assignment {
-                        name,
-                        index,
-                        value: AssignmentValue::Array(elements),
-                        append: is_append,
-                    },
-                    false,
-                ));
-            }
-            if matches!(self.current_token, Some(tokens::Token::LeftParen)) {
-                let err = self.error("unexpected token");
-                let first = self.deferred_error.take();
-                self.deferred_error.set(first.or(Some(err)));
-            }
-            // Empty assignment: VAR=
-            let mut empty = Word::literal("");
-            empty.raw = value_raw;
-            return Some((
-                Assignment {
-                    name,
-                    index,
-                    value: AssignmentValue::Scalar(empty),
-                    append: is_append,
-                },
-                false,
-            ));
-        }
-
-        // The lexer has already removed source quotes. Quote bytes in this
-        // spelling are data, and only the lexical metadata can protect them.
-        let mut value_word = self.parse_word_with_escapes(value_str, &value_escapes);
-        value_word.raw = value_raw;
-        Some((
-            Assignment {
-                name,
-                index,
-                value: AssignmentValue::Scalar(value_word),
-                append: is_append,
-            },
-            true,
-        ))
+        Some(Box::new(AssignmentSource {
+            name,
+            index,
+            value: value_str,
+            escapes: value_escapes,
+            raw: value_raw,
+            append: is_append,
+        }))
     }
 
-    /// Parse a compound array argument in arg position (e.g. `declare -a arr=(x y z)`).
-    /// Called when the current word ends with `=` and the next token is `(`.
-    /// Returns the compound word if successful, or `None` if not a compound assignment.
+    #[inline(never)]
+    fn assignment_array_value(&self, source: &AssignmentSource) -> AssignmentValue {
+        let inner = &source.value[1..source.value.len() - 1];
+        let mut elements: Vec<Word> = Self::split_array_elements(inner)
+            .into_iter()
+            .map(|(s, quoted)| {
+                let mut word = self.parse_word(s);
+                word.quoted |= quoted;
+                word
+            })
+            .collect();
+        if let Some(raw) = source.raw.as_deref() {
+            let raw_inner = raw
+                .strip_prefix('(')
+                .and_then(|r| r.strip_suffix(')'))
+                .unwrap_or(raw);
+            let raws = split_raw_words(raw_inner);
+            if raws.len() == elements.len() {
+                for (elem, r) in elements.iter_mut().zip(raws) {
+                    elem.raw = Some(r);
+                }
+            }
+        }
+        AssignmentValue::Array(elements)
+    }
+
+    /// `name=` followed by an adjacent `(` starts an array; otherwise empty.
+    #[inline(never)]
+    fn empty_assignment_value(&mut self, source: &mut AssignmentSource) -> (AssignmentValue, bool) {
+        let word_end = self.current_span.end.offset;
+        self.advance();
+        if matches!(self.current_token, Some(tokens::Token::LeftParen))
+            && self.current_span.start.offset == word_end
+        {
+            self.advance(); // consume '('
+            return (AssignmentValue::Array(self.collect_array_elements()), false);
+        }
+        if matches!(self.current_token, Some(tokens::Token::LeftParen)) {
+            let err = self.error("unexpected token");
+            let first = self.deferred_error.take();
+            self.deferred_error.set(first.or(Some(err)));
+        }
+        let mut empty = Word::literal("");
+        empty.raw = source.raw.take();
+        (AssignmentValue::Scalar(empty), false)
+    }
+
+    #[inline(never)]
+    fn assignment_scalar_value(&self, source: &mut AssignmentSource) -> AssignmentValue {
+        let mut word =
+            self.parse_word_with_escapes(std::mem::take(&mut source.value), &source.escapes);
+        word.raw = source.raw.take();
+        AssignmentValue::Scalar(word)
+    }
+
     fn try_parse_compound_array_arg(
         &mut self,
         saved_w: String,
@@ -3539,140 +3588,176 @@ impl<'a> Parser<'a> {
             && s[1..s.len() - 1].starts_with(|c: char| c.is_alphabetic() || c == '_')
     }
 
-    fn parse_simple_command(&mut self) -> Result<Option<SimpleCommand>> {
-        self.tick()?;
-        self.skip_newlines()?;
-        self.check_error_token()?;
-        let start_span = self.current_span;
-        let mut expansion_line = None;
-
-        let mut assignments = Vec::new();
-        let mut words = Vec::new();
-        let mut redirects = Vec::new();
-        // End offset of the word or assignment just parsed (usize::MAX:
-        // none); a process substitution touching it joins that word.
-        let mut join_end = usize::MAX;
-
+    // THREAT[TM-DOS-044]: on the recursive path. The in-progress command is
+    // boxed and token handling is out of line, so this frame stays small.
+    fn parse_simple_command(&mut self) -> Result<Option<Box<Command>>> {
+        let mut parts = self.begin_simple_command()?;
         loop {
-            if words.is_empty() {
-                // `FOO=1 ll`, `>f ll`: the first word after assignments and
-                // redirects is a command name.
-                self.expand_command_alias();
-            }
-            if join_end == self.current_span.start.offset
-                && self.join_adjacent_word(&mut words, &mut assignments)?
-            {
-                join_end = self.prev_token_end;
-                continue;
-            }
-            let counts = (words.len(), assignments.len());
-            match &self.current_token {
-                Some(
-                    tokens::Token::Word(_)
-                    | tokens::Token::LiteralWord(_)
-                    | tokens::Token::QuotedWord(_)
-                    | tokens::Token::QuotedGlobWord(_),
-                ) => {
-                    if !self.parse_simple_word(&mut words, &mut assignments) {
+            let counts = (parts.words.len(), parts.assignments.len());
+            match self.simple_command_step(&mut parts)? {
+                SimpleStep::Word => {
+                    if !self.parse_simple_word(&mut parts.words, &mut parts.assignments) {
                         break;
                     }
                 }
-                Some(tokens::Token::HereDoc)
-                | Some(tokens::Token::HereDocStrip)
-                | Some(tokens::Token::HereDocFd(..)) => {
-                    // Words and redirects may follow on the same line
-                    // (`cat <<A <<B`, `paste - <<A 3<<B`, `cat <<A file`).
-                    let fd_var = if matches!(self.current_token, Some(tokens::Token::HereDocFd(..)))
-                    {
-                        None
-                    } else {
-                        Self::pop_fd_var(&mut words)
-                    };
-                    self.parse_heredoc_redirect(&mut redirects, fd_var)?;
-                }
-                Some(tokens::Token::ProcessSubIn) | Some(tokens::Token::ProcessSubOut) => {
-                    let word = self.expect_word()?;
-                    words.push(word);
-                }
-                Some(
-                    tokens::Token::RedirectOut
-                    | tokens::Token::Clobber
-                    | tokens::Token::RedirectAppend
-                    | tokens::Token::RedirectIn
-                    | tokens::Token::HereString
-                    | tokens::Token::RedirectBoth
-                    | tokens::Token::DupOutput
-                    | tokens::Token::RedirectFd(_)
-                    | tokens::Token::RedirectFdAppend(_)
-                    | tokens::Token::DupFd(..)
-                    | tokens::Token::DupFdCloseOut(_)
-                    | tokens::Token::DupFdWord(_)
-                    | tokens::Token::DupInput
-                    | tokens::Token::DupFdIn(..)
-                    | tokens::Token::DupFdClose(_)
-                    | tokens::Token::RedirectFdIn(_)
-                    | tokens::Token::RedirectReadWrite
-                    | tokens::Token::RedirectFdReadWrite(_)
-                    | tokens::Token::HereStringFd(_),
-                ) => {
-                    self.parse_simple_redirect(&mut words, &mut redirects)?;
-                }
-                Some(tokens::Token::RedirectBothAppend) => {
-                    self.parse_append_both(&mut words, &mut redirects)?;
-                }
-                // {, } and ]] as arguments (not in command position) are literal words
-                Some(
-                    tokens::Token::LeftBrace
-                    | tokens::Token::RightBrace
-                    | tokens::Token::DoubleRightBracket,
-                ) if !words.is_empty() => {
-                    let sym = match self.current_token {
-                        Some(tokens::Token::LeftBrace) => "{",
-                        Some(tokens::Token::RightBrace) => "}",
-                        _ => "]]",
-                    };
-                    words.push(Word::literal(sym));
-                    self.advance();
-                }
-                // After an assignment `[[` is no longer a reserved word:
-                // `FOO=bar [[ x ]]` runs a command named `[[` (bash: 127).
-                Some(tokens::Token::DoubleLeftBracket)
-                    if !words.is_empty() || !assignments.is_empty() =>
-                {
-                    words.push(Word::literal("[["));
-                    self.advance();
-                }
-                // `echo a(b)`, `foo $x() {`: a `(` after a command word is a
-                // syntax error in bash, not the start of a subshell.
-                Some(tokens::Token::LeftParen) if !words.is_empty() => {
-                    return Err(self.error("unexpected token"));
-                }
-                Some(tokens::Token::Newline)
-                | Some(tokens::Token::Semicolon)
-                | Some(tokens::Token::Pipe)
-                | Some(tokens::Token::And)
-                | Some(tokens::Token::Or)
-                | None => break,
-                _ => break,
+                SimpleStep::Joined => continue,
+                SimpleStep::Other => {}
+                SimpleStep::Done => break,
             }
-            if expansion_line.is_none() {
-                expansion_line = Some(self.last_token_line);
-            }
-            join_end = if words.len() > counts.0 || assignments.len() > counts.1 {
-                self.prev_token_end
-            } else {
-                usize::MAX
-            };
+            self.after_simple_token(&mut parts, counts);
         }
+        self.finish_simple(parts)
+    }
 
+    #[inline(never)]
+    fn begin_simple_command(&mut self) -> Result<Box<SimpleParts>> {
+        self.tick()?;
+        self.skip_newlines()?;
+        self.check_error_token()?;
+        Ok(Box::new(SimpleParts {
+            start_span: self.current_span,
+            expansion_line: None,
+            assignments: Vec::new(),
+            words: Vec::new(),
+            redirects: Vec::new(),
+            join_end: usize::MAX,
+        }))
+    }
+
+    /// Handle one token of a simple command, except plain words, which
+    /// `parse_simple_command` parses itself (`SimpleStep::Word`).
+    #[inline(never)]
+    fn simple_command_step(&mut self, parts: &mut SimpleParts) -> Result<SimpleStep> {
+        if parts.words.is_empty() {
+            // `FOO=1 ll`, `>f ll`: the first word after assignments and
+            // redirects is a command name.
+            self.expand_command_alias();
+        }
+        if parts.join_end == self.current_span.start.offset
+            && self.join_adjacent_word(&mut parts.words, &mut parts.assignments)?
+        {
+            parts.join_end = self.prev_token_end;
+            return Ok(SimpleStep::Joined);
+        }
+        match &self.current_token {
+            Some(
+                tokens::Token::Word(_)
+                | tokens::Token::LiteralWord(_)
+                | tokens::Token::QuotedWord(_)
+                | tokens::Token::QuotedGlobWord(_),
+            ) => return Ok(SimpleStep::Word),
+            Some(tokens::Token::HereDoc)
+            | Some(tokens::Token::HereDocStrip)
+            | Some(tokens::Token::HereDocFd(..)) => {
+                // Words and redirects may follow on the same line
+                // (`cat <<A <<B`, `paste - <<A 3<<B`, `cat <<A file`).
+                let fd_var = if matches!(self.current_token, Some(tokens::Token::HereDocFd(..)))
+                {
+                    None
+                } else {
+                    Self::pop_fd_var(&mut parts.words)
+                };
+                self.parse_heredoc_redirect(&mut parts.redirects, fd_var)?;
+            }
+            Some(tokens::Token::ProcessSubIn) | Some(tokens::Token::ProcessSubOut) => {
+                let word = self.expect_word()?;
+                parts.words.push(word);
+            }
+            Some(
+                tokens::Token::RedirectOut
+                | tokens::Token::Clobber
+                | tokens::Token::RedirectAppend
+                | tokens::Token::RedirectIn
+                | tokens::Token::HereString
+                | tokens::Token::RedirectBoth
+                | tokens::Token::DupOutput
+                | tokens::Token::RedirectFd(_)
+                | tokens::Token::RedirectFdAppend(_)
+                | tokens::Token::DupFd(..)
+                | tokens::Token::DupFdCloseOut(_)
+                | tokens::Token::DupFdWord(_)
+                | tokens::Token::DupInput
+                | tokens::Token::DupFdIn(..)
+                | tokens::Token::DupFdClose(_)
+                | tokens::Token::RedirectFdIn(_)
+                | tokens::Token::RedirectReadWrite
+                | tokens::Token::RedirectFdReadWrite(_)
+                | tokens::Token::HereStringFd(_),
+            ) => {
+                self.parse_simple_redirect(&mut parts.words, &mut parts.redirects)?;
+            }
+            Some(tokens::Token::RedirectBothAppend) => {
+                self.parse_append_both(&mut parts.words, &mut parts.redirects)?;
+            }
+            // {, } and ]] as arguments (not in command position) are literal words
+            Some(
+                tokens::Token::LeftBrace
+                | tokens::Token::RightBrace
+                | tokens::Token::DoubleRightBracket,
+            ) if !parts.words.is_empty() => {
+                let sym = match self.current_token {
+                    Some(tokens::Token::LeftBrace) => "{",
+                    Some(tokens::Token::RightBrace) => "}",
+                    _ => "]]",
+                };
+                parts.words.push(Word::literal(sym));
+                self.advance();
+            }
+            // After an assignment `[[` is no longer a reserved word:
+            // `FOO=bar [[ x ]]` runs a command named `[[` (bash: 127).
+            Some(tokens::Token::DoubleLeftBracket)
+                if !parts.words.is_empty() || !parts.assignments.is_empty() =>
+            {
+                parts.words.push(Word::literal("[["));
+                self.advance();
+            }
+            // `echo a(b)`, `foo $x() {`: a `(` after a command word is a
+            // syntax error in bash, not the start of a subshell.
+            Some(tokens::Token::LeftParen) if !parts.words.is_empty() => {
+                return Err(self.error("unexpected token"));
+            }
+            Some(tokens::Token::Newline)
+            | Some(tokens::Token::Semicolon)
+            | Some(tokens::Token::Pipe)
+            | Some(tokens::Token::And)
+            | Some(tokens::Token::Or)
+            | None => return Ok(SimpleStep::Done),
+            _ => return Ok(SimpleStep::Done),
+        }
+        Ok(SimpleStep::Other)
+    }
+
+    #[inline(never)]
+    fn after_simple_token(&mut self, parts: &mut SimpleParts, counts: (usize, usize)) {
+        if parts.expansion_line.is_none() {
+            parts.expansion_line = Some(self.last_token_line);
+        }
+        parts.join_end = if parts.words.len() > counts.0 || parts.assignments.len() > counts.1 {
+            self.prev_token_end
+        } else {
+            usize::MAX
+        };
+    }
+
+    #[inline(never)]
+    fn finish_simple(&mut self, parts: Box<SimpleParts>) -> Result<Option<Box<Command>>> {
+        let SimpleParts {
+            start_span,
+            expansion_line,
+            assignments,
+            words,
+            mut redirects,
+            ..
+        } = *parts;
         self.anchor_redirects(&mut redirects, expansion_line)?;
-        finish_simple_command(
+        let simple = finish_simple_command(
             words,
             assignments,
             redirects,
             start_span.merge(self.current_span),
             expansion_line,
-        )
+        )?;
+        Ok(box_simple_command(simple))
     }
 
     /// `x<(true)`, `<(true)x`, `x=<(true)`: a process substitution and the
@@ -3742,70 +3827,97 @@ impl<'a> Parser<'a> {
         words: &mut Vec<Word>,
         assignments: &mut Vec<Assignment>,
     ) -> bool {
-        let (w, is_literal, is_quoted, is_glob_quoted) = match &self.current_token {
-            Some(tokens::Token::Word(w)) => (w.clone(), false, false, false),
-            Some(tokens::Token::LiteralWord(w)) => (w.clone(), true, false, false),
-            Some(tokens::Token::QuotedWord(w)) => (w.clone(), false, true, false),
-            Some(tokens::Token::QuotedGlobWord(w)) => (w.clone(), false, true, true),
-            _ => return false,
-        };
-        // Stop if this word cannot start a command (like 'then', 'fi', etc.)
-        if words.is_empty()
-            && !is_literal
-            && !is_quoted
-            && self.current_escapes.is_empty()
-            && Self::is_non_command_word(&w)
-        {
+        let Some(token) = self.simple_word_token(words) else {
             return false;
-        }
-
+        };
         // Check for assignment (only before the command name, not for literal words)
         if words.is_empty()
-            && !is_literal
-            && let Some((assignment, needs_advance)) = self.try_parse_assignment(&w)
+            && !token.is_literal
+            && let Some(assignment) = self.try_parse_assignment(&token.text)
         {
-            if needs_advance {
-                self.advance();
-            }
-            assignments.push(assignment);
+            self.push_assignment(assignments, assignment);
             return true;
         }
-
         // Handle compound array assignment in arg position:
         // declare -a arr=(x y z) → arr=(x y z) as single arg
         // Only a declaration builtin, `let` or `eval` named directly takes
         // one: bash rejects `builtin declare a=(x)`, `echo a=(x)` and
         // `command typeset a=(x)` at `(`.
-        let decl_command = words.first().is_some_and(|w0| {
-            !w0.quoted
-                && matches!(w0.parts.as_slice(), [WordPart::Literal(n)]
-                    if matches!(n.as_str(), "declare" | "typeset" | "local" | "export" | "readonly" | "let" | "eval"))
-        });
-        if w.ends_with('=') && decl_command {
-            return self.parse_declaration_word(words, w, is_literal, is_quoted, is_glob_quoted);
+        if token.text.ends_with('=') && is_declaration_command(words) {
+            let SimpleWordToken {
+                text,
+                is_literal,
+                is_quoted,
+                is_glob_quoted,
+            } = *token;
+            return self.parse_declaration_word(words, text, is_literal, is_quoted, is_glob_quoted);
         }
+        let word = self.simple_word(token);
+        self.push_simple_word(words, word);
+        true
+    }
 
-        let word = if is_literal {
-            Word {
-                parts: vec![WordPart::Literal(w)],
-                quoted: true,
-                has_unquoted_glob: false,
-                part_quoted: Vec::new(),
-                raw: self.current_raw.clone(),
-            }
-        } else {
-            let mut word = self.parse_current_word(w);
-            if is_quoted {
-                word.quoted = true;
-            }
-            if is_glob_quoted {
-                word.has_unquoted_glob = true;
-            }
-            word
+    /// The current word token, unless it cannot start a command here (like
+    /// `then` or `fi` in command position).
+    #[inline(never)]
+    fn simple_word_token(&self, words: &[Word]) -> Option<Box<SimpleWordToken>> {
+        let (text, is_literal, is_quoted, is_glob_quoted) = match &self.current_token {
+            Some(tokens::Token::Word(w)) => (w.clone(), false, false, false),
+            Some(tokens::Token::LiteralWord(w)) => (w.clone(), true, false, false),
+            Some(tokens::Token::QuotedWord(w)) => (w.clone(), false, true, false),
+            Some(tokens::Token::QuotedGlobWord(w)) => (w.clone(), false, true, true),
+            _ => return None,
         };
+        if words.is_empty()
+            && !is_literal
+            && !is_quoted
+            && self.current_escapes.is_empty()
+            && Self::is_non_command_word(&text)
+        {
+            return None;
+        }
+        Some(Box::new(SimpleWordToken {
+            text,
+            is_literal,
+            is_quoted,
+            is_glob_quoted,
+        }))
+    }
+
+    #[inline(never)]
+    fn push_assignment(&mut self, assignments: &mut Vec<Assignment>, parsed: (Assignment, bool)) {
+        let (assignment, needs_advance) = parsed;
+        if needs_advance {
+            self.advance();
+        }
+        assignments.push(assignment);
+    }
+
+    fn simple_word(&self, token: Box<SimpleWordToken>) -> Word {
+        if token.is_literal {
+            return self.literal_simple_word(token.text);
+        }
+        let mut word = self.parse_current_word(token.text);
+        word.quoted |= token.is_quoted;
+        word.has_unquoted_glob |= token.is_glob_quoted;
+        word
+    }
+
+    #[inline(never)]
+    fn literal_simple_word(&self, text: String) -> Word {
+        Word {
+            parts: vec![WordPart::Literal(text)],
+            quoted: true,
+            has_unquoted_glob: false,
+            part_quoted: Vec::new(),
+            raw: self.current_raw.clone(),
+        }
+    }
+
+    #[inline(never)]
+    fn push_simple_word(&mut self, words: &mut Vec<Word>, word: Word) {
         words.push(self.with_raw(word));
         self.advance();
-        true
     }
 
     #[inline(never)]
@@ -4985,10 +5097,26 @@ impl<'a> Parser<'a> {
         self.parse_word_inner(s, escapes, false)
     }
 
+    // THREAT[TM-DOS-044]: nested `$(...)` bodies parse after the scan loop's
+    // large frame has returned, so each substitution level keeps only this
+    // small frame and `parse_word_substitutions` on the recursive path.
     fn parse_word_inner(&self, s: String, escapes: &[LiteralEscape], preserve_empty: bool) -> Word {
+        let mut scanned = self.scan_word_parts(&s, escapes);
+        drop(s);
+        if !scanned.pending.is_empty() {
+            self.parse_word_substitutions(&mut scanned);
+        }
+        finish_scanned_word(scanned, preserve_empty)
+    }
+
+    /// One pass over the word's characters. Command substitution bodies are
+    /// recorded in `pending` with placeholder parts, not parsed here.
+    #[inline(never)]
+    fn scan_word_parts(&self, s: &str, escapes: &[LiteralEscape]) -> Box<ScannedWord> {
+        let mut pending: Vec<PendingSubstitution> = Vec::new();
         let mut parts = Vec::new();
         let mut part_quoted = Vec::new();
-        let mut chars = WordChars::new(&s, escapes);
+        let mut chars = WordChars::new(s, escapes);
         let mut current = String::new();
         let mut in_quoted_segment = false;
         // Parts count when the current quoted segment opened, to spot `""`.
@@ -5086,57 +5214,30 @@ impl<'a> Parser<'a> {
                     // Check for $( - command substitution or arithmetic
                     chars.next(); // consume first '('
 
-                    // The shared scanner resolves both real arithmetic and
-                    // command-subshell fallback, including quotes/comments and
-                    // logically adjacent parentheses across continuations.
-                    let mut body = String::new();
-                    let mut scanner = subst_scan::SubstScanner::new();
-                    match self.scan_word_substitution(&mut scanner, &chars) {
-                        Ok((end, closed)) => {
-                            let mut consumed = 0;
-                            while consumed < end {
-                                let Some(c) = chars.next() else {
-                                    break;
-                                };
-                                consumed += c.len_utf8();
-                                if !closed || consumed < end {
-                                    body.push(c);
-                                }
-                            }
+                    match self.read_word_substitution(&mut chars) {
+                        Ok(WordSubstitution::Arithmetic(expression)) => {
+                            push_part!(WordPart::ArithmeticExpansion(expression));
+                        }
+                        Ok(WordSubstitution::Command { body, fused }) => {
+                            // A failed inner parse must never make the part
+                            // vanish: dropping it splices the literals on
+                            // either side into a word that appears nowhere in
+                            // the source (`a$(|)b` -> `ab`), which `analysis`
+                            // would report to a host permission gate as a real
+                            // command name. The placeholder keeps the word
+                            // non-literal until `parse_word_substitutions`.
+                            pending.push(PendingSubstitution {
+                                index: parts.len(),
+                                body,
+                                fused,
+                                first_error: !self.has_deferred_error(),
+                            });
+                            push_part!(WordPart::CommandSubstitution(Vec::new()));
                         }
                         Err(err) => {
+                            push_part!(WordPart::CommandSubstitution(Vec::new()));
                             let first = self.deferred_error.take();
                             self.deferred_error.set(first.or(Some(err)));
-                        }
-                    }
-                    if let Some(start) = scanner.arithmetic_start()
-                        && let Some(expression) = body.get(start + 1..).and_then(|expression| {
-                            expression.trim_end_matches("\\\n").strip_suffix(')')
-                        })
-                    {
-                        push_part!(WordPart::ArithmeticExpansion(expression.to_string()));
-                    } else {
-                        let cmd_str = body;
-                        // A failed inner parse must never make the part vanish:
-                        // dropping it splices the literals on either side into a
-                        // word that appears nowhere in the source (`a$(|)b` ->
-                        // `ab`), which `analysis` would then report to a host
-                        // permission gate as a real command name. Keep the part
-                        // so the word stays non-literal, and remember the error so
-                        // `parse_script` can reject the script like bash does.
-                        match self
-                            .nested_parser(&cmd_str)
-                            .and_then(|mut parser| parser.parse_inner())
-                        {
-                            Ok(script) => {
-                                push_part!(WordPart::CommandSubstitution(script.commands));
-                            }
-                            Err(err) => {
-                                push_part!(WordPart::CommandSubstitution(Vec::new()));
-                                // Keep the first error; `take` would drop it.
-                                let first = self.deferred_error.take();
-                                self.deferred_error.set(first.or(Some(err)));
-                            }
                         }
                     }
                 } else if chars.peek() == Some(&'{') {
@@ -5182,14 +5283,63 @@ impl<'a> Parser<'a> {
             push_part!(WordPart::Literal(current));
         }
 
-        finish_word(
+        Box::new(ScannedWord {
             parts,
             part_quoted,
             has_empty_quoted,
-            preserve_empty,
             saw_quote_marker,
             in_quoted_segment,
-        )
+            pending,
+        })
+    }
+
+    fn has_deferred_error(&self) -> bool {
+        let first = self.deferred_error.take();
+        let present = first.is_some();
+        self.deferred_error.set(first);
+        present
+    }
+
+    /// Parse the recorded `$(...)` bodies in source order. Keep this frame
+    /// small: it is the word-level link of every nested substitution parse.
+    #[inline(never)]
+    fn parse_word_substitutions(&self, scanned: &mut ScannedWord) {
+        let mut replaced_later_error = false;
+        for pending in std::mem::take(&mut scanned.pending) {
+            let result = self.parse_substitution_body(&pending.body);
+            self.place_substitution(scanned, pending, result, &mut replaced_later_error);
+        }
+    }
+
+    #[inline(never)]
+    fn parse_substitution_body(&self, body: &str) -> Result<Script> {
+        self.nested_parser(body)?.parse_inner()
+    }
+
+    #[inline(never)]
+    fn place_substitution(
+        &self,
+        scanned: &mut ScannedWord,
+        pending: PendingSubstitution,
+        result: Result<Script>,
+        replaced_later_error: &mut bool,
+    ) {
+        let part = match result {
+            Ok(script) => WordPart::CommandSubstitution(script.commands),
+            Err(err) => match substitution_error(pending.body, pending.fused, err) {
+                Ok(part) => part,
+                Err(err) => {
+                    // Keep the first error in source order. Errors the scan
+                    // loop recorded after this body came later in the source.
+                    let first = self.deferred_error.take();
+                    let keep = first.filter(|_| *replaced_later_error || !pending.first_error);
+                    *replaced_later_error |= keep.is_none();
+                    self.deferred_error.set(keep.or(Some(err)));
+                    return;
+                }
+            },
+        };
+        scanned.parts[pending.index] = part;
     }
 
     /// Both direct replacement parsing and lazy scalar reparsing consume the
@@ -5261,32 +5411,48 @@ impl<'a> Parser<'a> {
         out
     }
 
+    /// Read a `$(...)` span after its `$(` and classify it. Boundary state and
+    /// extraction temporaries stay off the recursive grammar frames.
+    #[inline(never)]
+    fn read_word_substitution(&self, chars: &mut WordChars<'_>) -> Result<WordSubstitution> {
+        let mut scanner = subst_scan::SubstScanner::new();
+        let (end, closed) = self.scan_word_substitution(&mut scanner, chars)?;
+        let mut body = String::new();
+        let mut consumed = 0;
+        while consumed < end {
+            let Some(c) = chars.next() else {
+                break;
+            };
+            consumed += c.len_utf8();
+            if !closed || consumed < end {
+                body.push(c);
+            }
+        }
+        // An unterminated span keeps its eager command parse and errors.
+        let fused = closed.then(|| scanner.arithmetic_start()).flatten();
+        if let Some(start) = fused {
+            if let Some(expression) = subst_scan::arithmetic_expression(&body, start) {
+                return Ok(WordSubstitution::Arithmetic(expression.to_string()));
+            }
+        }
+        Ok(WordSubstitution::Command {
+            body,
+            fused: fused.is_some(),
+        })
+    }
+
     fn scan_word_substitution(
         &self,
         scanner: &mut subst_scan::SubstScanner,
         chars: &WordChars<'_>,
     ) -> Result<(usize, bool)> {
-        let mut lookahead = chars.clone();
-        let mut finished = false;
-        let mut step = subst_scan::Step::Body;
-        loop {
-            match step {
-                subst_scan::Step::Close => return Ok((scanner.offset(), true)),
-                subst_scan::Step::Limit => return Err(self.limit_error(scanner.limit_exceeded())),
-                subst_scan::Step::Body => {}
-            }
+        for c in chars.clone() {
             self.tick()?;
-            step = if scanner.has_pending() {
-                scanner.resume()
-            } else if let Some(c) = lookahead.next() {
-                scanner.feed(c)
-            } else if !finished {
-                finished = true;
-                scanner.finish()
-            } else {
-                return Ok((scanner.offset(), false));
-            };
+            if scanner.feed(c) == subst_scan::Step::Close {
+                return Ok((scanner.offset(), true));
+            }
         }
+        Ok((scanner.offset(), false))
     }
 
     fn copy_replace_substitution(&self, chars: &mut WordChars<'_>, out: &mut String) {
@@ -5307,6 +5473,114 @@ impl<'a> Parser<'a> {
                 self.deferred_error.set(first.or(Some(err)));
             }
         }
+    }
+}
+
+/// The pieces of `name[index]=value` before its value is parsed.
+struct AssignmentSource {
+    name: String,
+    index: Option<String>,
+    value: String,
+    escapes: Vec<LiteralEscape>,
+    raw: Option<String>,
+    append: bool,
+}
+
+impl AssignmentSource {
+    /// `name=(...)` written as one word, its parentheses unescaped.
+    fn is_array_literal(&self) -> bool {
+        self.value.starts_with('(')
+            && self.value.ends_with(')')
+            && !self
+                .escapes
+                .iter()
+                .any(|escape| escape.start == 0 || escape.end == self.value.len())
+    }
+}
+
+#[inline(never)]
+fn finish_assignment(
+    source: Box<AssignmentSource>,
+    value: AssignmentValue,
+    advanced: bool,
+) -> (Assignment, bool) {
+    let AssignmentSource {
+        name,
+        index,
+        append,
+        ..
+    } = *source;
+    (
+        Assignment {
+            name,
+            index,
+            value,
+            append,
+        },
+        advanced,
+    )
+}
+
+/// A word's parts before its nested command substitutions are parsed.
+struct ScannedWord {
+    parts: Vec<WordPart>,
+    part_quoted: Vec<bool>,
+    has_empty_quoted: bool,
+    saw_quote_marker: bool,
+    in_quoted_segment: bool,
+    pending: Vec<PendingSubstitution>,
+}
+
+/// A `$(...)` body waiting for its nested parse, and its placeholder part.
+struct PendingSubstitution {
+    index: usize,
+    body: String,
+    /// Opened as `$((` but is not arithmetic: bash parses it on expansion.
+    fused: bool,
+    /// No earlier error in source order was recorded when it was scanned.
+    first_error: bool,
+}
+
+enum WordSubstitution {
+    Arithmetic(String),
+    Command { body: String, fused: bool },
+}
+
+#[inline(never)]
+fn finish_scanned_word(scanned: Box<ScannedWord>, preserve_empty: bool) -> Word {
+    let ScannedWord {
+        parts,
+        part_quoted,
+        has_empty_quoted,
+        saw_quote_marker,
+        in_quoted_segment,
+        pending: _,
+    } = *scanned;
+    finish_word(
+        parts,
+        part_quoted,
+        has_empty_quoted,
+        preserve_empty,
+        saw_quote_marker,
+        in_quoted_segment,
+    )
+}
+
+/// Bash parses a non-arithmetic `$((` span only when it expands, so its
+/// syntax error belongs to that expansion. Resource limits still reject the
+/// script, as does any error in an ordinary `$(` body.
+#[inline(never)]
+fn substitution_error(body: String, fused: bool, err: Error) -> Result<WordPart> {
+    match err {
+        Error::Parse { message, .. } if fused => Ok(WordPart::UnparsedCommandSubstitution {
+            source: body,
+            error: message,
+        }),
+        Error::ShellWord { line } if fused => Ok(WordPart::UnparsedCommandSubstitution {
+            source: body,
+            error: format!("syntax error while looking for matching `)' at line {line}"),
+        }),
+        err => Err(err),
     }
 }
 
@@ -5469,6 +5743,93 @@ fn finish_simple_command(
         assignments,
         span,
     }))
+}
+
+/// A word token of a simple command, before it is parsed.
+struct SimpleWordToken {
+    text: String,
+    is_literal: bool,
+    is_quoted: bool,
+    is_glob_quoted: bool,
+}
+
+/// A declaration builtin, `let` or `eval` named directly as the command.
+fn is_declaration_command(words: &[Word]) -> bool {
+    words.first().is_some_and(|w0| {
+        !w0.quoted
+            && matches!(w0.parts.as_slice(), [WordPart::Literal(n)]
+                if matches!(n.as_str(), "declare" | "typeset" | "local" | "export" | "readonly" | "let" | "eval"))
+    })
+}
+
+/// A simple command while its words, assignments and redirects are read.
+struct SimpleParts {
+    start_span: Span,
+    expansion_line: Option<usize>,
+    assignments: Vec<Assignment>,
+    words: Vec<Word>,
+    redirects: Vec<Redirect>,
+    /// End of the previous word, while the next token could join it.
+    join_end: usize,
+}
+
+enum SimpleStep {
+    /// A word token: parse it as an assignment or word.
+    Word,
+    /// The token joined the previous word.
+    Joined,
+    /// A redirect or other token was consumed.
+    Other,
+    /// The simple command ends before this token.
+    Done,
+}
+
+/// What the current token starts, decided before any recursive parse.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CommandStart {
+    Simple,
+    If,
+    For,
+    While,
+    Until,
+    Case,
+    Select,
+    Time,
+    Coproc,
+    FunctionKeyword,
+    FunctionPosix,
+    Conditional,
+    Arithmetic,
+    Subshell,
+    BraceGroup,
+}
+
+#[inline(never)]
+fn box_simple_command(simple: Option<SimpleCommand>) -> Option<Box<Command>> {
+    simple.map(|cmd| Box::new(Command::Simple(cmd)))
+}
+
+#[inline(never)]
+fn pipeline_commands(first: Option<Box<Command>>) -> Vec<Command> {
+    first.into_iter().map(|cmd| *cmd).collect()
+}
+
+#[inline(never)]
+fn push_pipeline_command(commands: &mut Vec<Command>, cmd: Box<Command>) {
+    commands.push(*cmd);
+}
+
+#[inline(never)]
+fn push_list_command(rest: &mut Vec<(ListOperator, Command)>, op: ListOperator, cmd: Box<Command>) {
+    rest.push((op, *cmd));
+}
+
+/// `cmd &` followed by nothing still records the empty background job.
+#[inline(never)]
+fn end_list_without_command(rest: &mut Vec<(ListOperator, Command)>, op: ListOperator, span: Span) {
+    if matches!(op, ListOperator::Background) {
+        rest.push(empty_background(span));
+    }
 }
 
 /// `cmd &` before a closing keyword: an empty command carrying the `&`.
@@ -6636,7 +6997,12 @@ mod tests {
     #[test]
     fn nested_command_substitution_hard_cap_is_stack_safe() {
         let script = nested_command_substitution(120);
-        let err = Parser::with_limits(&script, usize::MAX, 100_000)
+        // Every level rescans its body; size work so the AST cap trips first.
+        let fuel = script
+            .len()
+            .saturating_mul(HARD_MAX_AST_DEPTH)
+            .saturating_mul(4);
+        let err = Parser::with_limits(&script, usize::MAX, fuel)
             .parse()
             .expect_err("the hard AST cap also covers substitution parsers");
         assert!(err.to_string().contains("AST nesting too deep"));

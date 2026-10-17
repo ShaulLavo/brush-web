@@ -113,6 +113,7 @@ export const boundaryBodies = [
   "comment-close",
 ];
 export const boundarySpellings = ["fused", "spaced"];
+export const boundaryClosings = [1, 2, 3];
 const boundarySuffixes = { brace: "{x,y}", command: "(x)", arithmetic: "((1+2))" };
 const boundaryCommands = {
   case: "case x in x) :;; esac",
@@ -127,7 +128,7 @@ export function spelling(node) {
   if (node.kind === "concat") return node.children.map(spelling).join("");
   if (node.kind === "boundary") {
     if (node.form === "ambiguity")
-      return `${node.opener === "fused" ? "$((" : "$( ("}${boundaryCommands[node.body]}) )`;
+      return `${node.opener === "fused" ? "$((" : "$( ("}${boundaryCommands[node.body]}${Array.from({ length: node.closings }, () => ")").join(" ")}`;
     if (node.form === "arithmetic") return `$(((1+2) << ${node.shift}))`;
     const dollar = { escaped: "\\$", single: "'$'", double: '"$"' }[node.protection];
     const suffix = node.open ? "{x" : boundarySuffixes[node.opener];
@@ -169,7 +170,7 @@ function tagsFor(node) {
   if (node.kind === "boundary")
     return ["boundary", `boundary-${node.form}`, `boundary-opener-${node.opener}`].concat(
       node.protection ? [`boundary-protection-${node.protection}`] : [],
-      node.body ? [`boundary-body-${node.body}`] : [],
+      node.body ? [`boundary-body-${node.body}`, `boundary-closings-${node.closings}`] : [],
       node.literal ? ["boundary-selected-literal"] : [],
       node.form === "protected" && node.opener === "brace"
         ? [`boundary-brace-${node.open ? "open" : "closed"}`]
@@ -375,7 +376,13 @@ export function boundaryCases(seed) {
   const random = randomFor(seed);
   const features = boundarySpellings
     .flatMap((opener) =>
-      boundaryBodies.map((body) => ({ kind: "boundary", form: "ambiguity", opener, body })),
+      boundaryBodies.map((body) => ({
+        kind: "boundary",
+        form: "ambiguity",
+        opener,
+        body,
+        closings: 2,
+      })),
     )
     .concat(
       boundaryProtections.flatMap((protection) =>
@@ -389,6 +396,21 @@ export function boundaryCases(seed) {
           })),
         ),
       ),
+      // Append new closing variants after the existing feature order, retaining
+      // the seeded affix placement of every original protected-dollar exercise.
+      boundaryClosings
+        .filter((closings) => closings !== 2)
+        .flatMap((closings) =>
+          boundarySpellings.flatMap((opener) =>
+            boundaryBodies.map((body) => ({
+              kind: "boundary",
+              form: "ambiguity",
+              opener,
+              body,
+              closings,
+            })),
+          ),
+        ),
     );
   const cases = [];
   // Complete cross product, independent of random sampling and --count. Keep
@@ -405,7 +427,9 @@ export function boundaryCases(seed) {
         const children = [guarded, { kind: "list", children: [atom("a"), atom("b")] }];
         if (random.next() % 2) children.reverse();
         const node = { kind: "concat", children };
-        const id = `boundary-${feature.form}-${feature.protection ?? feature.body}-${feature.opener}-${feature.open ? "open" : "closed"}-${context}-${depth}`;
+        const closingId =
+          feature.closings && feature.closings !== 2 ? `-closings-${feature.closings}` : "";
+        const id = `boundary-${feature.form}-${feature.protection ?? feature.body}-${feature.opener}-${feature.open ? "open" : "closed"}-${context}-${depth}${closingId}`;
         for (const mode of modes) cases.push(makeCase(`${id}-${mode}`, node, mode));
       }
   // Selected controls distinguish literal dollars and real arithmetic from the

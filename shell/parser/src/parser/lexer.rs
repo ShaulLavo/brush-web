@@ -119,7 +119,7 @@ pub struct Lexer<'a> {
     /// source text); this is where the input resumes after the body.
     heredoc_resume: Option<Position>,
     literal_escapes: Vec<LiteralEscape>,
-    boundary_replay_work: usize,
+    boundary_scan_work: usize,
 }
 
 impl<'a> Lexer<'a> {
@@ -148,7 +148,7 @@ impl<'a> Lexer<'a> {
             extglob_bang: true,
             heredoc_resume: None,
             literal_escapes: Vec::new(),
-            boundary_replay_work: 0,
+            boundary_scan_work: 0,
         }
     }
 
@@ -156,8 +156,8 @@ impl<'a> Lexer<'a> {
         self.limit_exceeded
     }
 
-    pub(crate) fn take_boundary_replay_work(&mut self) -> usize {
-        std::mem::take(&mut self.boundary_replay_work)
+    pub(crate) fn take_boundary_scan_work(&mut self) -> usize {
+        std::mem::take(&mut self.boundary_scan_work)
     }
 
     /// Move the line count forward by `by` (for input embedded at a later line).
@@ -2296,46 +2296,16 @@ impl<'a> Lexer<'a> {
         } else {
             SubstScanner::new()
         };
-        // Arithmetic may fail only at EOF. Scan a borrowed lookahead, then
-        // consume exactly the resolved boundary so replay never loses suffixes,
-        // source positions, alias state, or raw source capture.
-        let mut step = Step::Body;
-        {
-            let mut chars = self.lookahead();
-            let mut finished = false;
-            loop {
-                if step != Step::Body {
-                    break;
-                }
-                step = if scanner.has_pending() {
-                    scanner.resume()
-                } else if let Some(c) = chars.next() {
-                    scanner.feed(c)
-                } else if !finished {
-                    finished = true;
-                    scanner.finish()
-                } else {
-                    break;
-                };
-            }
-        }
-        self.boundary_replay_work = self
-            .boundary_replay_work
-            .saturating_add(scanner.replay_work());
-        if step == Step::Limit {
-            self.limit_exceeded = Some(scanner.limit_exceeded());
-        }
-        let mut consumed = 0;
-        while consumed < scanner.offset() {
-            let Some(c) = self.advance() else {
-                break;
-            };
-            consumed += c.len_utf8();
+        while let Some(c) = self.advance() {
+            self.boundary_scan_work = self.boundary_scan_work.saturating_add(1);
             if let Some(out) = content.as_mut() {
                 out.push(c);
             }
+            if scanner.feed(c) == Step::Close {
+                return true;
+            }
         }
-        step == Step::Close
+        false
     }
 
     /// Read parameter expansion content after `${`, handling nested braces and quotes.

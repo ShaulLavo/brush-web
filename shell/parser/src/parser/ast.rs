@@ -375,6 +375,9 @@ impl fmt::Display for Word {
                 WordPart::CommandSubstitution(cmd) => {
                     write!(f, "$({})", super::print_cmd::inline_commands(cmd))?
                 }
+                WordPart::UnparsedCommandSubstitution { source, .. } => {
+                    write!(f, "$({})", source)?
+                }
                 WordPart::ArithmeticExpansion(expr) => write!(f, "$(({}))", expr)?,
                 WordPart::ParameterExpansion {
                     name,
@@ -512,6 +515,11 @@ pub enum WordPart {
     Variable(String),
     /// Command substitution ($(...))
     CommandSubstitution(Vec<Command>),
+    /// A `$((...) ... )` span whose text is not arithmetic, so bash runs it as
+    /// a command substitution. Bash parses that text only when the word
+    /// expands: a syntax error there is reported then, with status 2, rather
+    /// than rejecting the script. `source` is the text between `$(` and `)`.
+    UnparsedCommandSubstitution { source: String, error: String },
     /// Arithmetic expansion ($((...)))
     ArithmeticExpansion(String),
     /// Parameter expansion with operator ${var:-default}, ${var:=default}, etc.
