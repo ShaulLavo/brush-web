@@ -257,7 +257,7 @@ impl Scope {
         })
     }
 
-    fn admit_storage(&self, bytes: usize) -> Result<StorageAllocation, i32> {
+    pub(super) fn admit_storage(&self, bytes: usize) -> Result<StorageAllocation, i32> {
         self.shared.storage.admit(bytes)
     }
 

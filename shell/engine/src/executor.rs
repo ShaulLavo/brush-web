@@ -293,11 +293,14 @@ impl std::fmt::Display for Cancelled {
     }
 }
 impl std::error::Error for Cancelled {}
-#[derive(Clone, Default)]
+const HOST_PROBE_STRIDE: usize = 16;
+
+#[derive(Clone)]
 pub struct Cancel {
     flag: Rc<Cell<bool>>,
     event: Event,
     probe: Option<Rc<dyn Fn() -> bool>>,
+    probe_remaining: Rc<Cell<usize>>,
 }
 impl Cancel {
     pub fn new() -> Self {
@@ -315,7 +318,30 @@ impl Cancel {
         }
     }
     pub fn is_cancelled(&self) -> bool {
-        if !self.flag.get() && self.probe.as_ref().is_some_and(|probe| probe()) {
+        if self.flag.get() {
+            return true;
+        }
+        let Some(probe) = &self.probe else {
+            return false;
+        };
+        let remaining = self.probe_remaining.get();
+        if remaining != 0 {
+            self.probe_remaining.set(remaining - 1);
+            return false;
+        }
+        self.probe_remaining.set(HOST_PROBE_STRIDE - 1);
+        if probe() {
+            self.cancel();
+        }
+        self.flag.get()
+    }
+    /// Probe the consuming host interrupt immediately at parser and runtime
+    /// boundaries that must not wait for the ordinary work stride.
+    pub fn probe_now(&self) -> bool {
+        if self.flag.get() {
+            return true;
+        }
+        if self.probe.as_ref().is_some_and(|probe| probe()) {
             self.cancel();
         }
         self.flag.get()
@@ -334,6 +360,17 @@ impl Cancel {
         match futures::future::select(cancelled, future).await {
             futures::future::Either::Left(_) => Err(Cancelled),
             futures::future::Either::Right((value, _)) => Ok(value),
+        }
+    }
+}
+
+impl Default for Cancel {
+    fn default() -> Self {
+        Self {
+            flag: Rc::new(Cell::new(false)),
+            event: Event::default(),
+            probe: None,
+            probe_remaining: Rc::new(Cell::new(0)),
         }
     }
 }

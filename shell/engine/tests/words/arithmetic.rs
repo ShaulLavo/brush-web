@@ -173,6 +173,18 @@ fn loop_arithmetic_replay_preserves_status_and_owned_command_forms() {
 }
 
 #[test]
+fn invalid_loop_body_is_parsed_after_the_side_effecting_condition() {
+    // GNU Bash 5.3.15: i=2 and the body arithmetic syntax error leaves status 1.
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run(r#"i=0; while ((i++ < 1)); do ((1+)); done; args "$i" "$?""#),
+        0
+    );
+    assert_eq!(*rig.calls.borrow(), [vec!["2", "1"]]);
+    assert!(!rig.errors.bytes().is_empty());
+}
+
+#[test]
 fn loop_arithmetic_replay_retains_substitutions_and_read_unit_failures() {
     check(
         r#"i=0; while ((i < $(printf 3))); do ((i += $(printf 1))); done; args "$i" "$?" "${PIPESTATUS[@]}""#,

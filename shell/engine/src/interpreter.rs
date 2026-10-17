@@ -1,7 +1,7 @@
 //! Original task-oriented interpreter for the engine gate, not a Bashkit
 //! interpreter fork. Unsupported syntax returns status 2 rather than guessing.
 use crate::{
-    builtins,
+    arithmetic, builtins,
     executor::{Budget, Cancel, Executor, JoinHandle, yield_now},
     expand,
     io::{self, FdTable, FileSystem, OpenOptions},
@@ -249,9 +249,9 @@ impl Context {
                 .as_ref()
                 .map(|job| job.cancel.clone());
             if let Some(foreground) = foreground {
-                foreground.is_cancelled();
+                foreground.probe_now();
             }
-            cancel.is_cancelled()
+            cancel.probe_now()
         })))
     }
     fn isolated(&self) -> Self {
@@ -519,7 +519,7 @@ impl Session {
         let cancel = Cancel::with_probe(Rc::new(move || host.interrupted()));
         let parser_cancel = cancel.clone();
         let evaluation = eval::Scope::new(&self.core.limits, self.core.eval_storage.clone());
-        let parser = evaluation.parser_budget(Some(Rc::new(move || parser_cancel.is_cancelled())));
+        let parser = evaluation.parser_budget(Some(Rc::new(move || parser_cancel.probe_now())));
         let (script, failure) =
             parse_shell(source, &self.core.limits, &parser).map_err(|error| {
                 if error == "request cancelled" {
@@ -1159,13 +1159,28 @@ async fn while_command(
     fds: Descriptors,
     context: Context,
 ) -> Outcome {
+    let mut condition_cache = None;
+    let mut condition_cache_attempted = false;
+    let mut body_cache = None;
+    let mut body_cache_attempted = false;
     let mut result = Outcome::status(0);
     let mut budget = Budget::default();
     loop {
         if let Err(outcome) = loop_checkpoint(&mut budget, &context).await {
             return outcome;
         }
-        let condition = loop_sequence(&loop_.condition, &state, &fds, &context).await;
+        if !condition_cache_attempted {
+            condition_cache_attempted = true;
+            condition_cache = cache_loop_arithmetic(&loop_.condition, &context).await;
+        }
+        let condition = loop_sequence(
+            &loop_.condition,
+            &state,
+            &fds,
+            &context,
+            condition_cache.as_ref(),
+        )
+        .await;
         if context.cancel.is_cancelled() {
             return Outcome::status(130);
         }
@@ -1175,7 +1190,11 @@ async fn while_command(
         if condition.code != 0 {
             return result;
         }
-        result = loop_sequence(&loop_.body, &state, &fds, &context).await;
+        if !body_cache_attempted {
+            body_cache_attempted = true;
+            body_cache = cache_loop_arithmetic(&loop_.body, &context).await;
+        }
+        result = loop_sequence(&loop_.body, &state, &fds, &context, body_cache.as_ref()).await;
         if result.flow != Flow::Normal {
             return result;
         }
@@ -1187,11 +1206,12 @@ fn loop_sequence<'a>(
     state: &'a SharedState,
     fds: &'a Descriptors,
     context: &'a Context,
+    cache: Option<&'a CachedArithmetic<'a>>,
 ) -> eval::Frame<'a> {
     if let [Command::Compound(CompoundCommand::Arithmetic(source), redirs)] = commands
         && redirs.is_empty()
     {
-        return loop_arithmetic(source, state, fds, context);
+        return loop_arithmetic(source, state, fds, context, cache);
     }
     context.evaluation.frame(
         async move {
@@ -1213,11 +1233,42 @@ fn loop_sequence<'a>(
     )
 }
 
+struct CachedArithmetic<'a> {
+    program: arithmetic::Program<'a>,
+    _storage: eval::StorageAllocation,
+}
+
+async fn cache_loop_arithmetic<'a>(
+    commands: &'a [Command],
+    context: &Context,
+) -> Option<CachedArithmetic<'a>> {
+    let [Command::Compound(CompoundCommand::Arithmetic(source), redirs)] = commands else {
+        return None;
+    };
+    if !redirs.is_empty() || !arithmetic::Program::is_static(source) {
+        return None;
+    }
+    let storage = context
+        .evaluation
+        .admit_storage(arithmetic::Program::retained_bytes(source))
+        .ok()?;
+    let mut work = expansion_work(context.limits());
+    let program = match arithmetic::Program::compile(source, &mut work, &context.cancel).await {
+        Ok(program) => program,
+        Err(_) => return None,
+    };
+    Some(CachedArithmetic {
+        program,
+        _storage: storage,
+    })
+}
+
 fn loop_arithmetic<'a>(
     source: &'a str,
     state: &'a SharedState,
     fds: &'a Descriptors,
     context: &Context,
+    cache: Option<&'a CachedArithmetic<'a>>,
 ) -> eval::Frame<'a> {
     if context.cancel.is_cancelled() {
         return futures::future::Either::Left(futures::future::ready(Outcome::status(130)));
@@ -1243,7 +1294,13 @@ fn loop_arithmetic<'a>(
             let table = fds.borrow().clone();
             let fds = Rc::new(RefCell::new(table));
             let mut work = substitution_work(&context, &fds);
-            let result = arithmetic_command(source, state, &fds, &context, &mut work).await;
+            let result = match cache {
+                Some(cache) => {
+                    arithmetic_command_program(&cache.program, state, &fds, &context, &mut work)
+                        .await
+                }
+                None => arithmetic_command(source, state, &fds, &context, &mut work).await,
+            };
             let result = finish_command(state, result, false);
             if context.cancel.is_cancelled() {
                 return Outcome::status(130);
@@ -1389,15 +1446,41 @@ async fn arithmetic_command(
     context: &Context,
     work: &mut expand::Work,
 ) -> Outcome {
-    match crate::arithmetic::evaluate(
+    let value = crate::arithmetic::evaluate(
         source,
         state,
         &context.cancel,
         context.limits().expansion_bytes,
         work,
     )
-    .await
-    {
+    .await;
+    arithmetic_result(value, fds, context).await
+}
+
+async fn arithmetic_command_program(
+    program: &arithmetic::Program<'_>,
+    state: &SharedState,
+    fds: &Descriptors,
+    context: &Context,
+    work: &mut expand::Work,
+) -> Outcome {
+    let value = arithmetic::evaluate_program(
+        program,
+        state,
+        &context.cancel,
+        context.limits().expansion_bytes,
+        work,
+    )
+    .await;
+    arithmetic_result(value, fds, context).await
+}
+
+async fn arithmetic_result(
+    value: Result<i64, expand::Error>,
+    fds: &Descriptors,
+    context: &Context,
+) -> Outcome {
+    match value {
         Ok(value) => Outcome::status(i32::from(value == 0)),
         Err(
             error @ expand::Error::Arithmetic {
@@ -2868,7 +2951,7 @@ mod scope_tests {
                 CompoundCommand::Arithmetic("n=7".into()),
                 Vec::new(),
             )];
-            let outcome = finish_replay(loop_sequence(&commands, &state, &fds, &context));
+            let outcome = finish_replay(loop_sequence(&commands, &state, &fds, &context, None));
             assert_eq!(outcome.code, code);
             assert_eq!(outcome.flow, Flow::Normal);
             assert_eq!(state.borrow().variables.contains_key("n"), code == 0);
@@ -2892,17 +2975,17 @@ mod scope_tests {
             Vec::new(),
         )];
         assert_eq!(
-            finish_replay(loop_sequence(&commands, &state, &fds, &context)).code,
+            finish_replay(loop_sequence(&commands, &state, &fds, &context, None)).code,
             2
         );
         assert!(!state.borrow().variables.contains_key("n"));
         drop(allocation);
-        let replay = loop_sequence(&commands, &state, &fds, &context);
+        let replay = loop_sequence(&commands, &state, &fds, &context, None);
         assert!(context.evaluation.admit_execution(limit).is_err());
         drop(replay);
         drop(context.evaluation.admit_execution(limit).unwrap());
         assert_eq!(
-            finish_replay(loop_sequence(&commands, &state, &fds, &context)).code,
+            finish_replay(loop_sequence(&commands, &state, &fds, &context, None)).code,
             0
         );
         assert_eq!(state.borrow().variables["n"], "7");
@@ -2917,13 +3000,13 @@ mod scope_tests {
             CompoundCommand::Arithmetic("${missing:?required}".into()),
             Vec::new(),
         )];
-        let outcome = finish_replay(loop_sequence(&commands, &state, &fds, &context));
+        let outcome = finish_replay(loop_sequence(&commands, &state, &fds, &context, None));
         assert_eq!(outcome.code, 1);
         assert_eq!(outcome.flow, Flow::Abort);
         assert_eq!(context.parameter_error_status, 127);
         context.cancel.cancel();
         assert_eq!(
-            finish_replay(loop_sequence(&commands, &state, &fds, &context)).code,
+            finish_replay(loop_sequence(&commands, &state, &fds, &context, None)).code,
             130
         );
     }
@@ -2940,7 +3023,7 @@ mod scope_tests {
             Vec::new(),
         )];
         assert_eq!(
-            finish_replay(loop_sequence(&commands, &state, &fds, &context)).code,
+            finish_replay(loop_sequence(&commands, &state, &fds, &context, None)).code,
             2
         );
         assert!(!state.borrow().variables.contains_key("n"));

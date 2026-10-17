@@ -718,6 +718,22 @@ experiment changed no permissions, kernel settings, profile or timeout. Its
 source and temporary binaries were removed; it is not part of accepted source.
 No quiet timing hold ran. Do not assume that fewer allocations meet the target.
 
+The final evidence head `bc4e3b5` then reproduced the timing failure on CI:
+[run 39055395219, shell job 117462215829](https://github.com/ShaulLavo/brush-web/actions/runs/39055395219/job/117462215829)
+passed native/WASI/size/CLI and the earlier fixture gates, but the substitution
+replay's invalid-signal million-loop candidate timed out (null status, empty
+stdout) against Bash exit 0 and `kill=1` / `status=0`. Its actual browser and
+compatibility jobs passed, and the exact downloaded CLI separately passed all
+six local sweeps; neither overrides this red CI result. **Landing is blocked**
+until a measured general hot-path repair gives adequate margin with unchanged
+limits. Before another source change, build the native CLI with symbols and
+sample that exact loop's retired instructions under ordinary admission. Rank
+functions and attribute checkpoint/interrupt, arithmetic parsing/expansion,
+variable lookup/allocation and storage-accounting costs from the samples, not
+guesses. Confirm the chosen repair with alternating matched-toolchain
+instruction counts, then requalify exact-head native/WASI/browser/six-sweep,
+fixture and zero-loss gates. Do not retry unchanged source into green.
+
 Reproduce the fixed control without host files or unowned processes:
 
 ```bash
