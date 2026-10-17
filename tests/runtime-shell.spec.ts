@@ -1,6 +1,26 @@
 import { test, expect, type Page } from "@playwright/test";
 
 test.setTimeout(60000);
+test.beforeEach(async ({ page }) => {
+  page.on("pageerror", (error) => console.error("RUNTIME_PAGE_ERROR", error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") console.error("RUNTIME_CONSOLE", message.text());
+  });
+});
+test.afterEach(async ({ page }, info) => {
+  if (info.status !== info.expectedStatus) {
+    console.error(
+      "RUNTIME_FAILURE",
+      JSON.stringify(
+        await page.evaluate(() => ({
+          lines: window.brushWeb?.readLines(),
+          snapshot: window.brushWeb?.snapshot(),
+          runtime: window.brushWeb?.runtimeSnapshot(),
+        })),
+      ),
+    );
+  }
+});
 async function ready(page: Page) {
   await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("ready");
 }
