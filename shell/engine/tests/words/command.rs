@@ -1,4 +1,4 @@
-//! Original command-substitution controls, checked against GNU Bash 5.3.15
+//! Original command-substitution controls targeting GNU Bash 5.3.15
 //! (`/usr/bin/bash -c`). They run unchanged natively and on wasm32-wasip1.
 use super::*;
 use shell_engine::executor::Cancel;
@@ -419,4 +419,170 @@ fn unset_removes_variables_functions_and_reveals_caller_locals() {
     let rig = Rig::new(Limits::default());
     assert_eq!(rig.run("readonly r=1; unset r; args $? $r"), 0);
     assert_eq!(*rig.calls.borrow(), [vec!["1", "1"]]);
+}
+
+#[test]
+fn internal_substitutions_do_not_take_background_job_numbers() {
+    for prefix in [
+        "value=$(true)",
+        ": <(true)",
+        ": >(true)",
+        "value=$(false & wait %1)",
+    ] {
+        check(&format!("{prefix}; false & wait %1; args $?"), &[&["1"]]);
+    }
+    check(
+        "false & value=$(true); : <(true) >(true); true & wait %1; args $?; wait %2; args $?",
+        &[&["1"], &["0"]],
+    );
+    check(
+        "false & wait; args $?; false & wait %1; args $?",
+        &[&["0"], &["1"]],
+    );
+}
+
+#[test]
+fn recursive_eval_has_an_execution_depth_bound_and_recovers() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 16 * 1024 * 1024,
+        ..Limits::default()
+    });
+    assert_eq!(
+        rig.run(r#"n=0; s='n=$((n+1)); case $n in 160) :;; *) eval "$s";; esac'; eval "$s""#),
+        2,
+    );
+    assert_eq!(rig.shell.state().borrow().variables["n"], "16");
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.ex.drive(64).pending, 0);
+    assert_eq!(rig.run("args recovered"), 0);
+    assert_eq!(*rig.calls.borrow(), [vec!["recovered"]]);
+}
+
+#[test]
+fn eval_inside_compound_commands_bounds_the_actual_execution_chain() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 128 * 1024 * 1024,
+        ..Limits::default()
+    });
+    let body = format!(
+        "{}n=$((n+1)); case $n in 32) :;; *) eval \"$s\";; esac{}",
+        "{ ".repeat(24),
+        "; }".repeat(24),
+    );
+    rig.variable("s", &body);
+    assert_eq!(rig.run("n=0; eval \"$s\""), 2);
+    let progress = rig.shell.state().borrow().variables["n"]
+        .parse::<usize>()
+        .unwrap();
+    assert!(
+        progress > 0 && progress < 16,
+        "execution depth must stop before the eval-only ceiling: {progress}"
+    );
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.ex.drive(64).pending, 0);
+    assert_eq!(rig.run("args recovered"), 0);
+}
+
+#[test]
+fn successive_evals_share_cumulative_script_admission() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 128 * 1024,
+        function_depth: 32,
+        ..Limits::default()
+    });
+    assert_eq!(
+        rig.run(r#"n=0; f() { eval 'n=$((n+1))'; case $? in 0) f;; *) :;; esac; }; f"#),
+        0,
+    );
+    let progress = rig.shell.state().borrow().variables["n"]
+        .parse::<usize>()
+        .unwrap();
+    assert!(
+        progress > 0 && progress < 32,
+        "a fresh allowance per eval would reach the function ceiling: {progress}"
+    );
+    assert_eq!(rig.run("args recovered"), 0);
+}
+
+#[test]
+fn eval_admits_parsed_storage_before_execution_and_keeps_empty_eval_valid() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 4096,
+        ..Limits::default()
+    });
+    assert_eq!(
+        rig.run("value=before; eval 'value=after; args forbidden'"),
+        2
+    );
+    assert_eq!(rig.shell.state().borrow().variables["value"], "before");
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.run("eval; eval ''"), 0);
+    assert_eq!(rig.run("args recovered"), 0);
+}
+
+#[test]
+fn interrupting_nested_eval_unwinds_admission_without_undoing_completed_effects() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 16 * 1024 * 1024,
+        ..Limits::default()
+    });
+    rig.variable(
+        "s",
+        r#"n=$((n+1)); case $n in 160) :;; *) eval "$s";; esac"#,
+    );
+    let job = rig.shell.start("n=0; eval \"$s\"").unwrap();
+    for _ in 0..2000 {
+        rig.ex.drive(1);
+        let progressed = rig
+            .shell
+            .state()
+            .borrow()
+            .variables
+            .get("n")
+            .is_some_and(|n| n != "0");
+        if progressed {
+            break;
+        }
+    }
+    assert!(
+        !job.is_finished(),
+        "the fixture must interrupt an admitted eval chain"
+    );
+    assert_ne!(rig.shell.state().borrow().variables["n"], "0");
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(rig.ex.drive(64).pending, 0);
+    assert_eq!(rig.host.active_count(), 0);
+    assert_eq!(rig.host.retained_count(), 0);
+    assert_eq!(rig.run("args recovered"), 0);
+}
+
+#[test]
+fn interrupting_a_command_local_heredoc_discards_reader_effects_and_drains_children() {
+    let rig = Rig::new(Limits::default());
+    let (_release, progress) = register_gated(&rig, b"value\n", false);
+    let job = rig
+        .shell
+        .start("unset x; set -u\ncat <<EOF\n${x:=reader}$(gated)$missing\nEOF\n")
+        .unwrap();
+    for _ in 0..2000 {
+        rig.ex.drive(1);
+        if rig.host.active_count() == 1 {
+            break;
+        }
+    }
+    assert_eq!(rig.host.active_count(), 1);
+    assert!(!progress.get());
+    assert!(!job.is_finished());
+    assert!(!rig.shell.state().borrow().variables.contains_key("x"));
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(!rig.shell.state().borrow().variables.contains_key("x"));
+    assert!(rig.output.bytes().is_empty());
+    assert_eq!(rig.ex.drive(64).pending, 0);
+    assert_eq!(rig.host.active_count(), 0);
+    assert_eq!(rig.host.retained_count(), 0);
+    assert_eq!(rig.run("args \"${x-unset}\" recovered"), 0);
+    assert_eq!(*rig.calls.borrow(), [vec!["unset", "recovered"]]);
 }

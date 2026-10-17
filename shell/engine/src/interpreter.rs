@@ -19,6 +19,8 @@ use std::{
     rc::Rc,
 };
 
+mod eval;
+
 #[derive(Clone, Debug)]
 pub struct Limits {
     pub source_bytes: usize,
@@ -149,9 +151,19 @@ impl PartialEq for Scope {
         self.resolved_id() == other.resolved_id()
     }
 }
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct JobId(u64);
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct JobNumber(u64);
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum JobKind {
+    Background(JobNumber),
+    ProcessSubstitution,
+    Internal,
+}
 struct Job {
     owner: Scope,
-    detached: bool,
+    kind: JobKind,
     cancel: Cancel,
     join: JoinHandle<i32>,
 }
@@ -161,9 +173,8 @@ struct Core {
     fs: Rc<dyn FileSystem>,
     limits: Limits,
     descriptors: Descriptors,
-    jobs: RefCell<BTreeMap<u64, Job>>,
+    jobs: RefCell<BTreeMap<JobId, Job>>,
     next: Cell<u64>,
-    next_job: Cell<u64>,
     foreground: RefCell<Option<Job>>,
 }
 #[derive(Clone)]
@@ -175,6 +186,7 @@ pub(crate) struct Context {
     scope: Scope,
     parameter_error_status: i32,
     compound_child: bool,
+    evaluation: eval::Scope,
 }
 impl Context {
     pub(crate) fn fs(&self) -> &dyn FileSystem {
@@ -186,6 +198,7 @@ impl Context {
     fn isolated(&self) -> Self {
         Self {
             scope: Scope::new(self.core.allocate_id()),
+            evaluation: self.evaluation.new_task(),
             ..self.clone()
         }
     }
@@ -245,7 +258,7 @@ impl Context {
             if job.owner != self.scope {
                 return true;
             }
-            job.detached = true;
+            job.kind = JobKind::Internal;
             !job.join.is_finished()
         });
         self.scope.forward_to(parent_scope);
@@ -259,9 +272,10 @@ impl Context {
         }
     }
     pub(crate) async fn wait_job(&self, id: Option<u64>) -> Result<i32, i32> {
-        self.wait_jobs(id, false).await
+        let code = self.wait_jobs(id, false).await?;
+        Ok(if id.is_none() { 0 } else { code })
     }
-    async fn wait_jobs(&self, id: Option<u64>, include_detached: bool) -> Result<i32, i32> {
+    async fn wait_jobs(&self, number: Option<u64>, include_internal: bool) -> Result<i32, i32> {
         let mut code = 0;
         loop {
             let jobs: Vec<_> = self
@@ -269,21 +283,24 @@ impl Context {
                 .jobs
                 .borrow()
                 .iter()
-                .filter(|(key, job)| {
-                    (include_detached || !job.detached)
-                        && job.owner == self.scope
-                        && id.is_none_or(|id| id == **key)
+                .filter(|(_, job)| {
+                    let selected = match job.kind {
+                        JobKind::Background(id) => number.is_none_or(|number| id.0 == number),
+                        JobKind::ProcessSubstitution => number.is_none(),
+                        JobKind::Internal => include_internal && number.is_none(),
+                    };
+                    selected && job.owner == self.scope
                 })
                 .map(|(id, job)| (*id, job.join.clone()))
                 .collect();
             if jobs.is_empty() {
-                return if id.is_some() { Err(127) } else { Ok(code) };
+                return if number.is_some() { Err(127) } else { Ok(code) };
             }
             for (id, job) in jobs {
                 code = self.cancel.run(job).await.map_err(|_| 130)?;
                 self.core.jobs.borrow_mut().remove(&id);
             }
-            if !include_detached {
+            if !include_internal {
                 return Ok(code);
             }
             // Exiting children may transfer their own descendants to this
@@ -293,8 +310,8 @@ impl Context {
     pub(crate) fn kill_job(&self, id: u64) -> Result<(), i32> {
         let jobs = self.core.jobs.borrow();
         let job = jobs
-            .get(&id)
-            .filter(|job| !job.detached && job.owner == self.scope)
+            .values()
+            .find(|job| job.kind == JobKind::Background(JobNumber(id)) && job.owner == self.scope)
             .ok_or(1)?;
         job.cancel.cancel();
         Ok(())
@@ -322,7 +339,6 @@ impl Session {
                 descriptors: Rc::new(RefCell::new(FdTable::default())),
                 jobs: RefCell::new(BTreeMap::new()),
                 next: Cell::new(1),
-                next_job: Cell::new(1),
                 foreground: RefCell::new(None),
             }),
             state: State::default().shared(),
@@ -332,7 +348,14 @@ impl Session {
         self.state.clone()
     }
     pub fn background_jobs(&self) -> usize {
-        self.core.jobs.borrow().len()
+        self.core
+            .jobs
+            .borrow()
+            .values()
+            .filter(|job| {
+                matches!(job.kind, JobKind::Background(_)) && job.owner.resolved_id() == 0
+            })
+            .count()
     }
     pub fn interrupt(&self) {
         if let Some(job) = self.core.foreground.borrow().as_ref() {
@@ -353,7 +376,9 @@ impl Session {
         if source.len() > self.core.limits.source_bytes {
             return Err("shell source limit exceeded".into());
         }
-        let (commands, failure) = parse_shell(source, &self.core.limits)?;
+        let evaluation = eval::Scope::new(&self.core.limits);
+        let (commands, failure) =
+            parse_shell(source, &self.core.limits, evaluation.parser_budget())?;
         let group = self.core.host.allocate_group();
         let cancel = Cancel::new();
         let foreground_cancel = cancel.clone();
@@ -365,6 +390,7 @@ impl Session {
             scope: Scope::new(0),
             parameter_error_status: 127,
             compound_child: false,
+            evaluation,
         };
         let state = self.state.clone();
         let join = self.core.executor.spawn(async move {
@@ -388,7 +414,7 @@ impl Session {
         });
         *self.core.foreground.borrow_mut() = Some(Job {
             owner: Scope::new(0),
-            detached: false,
+            kind: JobKind::Internal,
             cancel: foreground_cancel,
             join: join.clone(),
         });
@@ -426,10 +452,28 @@ impl Drop for Session {
     }
 }
 impl Core {
-    fn reap_detached_jobs(&self) {
+    fn reap_internal_jobs(&self) {
         self.jobs
             .borrow_mut()
-            .retain(|_, job| !job.detached || !job.join.is_finished());
+            .retain(|_, job| matches!(job.kind, JobKind::Background(_)) || !job.join.is_finished());
+    }
+    fn allocate_job_number(&self, owner: &Scope) -> Result<JobNumber, i32> {
+        let jobs = self.jobs.borrow();
+        for index in 0..=jobs.len() {
+            let number = JobNumber(
+                u64::try_from(index)
+                    .map_err(|_| 2)?
+                    .checked_add(1)
+                    .ok_or(2)?,
+            );
+            let used = jobs
+                .values()
+                .any(|job| job.kind == JobKind::Background(number) && job.owner == *owner);
+            if !used {
+                return Ok(number);
+            }
+        }
+        Err(2)
     }
     fn allocate_id(&self) -> u64 {
         let id = self.next.get();
@@ -458,6 +502,7 @@ enum ParseFailure {
 fn parse_shell(
     source: &str,
     limits: &Limits,
+    budget: &shell_parser::limits::ExecutionBudget,
 ) -> Result<(Vec<Command>, Option<ParseFailure>), String> {
     if source.len() > limits.source_bytes {
         return Err("shell source limit exceeded".into());
@@ -466,10 +511,6 @@ fn parse_shell(
         max_input_bytes: limits.source_bytes,
         ..Default::default()
     };
-    let budget = shell_parser::limits::ExecutionBudget::new(
-        &parser_limits,
-        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    );
     let (script, error) = Parser::with_limits_and_timeout(
         source,
         parser_limits.max_ast_depth,
@@ -534,36 +575,6 @@ async fn parse_failure(
     }
 }
 
-/// `eval`: the arguments joined by spaces, read like a script in the
-/// current shell. A syntax error returns 2 after the complete lines before
-/// it ran; `return` and `exit` act on the caller.
-async fn eval(
-    args: Vec<String>,
-    state: SharedState,
-    fds: Descriptors,
-    context: Context,
-) -> Outcome {
-    let source = args.join(" ");
-    let (commands, failure) = match parse_shell(&source, context.limits()) {
-        Ok(parsed) => parsed,
-        Err(_) => return Outcome::status(2),
-    };
-    let context = Context {
-        source: Rc::from(source),
-        ..context
-    };
-    let mut result = sequence(commands, state, fds.clone(), context.clone()).await;
-    if result.flow == Flow::Normal
-        && let Some(failure) = failure
-    {
-        result = parse_failure(failure, "eval", &fds, &context).await;
-        if result.code == 2 && result.flow == Flow::Exit {
-            result.flow = Flow::Normal;
-        }
-    }
-    result
-}
-
 async fn script_sequence(
     commands: Vec<Command>,
     state: SharedState,
@@ -619,6 +630,14 @@ fn execute(
         if context.cancel.is_cancelled() {
             return Outcome::status(130);
         }
+        let evaluation = match context.evaluation.descend() {
+            Ok(scope) => scope,
+            Err(code) => return Outcome::status(code),
+        };
+        let context = Context {
+            evaluation,
+            ..context
+        };
         let preserve = matches!(command, Command::Pipeline(_) | Command::List(_));
         let result = match command {
             Command::Simple(simple) => {
@@ -926,9 +945,7 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
     } = error;
     // External and unnamed commands expand heredocs in a command-local reader.
     // Shell builtins/functions and prefix RHS errors stay in the shell scope.
-    let recover_unbound =
-        heredoc_status.is_some() && matches!(&error, expand::Error::Unbound { .. });
-    let flow = if recover_unbound {
+    let flow = if heredoc_status.is_some() {
         Flow::Normal
     } else if matches!(
         error,
@@ -976,7 +993,12 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
             name,
             message,
             line,
-        } => (name, message, line, context.parameter_error_status),
+        } => (
+            name,
+            message,
+            line,
+            heredoc_status.unwrap_or(context.parameter_error_status),
+        ),
         expand::Error::Indirect { name, unset, line } => (
             name,
             if unset {
@@ -1112,12 +1134,16 @@ fn background(
     fds: &Descriptors,
     context: &Context,
 ) -> Outcome {
-    context.core.reap_detached_jobs();
+    context.core.reap_internal_jobs();
     if context.core.jobs.borrow().len() >= context.limits().jobs {
         state.borrow_mut().status = 2;
         state.borrow_mut().pipestatus = vec![2];
         return Outcome::status(2);
     }
+    let number = match context.core.allocate_job_number(&context.scope) {
+        Ok(number) => number,
+        Err(code) => return Outcome::status(code),
+    };
     let group = context.core.host.allocate_group();
     let cancel = Cancel::new();
     let child_context = Context {
@@ -1128,11 +1154,11 @@ fn background(
         scope: Scope::new(context.core.allocate_id()),
         parameter_error_status: context.child_error_status(&command),
         compound_child: matches!(command, Command::Compound(..)),
+        evaluation: context.evaluation.new_task(),
     };
     let child = state.borrow().clone().shared();
     let fds = Rc::new(RefCell::new(fds.borrow().clone()));
-    let job = context.core.next_job.get();
-    context.core.next_job.set(job + 1);
+    let job = JobId(context.core.allocate_id());
     let parent_scope = context.scope.clone();
     let join = context.core.executor.spawn(async move {
         let mut processes = ProcessGroup::new(child_context.core.host.clone(), group);
@@ -1146,7 +1172,7 @@ fn background(
         job,
         Job {
             owner: context.scope.clone(),
-            detached: false,
+            kind: JobKind::Background(number),
             cancel,
             join,
         },
@@ -1205,7 +1231,7 @@ impl Substitutions {
         commands: Vec<Command>,
         state: SharedState,
     ) -> Result<(io::Endpoint, SubstitutionTask), i32> {
-        self.context.core.reap_detached_jobs();
+        self.context.core.reap_internal_jobs();
         if self.context.core.jobs.borrow().len() >= self.context.limits().jobs {
             return Err(2);
         }
@@ -1237,7 +1263,7 @@ impl Substitutions {
                         if job.owner != context.scope {
                             return true;
                         }
-                        job.detached = true;
+                        job.kind = JobKind::Internal;
                         !job.join.is_finished()
                     });
                 }
@@ -1257,13 +1283,12 @@ impl Substitutions {
             }
         });
         let core = &self.context.core;
-        let id = core.next_job.get();
-        core.next_job.set(id.checked_add(1).ok_or(2)?);
+        let id = JobId(core.allocate_id());
         core.jobs.borrow_mut().insert(
             id,
             Job {
                 owner: self.context.scope.clone(),
-                detached: false,
+                kind: JobKind::Internal,
                 cancel: cancel.clone(),
                 join: join.clone(),
             },
@@ -1296,7 +1321,7 @@ impl Substitutions {
             .find(|fd| self.fds.borrow().get(*fd).is_none())
             .ok_or(2)?;
         let core = &self.context.core;
-        core.reap_detached_jobs();
+        core.reap_internal_jobs();
         if core.jobs.borrow().len() >= self.context.limits().jobs {
             return Err(2);
         }
@@ -1338,13 +1363,12 @@ impl Substitutions {
                 futures::future::Either::Right(((), body)) => body.await,
             }
         });
-        let job = core.next_job.get();
-        core.next_job.set(job + 1);
+        let job = JobId(core.allocate_id());
         core.jobs.borrow_mut().insert(
             job,
             Job {
                 owner: self.context.scope.clone(),
-                detached: false,
+                kind: JobKind::ProcessSubstitution,
                 cancel,
                 join,
             },
@@ -1367,7 +1391,7 @@ pub(crate) struct SubstitutionTask {
     capture_complete: Cancel,
     join: JoinHandle<i32>,
     core: Rc<Core>,
-    id: u64,
+    id: JobId,
     finished: bool,
 }
 impl SubstitutionTask {
@@ -1677,7 +1701,7 @@ async fn dispatch_simple_command(
         if !assigned.is_empty() {
             return Err(2);
         }
-        return Ok(eval(args, state, fds, context).await);
+        return Ok(eval::run(args, state, fds, context).await);
     }
     if builtins::is_builtin(&name) {
         if !assigned.is_empty() {
@@ -1806,6 +1830,36 @@ async fn assignments(
     Ok(assigned)
 }
 
+async fn redirect_target(
+    redirect: &Redirect,
+    state: &SharedState,
+    context: &Context,
+    work: &mut expand::Work,
+    local_reader: bool,
+) -> Result<String, expand::Error> {
+    let expands = redirect
+        .target
+        .parts
+        .iter()
+        .any(|part| !matches!(part, WordPart::Literal(_)));
+    let reader = if local_reader && expands {
+        State::snapshot(state, &context.cancel, work)
+            .await?
+            .shared()
+    } else {
+        state.clone()
+    };
+    expand::word(
+        &redirect.target,
+        &reader,
+        &context.cancel,
+        context.limits().expansion_bytes,
+        context.limits().expansion_bytes,
+        work,
+    )
+    .await
+}
+
 async fn redirects(
     redirs: &[Redirect],
     state: &SharedState,
@@ -1829,29 +1883,23 @@ async fn redirects(
         if redirect.fd_var.is_some() {
             return Err(2.into());
         }
-        let target = expand::word(
-            &redirect.target,
-            state,
-            &context.cancel,
-            context.limits().expansion_bytes,
-            context.limits().expansion_bytes,
-            work,
-        )
-        .await
-        .map_err(|error| {
-            CommandError::redirect(
-                error.at_line(redirect.expansion_line),
-                fds.borrow().get(2),
-                if matches!(
-                    redirect.kind,
-                    RedirectKind::HereDoc | RedirectKind::HereDocStrip
-                ) {
-                    heredoc_status
-                } else {
-                    None
-                },
-            )
-        })?;
+        let reader_status = if matches!(
+            redirect.kind,
+            RedirectKind::HereDoc | RedirectKind::HereDocStrip
+        ) {
+            heredoc_status
+        } else {
+            None
+        };
+        let target = redirect_target(redirect, state, context, work, reader_status.is_some())
+            .await
+            .map_err(|error| {
+                CommandError::redirect(
+                    error.at_line(redirect.expansion_line),
+                    fds.borrow().get(2),
+                    reader_status,
+                )
+            })?;
         let input = matches!(
             redirect.kind,
             RedirectKind::Input
