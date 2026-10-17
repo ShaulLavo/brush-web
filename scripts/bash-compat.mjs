@@ -1311,6 +1311,7 @@ async function runFrozen() {
     if (target) baselines.push({ label: "target branch baseline", score: target });
     for (const baseline of baselines) validateScore(oracle, baseline.score);
   }
+  if (cancelled) return;
   prepareEngines();
   const pool = new Pool("own-shell", jobs);
   pools.push(pool);

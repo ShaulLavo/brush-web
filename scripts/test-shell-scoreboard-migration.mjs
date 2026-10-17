@@ -542,6 +542,11 @@ for (const signal of ["SIGTERM", "SIGINT"]) {
             process.kill(pid, "SIGKILL");
             await until(() => !processState(pid).active);
           }
+          // Even a watchdog failure must await the orphan launcher's IPC-disconnect cleanup
+          // before the outer fixture removes its files. The entrypoint's own scratch is ours.
+          await until(
+            () => !readdirSync(runner).some((name) => name.startsWith("audit-oracle-migration-")),
+          );
         }
       },
       { hang: true, entrypoint: true },

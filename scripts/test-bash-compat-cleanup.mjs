@@ -216,3 +216,51 @@ for (const mode of ["frozen", "live"]) {
   test(`${mode} replay awaits worker termination before removing scratch`, (t) =>
     workerLifetime(t, mode));
 }
+
+test("record-only frozen cancellation during oracle loading starts no worker", async (t) => {
+  const owner = fixtureOwner(t);
+  owner.scratch = await mkdtemp(resolve(root, "compat-cleanup-loading-"));
+  const child = owner.start(
+    `
+    const fs = await import("node:fs/promises");
+    const threads = await import("node:worker_threads");
+    const { syncBuiltinESMExports } = await import("node:module");
+    const readFile = fs.default.readFile;
+    let held = false;
+    let release;
+    const released = new Promise((resolve) => { release = resolve; });
+    fs.default.readFile = async function (path, ...args) {
+      const result = await readFile(path, ...args);
+      if (!held && String(path).endsWith("/docs/evidence/own-shell-oracle.json")) {
+        held = true;
+        process.send?.("reading");
+        await released;
+      }
+      return result;
+    };
+    // A dispatch spy only: no fake teardown or guest execution substitutes for production.
+    threads.default.Worker = class {
+      constructor() { throw Error("worker created after cancellation"); }
+    };
+    syncBuiltinESMExports();
+    process.on("message", (message) => { if (message === "release") release(); });
+  `,
+    {
+      BASH_COMPAT_MODE: "frozen",
+      BASH_COMPAT_CORPORA: undefined,
+      BASH_COMPAT_ENGINES: "own-shell",
+      BASH_COMPAT_SKIP_BUILD: "1",
+      BASH_COMPAT_RECORD: "1",
+      BASH_COMPAT_JOBS: "1",
+      BASH_COMPAT_TIMEOUT_MS: "10000",
+    },
+  );
+  await owner.message("reading");
+  child.kill("SIGTERM");
+  await delay(50);
+  assert.equal(child.exitCode, null, "entrypoint abandoned its outstanding oracle read");
+  child.send("release");
+  const [status] = await owner.closed;
+  assert.equal(status, 143, Buffer.concat(owner.stderr).toString());
+  assert.deepEqual(await readdir(owner.scratch), []);
+});
