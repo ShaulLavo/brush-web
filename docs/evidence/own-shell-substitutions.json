@@ -723,16 +723,16 @@
   "fixtures": [
     {
       "path": "scripts/fixtures/shell-substitutions-seed-1.json",
-      "bytes": 4112523,
-      "sha256": "716e872f655bc6290fd2096637de7bdc3aaf6d40961911a093d8d29c359a5b3c",
-      "generatorHash": "b6d1c89cf0778c48b49a3c920d956da88e3bad37e47ee28848ae4f9be1ecf223",
+      "bytes": 4112043,
+      "sha256": "34e3d82104dd21edb70ab1e63b87426f1280d7bc4867bf2c586330d21e7d8e51",
+      "generatorHash": "6a443b3a7765e211ad3474e8f4dc542b8a5af15a9e677f8a52e4c9028339e55c",
       "bash": "GNU bash, version 5.3.15(1)-release (x86_64-pc-linux-gnu)"
     },
     {
       "path": "scripts/fixtures/shell-substitutions-seed-42.json",
-      "bytes": 4114600,
-      "sha256": "aa0a462741ec42e48d20cef741a70bf0d1742a2d85ce670eb63cc546c2128c0f",
-      "generatorHash": "b6d1c89cf0778c48b49a3c920d956da88e3bad37e47ee28848ae4f9be1ecf223",
+      "bytes": 4114120,
+      "sha256": "2c764fb481a2a399597bad7a2f37476cdd4c16f65ee17201cc761ef84d91432f",
+      "generatorHash": "6a443b3a7765e211ad3474e8f4dc542b8a5af15a9e677f8a52e4c9028339e55c",
       "bash": "GNU bash, version 5.3.15(1)-release (x86_64-pc-linux-gnu)"
     },
     {

@@ -611,15 +611,22 @@ passing corpus cases before calling this follow-up complete.
 
 The generator's INT controls use an owned `sleep 1` job whose lifetime does
 not depend on interpreter throughput, save the `kill` command status, then wait
-and reap the job. They compare the kill-command result with Bash because
-noninteractive asynchronous Bash jobs ignore SIGINT; those controls do not
-claim that Bash's wait status is 130. Native and WASI ProcessHost controls
-assert requested signal 2 and wait status 130. Full POSIX asynchronous
+and reap the job. They compare the kill-command result with Bash; the observed asynchronous
+child wait status can depend on whether the child has installed its signal
+disposition before the kill, so these controls do not claim a fixed Bash wait
+status for INT. Native and WASI ProcessHost controls assert requested signal 2
+and wait status 130. Full POSIX asynchronous
 signal-mask parity remains an Approved follow-up after this unit, with no source
 text or corpus-case exception. The old million-iteration arithmetic job was
 only a lifetime guard; the generator now records Bash 5.3.15 observations for
 the independent sleep-based control, while the arithmetic loop remains an
-explicit performance benchmark below.
+explicit performance benchmark below. The native shell-engine candidate does
+not provide external `sleep`, so its recorded candidate-side background job
+exits with status 127 before the invalid signal is issued; the semantic
+assertions still cover kill status, wait/status output and no stray output, and
+real signal delivery remains covered by the native/WASI ProcessHost controls.
+The Bash fixture regeneration verifies that Bash has a live owned `sleep` job
+when `kill -s INVALID` runs.
 
 The current builtin boundary supports signal 0 as a non-destructive owned-job
 existence check and supports HUP, INT, QUIT, KILL, and TERM as terminating
