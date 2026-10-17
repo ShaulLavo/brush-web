@@ -194,6 +194,15 @@ impl Abi for Fake {
         self.closed.borrow_mut().push(fd);
         self.fds.borrow_mut().remove(&fd);
     }
+    fn mkdir(&self, path: &str, allow_existing: bool) -> Result<(), i32> {
+        self.fs
+            .mkdir(path, allow_existing)
+            .map_err(|error| match error {
+                IoError::AlreadyExists => 20,
+                IoError::NotDirectory => 54,
+                _ => 44,
+            })
+    }
     fn open(&self, path: &str, options: &OpenOptions) -> Result<u32, i32> {
         Ok(self.fd(self.fs.open(path, options).map_err(|_| 44)?))
     }
@@ -520,4 +529,26 @@ fn sigint_registration_calls_runtime_with_handle_not_ignore() {
         }),
         Err(28)
     );
+}
+
+#[test]
+fn runtime_mkdir_uses_shared_filesystem_and_grep_reads_created_directory() {
+    let (executor, fake, runtime) = setup();
+    let session = Session::new(
+        executor.clone(),
+        Rc::new(runtime.clone()),
+        Rc::new(runtime.clone()),
+        Limits::default(),
+    );
+    session.set_descriptors(runtime.stdio().unwrap()).unwrap();
+    let job = session.start("mkdir -p nested/deep; mkdir -p nested/deep; cd nested/deep; printf 'tick\\nother\\n' > result; grep -n tick result").unwrap();
+    assert_eq!(finish(&executor, &runtime, job), 0);
+    assert_eq!(fake.output.bytes(), b"1:tick\n");
+    assert_eq!(
+        fake.fs.read_file("/home/guest/nested/deep/result").unwrap(),
+        b"tick\nother\n"
+    );
+    let job = session.start("mkdir -p result").unwrap();
+    assert_eq!(finish(&executor, &runtime, job), 1);
+    assert!(fake.requests.borrow().is_empty()); // Neither utility spawned a guest.
 }

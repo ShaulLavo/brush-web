@@ -34,6 +34,14 @@ unsafe extern "C" {
     fn fd_close(fd: u32) -> u16;
     fn fd_prestat_get(fd: u32, output: *mut u8) -> u16;
     fn fd_prestat_dir_name(fd: u32, output: *mut u8, length: usize) -> u16;
+    fn path_create_directory(fd: u32, path: *const u8, length: usize) -> u16;
+    fn path_filestat_get(
+        fd: u32,
+        flags: u32,
+        path: *const u8,
+        length: usize,
+        output: *mut u8,
+    ) -> u16;
     fn path_open(
         fd: u32,
         lookup: u32,
@@ -126,6 +134,34 @@ impl Abi for WasiAbi {
     fn close(&self, fd: u32) {
         unsafe {
             fd_close(fd);
+        }
+    }
+    fn mkdir(&self, path: &str, allow_existing: bool) -> Result<(), i32> {
+        if !path.starts_with('/') || path.contains('\0') || path.len() > crate::io::MAX_PATH_BYTES {
+            return Err(28);
+        }
+        let path = path.trim_start_matches('/');
+        // WASI's empty root-relative path is not a directory operand. The root
+        // preopen itself is already a directory; mkdir / only succeeds with -p.
+        if path.is_empty() {
+            return if allow_existing { Ok(()) } else { Err(20) };
+        }
+        let errno = unsafe { path_create_directory(self.root, path.as_ptr(), path.len()) };
+        if errno == 20 && allow_existing {
+            let mut stat = [0u8; 64];
+            let error = unsafe {
+                path_filestat_get(self.root, 1, path.as_ptr(), path.len(), stat.as_mut_ptr())
+            };
+            if error != 0 {
+                return Err(error as i32);
+            }
+            // __wasi_filestat_t.filetype sits after dev and ino (8 bytes each).
+            return if stat[16] == 3 { Ok(()) } else { Err(54) };
+        }
+        if errno == 0 {
+            Ok(())
+        } else {
+            Err(errno as i32)
         }
     }
     fn open(&self, path: &str, options: &OpenOptions) -> Result<u32, i32> {

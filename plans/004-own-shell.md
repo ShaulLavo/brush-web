@@ -62,6 +62,34 @@ Step 1 includes the minimum production semantics, fixture commands and session i
 - a non-standard descriptor (`3>&1`, `exec 4<file`) is inherited by a child;
 - `bun dev &` returns to the prompt, keeps streaming, and the next command can `kill %1` or `wait` for it.
 
+**Acceptance-only utilities (2026-10-17, Approved).** Provide `grep` and
+`mkdir` as in-process descriptor tasks solely for this gate. The grep subset is
+adapted from the pinned Bashkit `builtins/grep.rs`; it accepts `-v -c -q -n -i
+-F -E`, streams records without the bug25 output-buffering path, bounds records
+and regex resources, and retains GNU 0/1/2 statuses. `mkdir` and `-p` use the
+runtime filesystem. Provenance, exact bounds and deliberately unsupported syntax
+are in `sources.lock.json:shellAcceptanceUtilities` and
+`docs/external-commands.md#acceptance-only-in-process-utilities`.
+
+These commands unblock exactly these existing, unchanged cases in
+`tests/pipelines.acceptance.spec.ts` (not a claim that the entire browser gate
+has passed):
+
+- `pipeline forwards ticker lines while the producer is running` —
+  `bun run ticker.ts | grep tick`;
+- `pipeline Ctrl+C stops every stage and its children` —
+  `export KEEP=kept; bun run endless.ts | bun run read.ts | grep unmatched; echo BAD_AFTER_INTERRUPT`;
+- `pipeline stages inherit functions, unexported variables, cwd and redirections`
+  — `mkdir nested; cd nested; secret=retained; f() { printf '%s\n' "$secret:$PWD:$1"; }; f value | cat > result; cat result`.
+
+Native descriptor regressions additionally pin quiet early exit, no-match
+cancellation, byte preservation, regex/record admission, >1 MiB streaming,
+broken pipes, counts/statuses, and existing directory/file handling. No new
+utilities beyond these commands are approved here; the general set remains
+step 4. Directory metadata uses the same synchronous Preview1 filesystem
+boundary as opens, so the filesystem stall/cancellation gate below also applies
+to `mkdir`; it is not closed by racing the outer future with cancellation.
+
 **Terminal dependency (2026-10-17).** Step 1's raw shared endpoint carries
 byte-exact pipes and gives the shell guest its own prompt editor. Per-child
 canonical terminal input (echo/editing and one-shot Ctrl+D EOF for a foreground
@@ -96,7 +124,8 @@ they are removed, and they remain mandatory before step 6 replaces Brush:
   and independent-background browser test remains unchanged but explicitly
   `fixme` pending 7b; this is a known failure, not passing cancellation evidence.
 - **Filesystem stall/cancellation.** Rust `Runtime::open` currently calls Preview1
-  `path_open`; `FilesystemClient.call` can enter an indefinite `Atomics.wait`.
+  `path_open`; directory creation/stat likewise use synchronous Preview1 calls.
+  `FilesystemClient.call` can enter an indefinite `Atomics.wait`.
   A stalled filesystem service therefore blocks shell task progress and SIGINT
   handling: `poll` is not yet the sole blocking operation. The runtime will add
   copied-input open submission, nonblocking take/cancel and kind-3 completion

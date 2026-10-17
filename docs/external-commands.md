@@ -43,6 +43,46 @@ The following source adapters originate at the distinct immutable browser-source
 | Adapted root lifecycle | `web/src/runner.ts` → `src/runtime/browser-runtime.ts` | Extracted outcome/lifecycle fencing for a persistent preview1 root; Bun registry resolves a separate actual Bun module, never the shell module. One runtime instance can be supplied by an embedding. |
 | Original shell embedding adapters | No upstream source → `src/{shell.ts,standalone.ts}`, `src/runtime/{limits.ts,terminal.test.ts,terminal-admission.ts,guest-imports.ts}`, `shell/engine/src/runtime{.rs,/wasi.rs,/tests.rs}`, `shell/engine/src/{runtime_main.rs,terminal.rs}` | Injected peer-runtime shell facade, standalone host entry, synchronous guest process imports, notification reactor, terminal editor, process-local terminal admission fencing, truthful preopen relocation/control imports and original regression tests. These implement the documented ABI; they are not copied upstream shell implementations. |
 
+### Acceptance-only in-process utilities
+
+Step 1 supplies `grep` and `mkdir` as engine tasks on the same streaming
+file descriptors used by pipelines. They do not spawn workers and are not a
+substitute for plan 004 step 4's general utilities.
+
+| Classification | Source → local destination | Changes and reason |
+| --- | --- | --- |
+| Adapted Bashkit grep subset (MIT) | `crates/bashkit/src/builtins/grep.rs` at `491c3281f668b76d64b15210b8f5d7bf97244be0` → `shell/engine/src/builtins/grep.rs` | Retain the short-option, per-line selection/count/quiet and per-file status rules. Replace upstream input/output containers with bounded cancellable engine descriptors. Exact source SHA-256 and adapted items are in `sources.lock.json` under `shellAcceptanceUtilities`. |
+| Original engine adapters | `shell/engine/src/{builtins.rs,io.rs,runtime.rs,runtime/wasi.rs}` and native regressions | Register both commands, resolve cwd-relative paths, implement directory creation through the runtime filesystem, and validate existing directories for `mkdir -p`. No upstream mkdir implementation copied. The grep BRE translator and regex/record bounds are original adapters, not a copy of Bashkit's full pattern compiler. |
+
+`grep` accepts grouped `-v -c -q -n -i -F -E`, `--`, one positional pattern
+(newlines separate alternatives), and optional file operands (`-` means stdin).
+It returns GNU's 0 for a selected line, 1 for none, and 2 for invalid input,
+I/O or resource errors; shell cancellation remains 130 and broken pipes 141.
+`-q` stops immediately on a selected line, even after an earlier file error.
+Multiple operands add filename prefixes; `-c` reports selected records per input.
+It reads 8 KiB chunks and emits each selected line without waiting for producer
+exit. One record is capped at the smaller of `Limits.line_bytes` and 64 KiB;
+exceeding it fails explicitly rather than accumulating the stream. Patterns are
+capped at 4,096 bytes, compiled regex programs and DFA caches at 256 KiB each,
+and regex nesting at 64. Reads, per-byte scanning and output waits observe
+cancellation; bounded regex compilation/matching are synchronous.
+
+This is not full GNU grep: regex syntax uses a small BRE adapter or the linear
+time regex engine's extended syntax, with no backreferences/PCRE, full locale
+collation, long options, recursion or context flags. Record bytes (including CR,
+NUL and invalid UTF-8) are preserved rather than classified as binary files.
+Unlike the upstream accumulating paths, output is never collected into a command
+result buffer (including the earlier bug25 architecture).
+
+`mkdir [-p] [--] path...` uses Preview1 `path_create_directory`; `-p` creates
+parents and uses `path_filestat_get` to accept existing directories, never files.
+The memory test filesystem separately caps file and directory metadata at 1,024
+names each and seeds `/`, `/home`, `/home/guest` and `/tmp`. Runtime directory
+metadata calls share the already-deferred synchronous filesystem stall limitation
+of file opens: cancellation between operations works, but a stalled service can
+block an individual operation. This adds no blocking compatibility fallback and
+does not claim the pending asynchronous filesystem gate is closed.
+
 ### Embedding and browser acceptance
 
 `createShell({ runtime })` from `brush-web/shell` consumes a page-supplied runtime peer. It does not create or dispose the page's runtime. `brush-web/standalone` separately exports `createBrowserRuntime` for the demo. Runtime imports use `@bun-wasm/runtime` peer subpaths; a local source alias selects the pinned copy. The future `waffle` package switch belongs at that import boundary.
@@ -51,7 +91,7 @@ Brush remains the default. Select `?engine=own-shell` to run the Rust `shell-run
 
 `tests/pipelines.acceptance.spec.ts` retains the sixteen pipeline cases and explicitly asserts the selected engine. `tests/runtime-shell.spec.ts` adds foreground CPU interruption/background survival, arbitrary fd inheritance, handled EPIPE, continuing background output, and bounded shell/transport memory. The descendant-confirmation case is retained as an explicit known failure (`fixme`) pending runtime step 7b; it is not passing cancellation evidence. Chromium and Firefox run the enabled cases in CI. Safari remains an owner-Mac verification gate; no Linux browser result is presented as Safari evidence. Child programs can deliberately accumulate input in their own heaps; per-program memory policy is a separate runtime concern, not evidence of shell buffering.
 
-The full replacement gate remains open. Current runtime limitations also include a 1,024-slot lifetime process-directory limit (including the root), synchronous Preview1 filesystem opens that can block shell cancellation on a stalled filesystem service, and raw inherited terminal input without per-child canonical editing/EOF. [Plan 004](../plans/004-own-shell.md#steps) records the pending runtime work, retained limitation reproducer and filesystem test specifications. This integration does not claim that `poll` is already the sole blocking operation.
+The full replacement gate remains open. Current runtime limitations also include a 1,024-slot lifetime process-directory limit (including the root), synchronous Preview1 filesystem opens/directory metadata calls that can block shell cancellation on a stalled filesystem service, and raw inherited terminal input without per-child canonical editing/EOF. [Plan 004](../plans/004-own-shell.md#steps) records the pending runtime work, retained limitation reproducer and filesystem test specifications. This integration does not claim that `poll` is already the sole blocking operation.
 
 ## Build the Bun asset
 

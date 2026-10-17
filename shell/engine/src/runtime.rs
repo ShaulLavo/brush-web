@@ -95,6 +95,9 @@ pub trait Abi {
     fn pipe(&self) -> Result<(u32, u32), i32>;
     fn dup(&self, fd: u32) -> Result<u32, i32>;
     fn close(&self, fd: u32);
+    /// One preview1 directory operation. Existing directories (never files)
+    /// are accepted only for mkdir -p; the caller walks parent components.
+    fn mkdir(&self, path: &str, allow_existing: bool) -> Result<(), i32>;
     fn open(&self, path: &str, options: &OpenOptions) -> Result<u32, i32>;
     fn read(&self, fd: u32, output: &mut [u8]) -> Result<usize, i32>;
     fn write(&self, fd: u32, input: &[u8]) -> Result<usize, i32>;
@@ -303,6 +306,29 @@ impl HostEndpoint for RuntimeEndpoint {
     }
 }
 impl FileSystem for Runtime {
+    fn mkdir<'a>(
+        &'a self,
+        path: &'a str,
+        parents: bool,
+    ) -> LocalBoxFuture<'a, Result<(), IoError>> {
+        async move {
+            if !path.starts_with('/')
+                || path.len() > crate::io::MAX_PATH_BYTES
+                || path.contains('\0')
+            {
+                return Err(IoError::InvalidPath);
+            }
+            if parents {
+                for (index, _) in path.match_indices('/').filter(|(index, _)| *index > 0) {
+                    crate::executor::yield_now().await;
+                    self.0.abi.mkdir(&path[..index], true).map_err(io_error)?;
+                }
+            }
+            crate::executor::yield_now().await;
+            self.0.abi.mkdir(path, parents).map_err(io_error)
+        }
+        .boxed_local()
+    }
     fn pipe(&self) -> Result<(Endpoint, Endpoint), IoError> {
         let (read, write) = self.0.abi.pipe().map_err(io_error)?;
         Ok((self.endpoint(read), self.endpoint(write)))
