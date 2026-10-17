@@ -452,7 +452,15 @@ impl<'a> Parser<'a> {
         }
         let mut parts = Vec::new();
         let mut quoted = Vec::new();
-        parser.parse_braced_parameter(&mut chars, &mut parts, &mut quoted, outer_quoted, pattern);
+        // Boundary validation is off here, so no operand bodies are collected.
+        parser.parse_braced_parameter(
+            &mut chars,
+            &mut parts,
+            &mut quoted,
+            outer_quoted,
+            pattern,
+            &mut Vec::new(),
+        );
         if let Some(error) = parser.deferred_error.take() {
             return Err(error);
         }
@@ -648,11 +656,17 @@ impl<'a> Parser<'a> {
             return Err(self.limit_error(limit));
         }
         if let Some(tokens::Token::Error(msg)) = &self.current_token {
+            if msg == "unterminated command substitution"
+                && let Some(body) = self.lexer.unterminated_substitution()
+            {
+                self.classify_unterminated_substitution(body)?;
+            }
             // bash: `unexpected EOF while looking for matching `"'`.
             let close = match msg.as_str() {
                 "unterminated double quote" => Some('"'),
                 "unterminated single quote" => Some('\''),
                 "unterminated subscript" => Some(']'),
+                "unterminated command substitution" => Some(')'),
                 _ => None,
             };
             if let Some(close) = close {
@@ -663,6 +677,27 @@ impl<'a> Parser<'a> {
             return Err(self.error(format!("syntax error: {}", msg)));
         }
         Ok(())
+    }
+
+    /// Bash parses an unterminated `$(` body as commands. Stopping at an
+    /// unexpected token is a command-substitution syntax error (status 127);
+    /// only running out of input is the plain EOF error (status 2).
+    #[inline(never)]
+    fn classify_unterminated_substitution(&self, body: &str) -> Result<()> {
+        let mut parser = self.nested_parser(body)?;
+        let result = parser.parse_inner();
+        self.fuel.set(self.fuel.get().min(parser.fuel.get()));
+        match result {
+            Err(error @ Error::ResourceLimit(_)) => Err(error),
+            Err(_)
+                if !matches!(parser.current_token, None | Some(tokens::Token::Error(_))) =>
+            {
+                Err(Error::ShellWord {
+                    line: self.current_span.start.line,
+                })
+            }
+            _ => Ok(()),
+        }
     }
 
     /// Parse the input and return the AST.
@@ -4459,6 +4494,7 @@ impl<'a> Parser<'a> {
         part_quoted: &mut Vec<bool>,
         in_quoted_segment: bool,
         pattern_context: bool,
+        operand_bodies: &mut Vec<String>,
     ) {
         macro_rules! push_part {
             ($part:expr) => {{
@@ -4468,9 +4504,12 @@ impl<'a> Parser<'a> {
         }
         // ${VAR} format with possible parameter expansion
         chars.next(); // consume '{'
-        if let Err(error) =
-            self.validate_parameter_shell_boundaries(chars, in_quoted_segment, pattern_context)
-        {
+        if let Err(error) = self.parameter_shell_bodies(
+            chars,
+            in_quoted_segment,
+            pattern_context,
+            operand_bodies,
+        ) {
             let first = self.deferred_error.take();
             self.deferred_error.set(first.or(Some(error)));
         }
@@ -5227,7 +5266,7 @@ impl<'a> Parser<'a> {
                             // command name. The placeholder keeps the word
                             // non-literal until `parse_word_substitutions`.
                             pending.push(PendingSubstitution {
-                                index: parts.len(),
+                                index: Some(parts.len()),
                                 body,
                                 fused,
                                 first_error: !self.has_deferred_error(),
@@ -5241,13 +5280,23 @@ impl<'a> Parser<'a> {
                         }
                     }
                 } else if chars.peek() == Some(&'{') {
+                    let mut operand_bodies = Vec::new();
                     self.parse_braced_parameter(
                         &mut chars,
                         &mut parts,
                         &mut part_quoted,
                         in_quoted_segment,
                         false,
+                        &mut operand_bodies,
                     );
+                    for body in operand_bodies {
+                        pending.push(PendingSubstitution {
+                            index: None,
+                            body,
+                            fused: false,
+                            first_error: !self.has_deferred_error(),
+                        });
+                    }
                 } else if let Some(&c) = chars.peek() {
                     // Check for special single-character variables ($?, $#, $@, $*, $!, $$, $-, $0-$9)
                     if matches!(c, '?' | '#' | '@' | '*' | '!' | '$' | '-') || c.is_ascii_digit() {
@@ -5306,7 +5355,10 @@ impl<'a> Parser<'a> {
     fn parse_word_substitutions(&self, scanned: &mut ScannedWord) {
         let mut replaced_later_error = false;
         for pending in std::mem::take(&mut scanned.pending) {
-            let result = self.parse_substitution_body(&pending.body);
+            let result = match pending.index {
+                Some(_) => self.parse_substitution_body(&pending.body).map(Some),
+                None => self.validate_parameter_command(&pending.body).map(|()| None),
+            };
             self.place_substitution(scanned, pending, result, &mut replaced_later_error);
         }
     }
@@ -5321,12 +5373,14 @@ impl<'a> Parser<'a> {
         &self,
         scanned: &mut ScannedWord,
         pending: PendingSubstitution,
-        result: Result<Script>,
+        result: Result<Option<Script>>,
         replaced_later_error: &mut bool,
     ) {
+        let line = self.current_span.start.line;
         let part = match result {
-            Ok(script) => WordPart::CommandSubstitution(script.commands),
-            Err(err) => match substitution_error(pending.body, pending.fused, err) {
+            Ok(None) => return,
+            Ok(Some(script)) => WordPart::CommandSubstitution(script.commands),
+            Err(err) => match substitution_error(pending.body, pending.fused, err, line) {
                 Ok(part) => part,
                 Err(err) => {
                     // Keep the first error in source order. Errors the scan
@@ -5339,7 +5393,9 @@ impl<'a> Parser<'a> {
                 }
             },
         };
-        scanned.parts[pending.index] = part;
+        if let Some(index) = pending.index {
+            scanned.parts[index] = part;
+        }
     }
 
     /// Both direct replacement parsing and lazy scalar reparsing consume the
@@ -5533,7 +5589,10 @@ struct ScannedWord {
 
 /// A `$(...)` body waiting for its nested parse, and its placeholder part.
 struct PendingSubstitution {
-    index: usize,
+    /// The placeholder part, or `None` for a `${...}` operand body: bash
+    /// parses it now, but it expands from the operand text, so only its
+    /// syntax is checked.
+    index: Option<usize>,
     body: String,
     /// Opened as `$((` but is not arithmetic: bash parses it on expansion.
     fused: bool,
@@ -5567,11 +5626,14 @@ fn finish_scanned_word(scanned: Box<ScannedWord>, preserve_empty: bool) -> Word 
 }
 
 /// Bash parses a non-arithmetic `$((` span only when it expands, so its
-/// syntax error belongs to that expansion. Resource limits still reject the
-/// script, as does any error in an ordinary `$(` body.
+/// syntax error belongs to that expansion. Any other command substitution
+/// body is parsed with the script: its syntax error ends the shell with
+/// status 127 (`parse_comsub`), after the lines before it ran. Resource
+/// limits keep their own error.
 #[inline(never)]
-fn substitution_error(body: String, fused: bool, err: Error) -> Result<WordPart> {
+fn substitution_error(body: String, fused: bool, err: Error, line: usize) -> Result<WordPart> {
     match err {
+        Error::ResourceLimit(_) => Err(err),
         Error::Parse { message, .. } if fused => Ok(WordPart::UnparsedCommandSubstitution {
             source: body,
             error: message,
@@ -5580,7 +5642,7 @@ fn substitution_error(body: String, fused: bool, err: Error) -> Result<WordPart>
             source: body,
             error: format!("syntax error while looking for matching `)' at line {line}"),
         }),
-        err => Err(err),
+        Error::Parse { .. } | Error::ShellWord { .. } => Err(Error::ShellWord { line }),
     }
 }
 
@@ -7043,8 +7105,17 @@ mod tests {
             let err = Parser::with_limits(&script, usize::MAX, fuel)
                 .parse()
                 .unwrap_err();
+            // The `${...}` operand scan enforces the same hard cap one step
+            // before the nested parser does, with its own limit variant.
             assert!(
-                matches!(err, Error::ResourceLimit(LimitExceeded::AstDepth { .. })),
+                matches!(
+                    err,
+                    Error::ResourceLimit(
+                        LimitExceeded::AstDepth { .. }
+                            | LimitExceeded::ParameterBoundaryDepth
+                            | LimitExceeded::ParameterCommandDepth
+                    )
+                ),
                 "{template}: {err}"
             );
         }

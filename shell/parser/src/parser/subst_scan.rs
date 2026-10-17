@@ -131,11 +131,6 @@ impl SubstScanner {
         Self::with_frame(Frame::Substitution)
     }
 
-    /// Process substitutions start command code, not a dollar-arithmetic opener.
-    pub fn new_command() -> Self {
-        Self::with_frame(Frame::Code)
-    }
-
     fn with_frame(frame: Frame) -> Self {
         Self {
             stack: vec![frame],
@@ -449,7 +444,8 @@ impl SubstScanner {
             }),
             '"' => self.stack.push(Frame::Double),
             '`' => self.stack.push(Frame::Backtick),
-            '{' if self.prev == Some('$') => self.stack.push(Frame::Parameter),
+            // Bash's arithmetic matcher (`P_ARITH`) nests `$(` but not `${`:
+            // braces are plain text there and parentheses inside them count.
             '(' if self.prev == Some('$') => self.push_code(),
             '(' => *self.parens.last_mut().expect("arithmetic frame") += 1,
             ')' => {
@@ -940,14 +936,13 @@ mod tests {
     }
 
     #[test]
-    fn process_substitution_starts_with_command_code() {
+    fn process_substitution_fused_opener_matches_raw_parens() {
+        // Bash reads `<((` like `$((`: raw parenthesis matching, so the case
+        // pattern's `)` counts and the span ends after `esac)`.
         let source = "(case x in x) :;; esac)) suffix";
-        let mut scanner = SubstScanner::new_command();
-        let end = source
-            .char_indices()
-            .find_map(|(index, ch)| (scanner.feed(ch) == Step::Close).then_some(index))
-            .unwrap();
-        assert_eq!(&source[..end], "(case x in x) :;; esac)");
+        let (body, end) = split_subst_body(source).unwrap();
+        assert_eq!(body, "(case x in x) :;; esac");
+        assert_eq!(&source[end..], ") suffix");
     }
 
     #[test]

@@ -120,6 +120,10 @@ pub struct Lexer<'a> {
     heredoc_resume: Option<Position>,
     literal_escapes: Vec<LiteralEscape>,
     boundary_scan_work: usize,
+    /// Body text of the last `$(`/`<(` span that reached end of input. Bash
+    /// parses that text as commands to tell an unexpected token (status 127)
+    /// from the end of input (status 2); the parser repeats that parse.
+    unterminated_substitution: Option<String>,
 }
 
 impl<'a> Lexer<'a> {
@@ -149,11 +153,16 @@ impl<'a> Lexer<'a> {
             heredoc_resume: None,
             literal_escapes: Vec::new(),
             boundary_scan_work: 0,
+            unterminated_substitution: None,
         }
     }
 
     pub(crate) fn limit_exceeded(&self) -> Option<crate::limits::LimitExceeded> {
         self.limit_exceeded
+    }
+
+    pub(crate) fn unterminated_substitution(&self) -> Option<&str> {
+        self.unterminated_substitution.as_deref()
     }
 
     pub(crate) fn take_boundary_scan_work(&mut self) -> usize {
@@ -2281,30 +2290,34 @@ impl<'a> Lexer<'a> {
     /// found. The scanner is iterative, so deep nesting cannot overflow the
     /// host stack here (TM-DOS-044).
     fn read_command_subst_body(&mut self, content: &mut String) -> bool {
-        self.consume_subst_body(Some(content), false)
+        self.consume_subst_body(Some(content))
     }
 
-    /// Consume a process substitution in command, not arithmetic, context.
+    /// Consume a process substitution body; `<((` is a raw span, as in bash.
     pub fn skip_subst_body(&mut self) -> bool {
-        self.consume_subst_body(None, true)
+        self.consume_subst_body(None)
     }
 
-    fn consume_subst_body(&mut self, mut content: Option<&mut String>, command: bool) -> bool {
+    fn consume_subst_body(&mut self, mut content: Option<&mut String>) -> bool {
         use super::subst_scan::{Step, SubstScanner};
-        let mut scanner = if command {
-            SubstScanner::new_command()
-        } else {
-            SubstScanner::new()
-        };
+        // `<((` and `$((` alike start a raw arithmetic-style span in bash.
+        let mut scanner = SubstScanner::new();
+        let start = content.as_ref().map_or(0, |out| out.len());
+        let mut skipped = String::new();
         while let Some(c) = self.advance() {
             self.boundary_scan_work = self.boundary_scan_work.saturating_add(1);
-            if let Some(out) = content.as_mut() {
-                out.push(c);
+            match content.as_mut() {
+                Some(out) => out.push(c),
+                None => skipped.push(c),
             }
             if scanner.feed(c) == Step::Close {
                 return true;
             }
         }
+        self.unterminated_substitution = Some(match content {
+            Some(out) => out[start..].to_string(),
+            None => skipped,
+        });
         false
     }
 

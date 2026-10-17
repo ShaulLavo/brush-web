@@ -7,20 +7,27 @@ use crate::error::{Error, Result};
 use crate::limits::LimitExceeded;
 
 impl Parser<'_> {
-    /// Validate while the complete word is read, before lazy operands or
-    /// command conditions can skip it. Arithmetic text is kept opaque by the
-    /// ordinary word parser, so its slices reach only the expansion pass.
-    pub(super) fn validate_parameter_shell_boundaries(
+    /// Collect the command bodies of a `${...}` operand while the complete
+    /// word is read, before lazy operands or command conditions can skip
+    /// them. Bash parses `$(...)` and `<(...)` bodies there at parse time
+    /// (`parse_comsub`); the word parser checks them once its scan returns.
+    /// Arithmetic text is kept opaque by the ordinary word parser, so its
+    /// slices reach only the expansion pass.
+    pub(super) fn parameter_shell_bodies(
         &self,
         chars: &WordChars<'_>,
         outer_quoted: bool,
         pattern: bool,
+        bodies: &mut Vec<String>,
     ) -> Result<()> {
         if !self.parameter_word_boundaries {
             return Ok(());
         }
         let mut chars = chars.clone();
-        if !chars.remaining().contains(['<', '>']) {
+        // Only `$(`, `<(` and `>(` start a body; skip the charged scan when
+        // the rest of the word has neither a `$(` nor an angle bracket.
+        let rest = chars.remaining();
+        if !rest.contains("$(") && !rest.contains(['<', '>']) {
             return Ok(());
         }
         let mut scanner = ParameterScan::<HARD_MAX_AST_DEPTH>::with_limit(
@@ -38,11 +45,11 @@ impl Parser<'_> {
             angle = matches!(c, '<' | '>') && !angle;
             if angle && scanner.substring_unquoted() && chars.peek() == Some(&'(') {
                 chars.next();
-                self.read_parameter_command(&mut chars, true)?;
+                self.read_parameter_command(&mut chars, bodies)?;
                 angle = false;
                 continue;
             }
-            if self.parameter_boundary_step(&mut scanner, &mut chars, c)? {
+            if self.parameter_boundary_step(&mut scanner, &mut chars, c, bodies)? {
                 return Ok(());
             }
         }
@@ -54,6 +61,7 @@ impl Parser<'_> {
         scanner: &mut ParameterScan<HARD_MAX_AST_DEPTH>,
         chars: &mut WordChars<'_>,
         c: char,
+        bodies: &mut Vec<String>,
     ) -> Result<bool> {
         match scanner.feed(c, chars.peek().copied()) {
             Step::Closed => Ok(true),
@@ -63,7 +71,7 @@ impl Parser<'_> {
             }
             Step::Command => {
                 chars.next();
-                self.read_parameter_command(chars, false)?;
+                self.read_parameter_command(chars, bodies)?;
                 Ok(false)
             }
             Step::Limit => Err(self.limit_error(LimitExceeded::ParameterBoundaryDepth)),
@@ -71,26 +79,20 @@ impl Parser<'_> {
         }
     }
 
-    fn read_parameter_command(&self, chars: &mut WordChars<'_>, process: bool) -> Result<()> {
-        // Bash never parses a `$((` span as commands before it expands.
-        let (body, fused) = self.parameter_command_body(chars, process)?;
-        if fused {
-            return Ok(());
+    /// Read a `$(`, `<(` or `>(` body. Bash never parses a fused `$((` or
+    /// `<((` span as commands before it expands.
+    fn read_parameter_command(&self, chars: &mut WordChars<'_>, bodies: &mut Vec<String>) -> Result<()> {
+        let (body, fused) = self.parameter_command_body(chars)?;
+        if !fused {
+            bodies.push(body.to_string());
         }
-        self.validate_parameter_command(body)
+        Ok(())
     }
 
-    fn parameter_command_body<'a>(
-        &self,
-        chars: &mut WordChars<'a>,
-        process: bool,
-    ) -> Result<(&'a str, bool)> {
+    fn parameter_command_body<'a>(&self, chars: &mut WordChars<'a>) -> Result<(&'a str, bool)> {
         let source = chars.remaining();
-        let mut scanner = if process {
-            SubstScanner::new_command()
-        } else {
-            SubstScanner::new()
-        };
+        // `<((` and `$((` alike start a raw arithmetic-style span in bash.
+        let mut scanner = SubstScanner::new();
         let mut end = None;
         for c in source.chars() {
             self.tick()?;
@@ -113,7 +115,7 @@ impl Parser<'_> {
     }
 
     #[inline(never)]
-    fn validate_parameter_command(&self, body: &str) -> Result<()> {
+    pub(super) fn validate_parameter_command(&self, body: &str) -> Result<()> {
         self.tick_units(body.len())?;
         if self.current_depth >= self.max_depth {
             return Err(self.limit_error(LimitExceeded::ParameterCommandDepth));
