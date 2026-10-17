@@ -5,7 +5,13 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { migrationEnvironment, migrationEvidence, oraclePath } from "./shell-scoreboard-base.mjs";
-import { bytesDigest, compareScores, validateScore, verifyOracle } from "./shell-scoreboard.mjs";
+import {
+  bytesDigest,
+  compareScores,
+  summarize,
+  validateScore,
+  verifyOracle,
+} from "./shell-scoreboard.mjs";
 import { drainGroup, killGroup } from "./shell-process-group.mjs";
 
 const root = resolve(process.argv[2] ?? ".");
@@ -129,6 +135,26 @@ async function migrate() {
     await writeFile(resolve(checkout, "sources.lock.json"), JSON.stringify(pins));
     const corrected = await score("corrected-oracle");
     validateScore(candidate, corrected);
+    const counts = (score) =>
+      Object.fromEntries(
+        Object.entries(summarize(score)).map(([corpus, { categories: _categories, ...value }]) => [
+          corpus,
+          value,
+        ]),
+      );
+    const before = new Map(original.cases.map((item) => [item.id, item.outcome]));
+    console.error(
+      `[oracle-migration-proof] ${JSON.stringify({
+        baseRef: ref,
+        engineSha256: binaryHash,
+        oldMembershipProven: true,
+        oldCounts: counts(original),
+        correctedCounts: counts(corrected),
+        scoreChanges: corrected.cases
+          .filter((item) => before.get(item.id) !== item.outcome)
+          .map((item) => ({ id: item.id, before: before.get(item.id), after: item.outcome })),
+      })}`,
+    );
     console.error(`Verified target ${ref} under original and corrected oracles`);
     return corrected;
   } finally {
