@@ -125,18 +125,23 @@ impl Scope {
             parent: RefCell::new(None),
         }))
     }
-    fn resolved_id(&self) -> u64 {
+    fn resolved(&self) -> Self {
         let mut scope = self.clone();
         loop {
             let parent = scope.0.parent.borrow().clone();
             match parent {
                 Some(parent) => scope = parent,
-                None => return scope.0.id,
+                None => return scope,
             }
         }
     }
+    fn resolved_id(&self) -> u64 {
+        self.resolved().0.id
+    }
     fn forward_to(&self, parent: Scope) {
-        *self.0.parent.borrow_mut() = Some(parent);
+        // Skip ancestors that already exited. Repeated background hand-offs
+        // must not retain an ever-growing chain of otherwise dead scopes.
+        *self.0.parent.borrow_mut() = Some(parent.resolved());
     }
 }
 impl PartialEq for Scope {
@@ -1847,6 +1852,18 @@ mod scope_tests {
         middle.forward_to(captured_outer);
         inner.forward_to(captured_middle);
         assert_eq!(inner.resolved_id(), 0);
+    }
+
+    #[test]
+    fn successive_background_handoffs_do_not_retain_exited_ancestors() {
+        let mut parent = Scope::new(0);
+        for id in 1..1000 {
+            let child = Scope::new(id);
+            child.forward_to(parent);
+            assert_eq!(child.0.parent.borrow().as_ref().unwrap().0.id, 0);
+            parent = child;
+        }
+        assert_eq!(parent.resolved_id(), 0);
     }
 
     #[test]

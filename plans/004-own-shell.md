@@ -48,7 +48,7 @@ Rules for climbing:
 
 ## Steps
 
-0. **Skeleton.** A Rust workspace at `shell/` in this repository (it moves with the product repository later). Start from Bashkit's parser at `491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT): pin it in `sources.lock.json`, add it to `THIRD_PARTY_NOTICES.md`, and maintain it freely as our own parser. Record local changes alongside that base revision instead of requiring byte identity. Keep its upstream parser tests running in `npm run test:rust`; remove one only for a deliberate behavior change with the reason recorded in the parser change log. The spike's proof (`/work/tmp/own-shell-spike-tloM5o/proof`) is the starting reference, not code to extend blindly: its mock processes, polling reactor and toy commands are replaced.
+0. **Skeleton.** A Rust workspace at `shell/` in this repository (it is extracted with history to `ShaulLavo/bash-web` under the approved sequence below, independently of the future product repository). Start from Bashkit's parser at `491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT): pin it in `sources.lock.json`, add it to `THIRD_PARTY_NOTICES.md`, and maintain it freely as our own parser. Record local changes alongside that base revision instead of requiring byte identity. Keep its upstream parser tests running in `npm run test:rust`; remove one only for a deliberate behavior change with the reason recorded in the parser change log. The spike's proof (`/work/tmp/own-shell-spike-tloM5o/proof`) is the starting reference, not code to extend blindly: its mock processes, polling reactor and toy commands are replaced.
 
 1. **Engine on real browser workers.** This gate is mandatory before step 6 replaces Brush. Steps 2 and 3 may proceed with tested `ProcessHost` stand-ins, as approved by the owner on 2026-10-16. The interpreter runs on one async executor in one worker: every pipeline stage, subshell and background job is a task. Shell I/O never blocks; the executor parks only when no task can run, and wakes on I/O readiness, child exit or interrupt. File descriptors are a table of reference-counted endpoints: subshells and stages share open endpoints, never copies, so EOF and EPIPE follow the last close. Pipes are bounded (the proof used 32 KiB). Bounded pipes alone do not bound memory: define limits and backpressure, spilling or explicit failure at the terminal and worker queues, command captures, substitutions and accumulating utilities. Command dispatch, loops, expansions and in-process utilities run with bounded work budgets, explicit yields and interrupt checks, because a task that never waits on I/O would otherwise starve every other task. Child processes go through a process-host interface (spawn with argv, environment, cwd and descriptor bindings; wait; kill; nonblocking readiness and exit notifications), implemented on the shared runtime from plan 001 step 2. Until that lands it may use this repository's current process imports, but only after generalizing that host: today it tracks one active child and passes no arbitrary descriptor bindings, so it cannot run Bun-to-Bun pipelines or the inherited-descriptor test. Define the guest-visible broken-pipe contract with the runtime: a child killed by a closed pipe reports 141, but a guest that handles EPIPE keeps its own exit status.
 
@@ -194,3 +194,145 @@ filesystem. Then introduce a redirect-specific expansion contract with correct
 ambiguity diagnostics, preserving scalar assignments/declarations. Confirm
 Bash results before implementation, run full native/WASI tests and exact pass
 membership ratchet, and keep zero CI exemptions.
+
+## Approved extraction: public `ShaulLavo/bash-web`, with history
+
+Status: Approved (owner, 2026-10-17). **Scheduled after the oracle/harness PR
+merges, then the command/process-substitution PR merges. The root coordinator
+owns the extraction; lanes do not create the repository or move files now.**
+The destination is the public repository `https://github.com/ShaulLavo/bash-web`.
+This is a history-preserving move, not a snapshot copy or a new shell rewrite.
+
+The shell becomes an independently maintained parser/interpreter/engine package.
+The shared WASI/browser runtime remains a **separate package that the product
+pulls in**, alongside the shell; it is not moved into the destination shell
+repository or absorbed into the shell. Preserve the `ProcessHost`, `HostEndpoint`, `FileSystem` and
+session/executor boundaries documented in `shell/engine/README.md`. The current
+in-process host is still a fixture, not browser integration. Extraction does not
+waive step 1's browser-worker gate or authorize replacing Brush before step 6.
+
+### Ordered execution
+
+1. Verify both prerequisite PRs are merged on the host and record their merge
+   commits. Fetch the resulting `origin/main`; inventory **that merged tree**,
+   not the current shared worktree. The oracle/harness work changes transport,
+   oracle metadata/identity, baseline and tests, while the substitution work adds
+   generator coverage. Preserve those final versions together.
+2. In a root-owned migration lane, perform a history-preserving extraction of
+   `shell/` **and the outside-shell paths below**. Retain their earlier changes,
+   the original source-repository/base identity and the extraction commit map;
+   do not squash the shell into a single initial commit. A shell-only subtree
+   export is insufficient because it loses verification, licenses and pins.
+   Create/publish the destination only at this step, after both merges.
+3. Initially keep `shell/`, `scripts/`, `sources.lock.json` and
+   `docs/evidence/` at their existing relative paths. Normalize paths only in a
+   separately reviewed change that updates every executable reference. Preserve
+   frozen oracle and generator fixture bytes; a repository rename is not a
+   reason to recapture expected results, reset the ratchet or regenerate seeds.
+4. Adapt the root manifests, shell-only CI and notices as inventoried below.
+   Make the standalone default select only `own-shell`; retain browser/reference
+   engine comparisons in the host or behind an explicit optional integration,
+   not as an implicit download/build dependency of standalone verification.
+5. From a clean destination checkout, run the final merged parser/provenance,
+   native/WASI, size, runner/scoreboard, generator-replay and fixed per-case
+   ratchet gates. On this host use the shared heavy-job queue and SSD-backed
+   targets/scratch. Verify that frozen replay needs no corpus caches, installed
+   oracle or browser assets. Root owns CI/review/merge and checks the resulting
+   destination history and post-merge gates; this note does not run those jobs.
+6. Update the old host's shell ownership/consumption and documentation to point
+   to the destination rather than leave two writable copies. The future product
+   consumes the shell and the separate runtime packages; terminal/UI work and
+   runtime implementation remain outside this extraction. Remove migration
+   scratch and task-created caches after their consumers stop, preserving shared
+   caches and requested evidence.
+
+### Outside-shell dependency inventory
+
+Paths below are relative to this repository root. They are the initial
+extraction checklist, to be reconciled with the final two merged PRs. The Rust
+workspace itself has no outside-shell path dependency: the engine's local crate
+reference is `../parser`; its tests use Cargo's own binary fixture. The missing
+pieces are build policy, verification, frozen inputs and provenance.
+
+| Area | Carry with history, or explicitly adapt |
+| --- | --- |
+| Rust build policy | `rust-toolchain.toml` (Rust **1.98.1**, rustfmt, `wasm32-wasip1`); `.cargo/config.toml` (WASI maximum memory **268435456**); retain `shell/Cargo.toml`, `shell/Cargo.lock`, both crates, READMEs and `shell/parser/LICENSE`. Keep `.build/shell` artifact paths initially. |
+| Main compatibility runner | `scripts/bash-compat.mjs`, `bash-compat-worker.mjs`, `bash-compat-helpers.mjs`, `shell-scoreboard.mjs`, `shell-scoreboard-base.mjs`. The entry point imports the helper, runner and scoreboard modules and starts the worker by filename; the worker imports the helpers. Preserve `git show` target-baseline reads. |
+| Oracle transport from the prerequisite PR | `scripts/bash-compat-runner.mjs`, `bash-compat-pipe.py`, `audit-bash-oracle-pipe.mjs`, `test-bash-compat-runner.mjs`. These were new/untracked during this inventory; take their committed merged versions. The runner spawns the Python file, including a separate exit-status fd; do not replace its real independent stdout/stderr pipes with direct Node `spawn` transport. The audit imports the helpers, runner and scoreboard. |
+| Runner/ratchet tests | `scripts/test-shell-scoreboard.mjs`, `test-shell-scoreboard-base.mjs`, `test-compat-selection.mjs`, `test-own-shell-runner.mjs`, plus the transport runner test above. The own-shell runner test starts `bash-compat-worker.mjs` by filename; tests also depend on the existing evidence/manifest paths. |
+| Parser/WASI checks | `scripts/check-shell-parser.mjs` and `scripts/test-shell-wasi.mjs`. The provenance check reads `sources.lock.json` and its `shellParser.directory` license. The WASI check owns streaming acceptance and the brotli-11 **1,000,000-byte** release ceiling; do not lose it when removing browser tooling. |
+| Differential generators | `scripts/fuzz-shell-words.mjs`, `fuzz-shell-readonly.mjs`, `fuzz-shell-arithmetic.mjs`, `fuzz-shell-parse-boundaries.mjs`, `fuzz-shell-braces.mjs`, `fuzz-shell-substitution-boundaries.mjs`; `scripts/test-fuzz-shell-braces.mjs`, `test-fuzz-shell-substitution-boundaries.mjs` import their corresponding generators. Carry/adapt the shell instructions from `scripts/README.md`. All six generators use Node built-ins. |
+| Seed fixtures | Under `scripts/fixtures/`: `shell-words-seed-1.json`, `shell-words-seed-42.json`, `shell-readonly-seed-17.json`, `shell-arithmetic-seed-7.json`, `shell-arithmetic-seed-314.json`, `shell-parse-boundaries.json`, `shell-braces-seed-1.json`, `shell-braces-seed-42.json`. Add the substitution PR's final `shell-substitutions-seed-1.json` and `shell-substitutions-seed-42.json` once committed; they did not yet exist at inventory time. Inventory all additional merged fixtures rather than synthesizing missing files during extraction. |
+| Frozen scoreboard and capture classification | `docs/evidence/own-shell-oracle.json`, `own-shell-baseline.json`, **and** `bash-compatibility.json`. The latter preserves capture's historical case classifications and its hash, even though normal frozen replay does not read it. Carry `docs/evidence/licenses/oils-LICENSE.txt` and `brush-MIT.txt`; Bashkit's retained MIT license is `shell/parser/LICENSE`. |
+| Source/provenance manifest | Adapt `sources.lock.json`, preserving `shellParser`, `shellScoreboard`, `shellWords`, `shellParameterDefaults`, `shellParameterEffects`, `shellParameterLength`, `shellParameterTrim`, `shellParameterCase`, `shellParameterIndirect`, `shellParameterReplace`, `shellArithmetic`, `shellBraces`, and any shell entries added by the prerequisite PRs, with complete classifications/change records. Also retain the corpus pins under top-level **`oils`, `brush`, `bashkitTerminal`**: executable frozen validation reads them, not only `shellScoreboard.corpora`. |
+| Licenses/notices | Retain the root `LICENSE` and shell-relevant sections of `THIRD_PARTY_NOTICES.md`, including every adapted implementation/test and original-adapter distinction. Extract a shell-only `scripts/notices.mjs` flow that includes the pinned parser license, actual Cargo dependency licenses and retained corpus licenses. The current generator also reads the Brush browser workspace, terminal/Bun/Bashkit distributions, npm lock and `.sources` notices, so it cannot be copied unchanged as the standalone build command. Preserve a distributed generated notice file and update its README links. |
+| Documentation | Carry/adapt `docs/bash-compatibility.md` (method, identities, capture/replay, ratchet and generator sections), this plan, `shell/README.md` and `shell/engine/README.md`; fix root-relative links. Keep historical Brush/Bashkit comparisons and original commit/CI links explicitly historical, not fresh standalone measurements. Product/browser architecture, performance and cold-start pages remain host documentation; link them where their acceptance criteria still apply. |
+| Root JS/configuration | Create a shell-only `package.json`/`package-lock.json` adaptation, preserving Node **26.7.0** and the named shell scripts below. Frozen replay/generators need no npm packages. Capture additionally needs `yaml` (currently **2.9.1**); keep it reproducible when that operation is retained. Carry/adapt `.gitignore`, `.gitattributes` and `.oxfmtrc.json` if their rules are used. Do not inherit frontend `verify`, `build`, `sources`, or Brush-chained `test:rust` commands unchanged. |
+| CI | Extract/adapt `.github/workflows/ci.yml`'s `shell` and `own-shell-compatibility` jobs, plus the prerequisite PR's final transport/audit steps. Preserve Node **26.7.0**, Rust **1.98.1**, wasmtime **v49.0.3**, rustfmt, the WASI target, locked native/WASI builds, bounded `-j2` CI work, generator tests/replays, score artifacts and exact target-branch checks. Preserve full checkout history (`fetch-depth: 0`) for baseline comparisons and adapt the Rust cache workspace to the retained paths. Do not pull in the frontend/browser/reference-engine `verify` job. |
+
+The standalone package scripts must retain `build:shell`, `test:shell:wasi`,
+`test:shell:scoreboard`, `compat:shell`, all `fuzz:shell-*` and their `:ci`
+replay commands, and `test:fuzz-shell-braces`/`test:fuzz-shell-substitutions`.
+Use the final merged scoreboard test list, including the oracle runner tests;
+replace `test:rust` with the shell-only provenance and locked workspace tests.
+The native generator binary is `.build/shell/release/shell-engine`; WASI replay
+uses `.build/shell/wasm32-wasip1/release/shell-engine.wasm`.
+
+### Frozen inputs, maintenance setup and migration traps
+
+- Preserve these exact corpus revisions and their retained license/hash records:
+  Oils `bdc8364c253ce921e033bbc2399ea2ce0be41825`,
+  Brush `4cfba081f2f8bcda8150010a57203d020f14f0cc`, and
+  Bashkit/parser `491c3281f668b76d64b15210b8f5d7bf97244be0`.
+  Inputs are respectively `spec/*.test.sh`,
+  `brush-shell/tests/cases/compat/**/*.yaml`, and
+  `crates/bashkit/tests/spec_cases/bash/*.test.sh` excluding Oils/just-bash ports.
+  Keep archive checksums in the manifest, not freshly downloaded substitutes.
+- Normal frozen replay reads committed observations only: no corpus downloads,
+  GNU Bash execution, browser runtime or comparison-engine builds. Capture is a
+  separate explicit maintenance operation requiring Linux, GNU Bash
+  **5.3.15(1)-release**, bubblewrap with functioning namespaces, `/usr/bin/python3`
+  (standard library, including Unix `fcntl`/`termios`), `yaml` and all pinned
+  corpus sources. The exact Node version and environment digest remain identity
+  requirements. Preserve both streams as exact bytes; only stdout/status score.
+- Add a **corpus-only preparation path**, not an engine build. Oils currently
+  uses `.sources/oils` with `.revision`/archive checks; Brush defaults to
+  `vendor/brush` or `BASH_COMPAT_BRUSH_DIR`; Bashkit defaults to `.sources/bashkit`
+  or `BASH_COMPAT_BASHKIT_DIR`. Extract only the pinned fetch/check/extract part
+  of `scripts/build-bashkit.mjs` for Bashkit corpus setup. Do not invoke the full
+  build. `scripts/sources.mjs` also fetches the terminal and initializes Brush;
+  it is not suitable standalone setup. Cached source directories and downloaded
+  binaries are not files to commit/import with the shell.
+- Preserve generator **source bytes** as well as fixture bytes. Each fixture
+  pins the SHA-256 of its whole generator, so even renaming a comment, queue
+  label or default path invalidates it. Any necessary generator edit requires
+  an explicit reviewed fixture-identity migration, not silent regeneration as
+  part of the repository move. Preserve all existing pass membership; source,
+  case/oracle/environment changes require the documented base/candidate rerun.
+- Several defaults are machine-local: optional self-queuing through
+  `/work/tmp/wave-heavy/run.sh`; the words generator's automatic build uses
+  `/work/cache/cargo/bin/cargo` and local Cargo/Rustup homes. Pass `--shell` to
+  use the prebuilt native binary without invoking that path. Keep Node-only
+  replay portable; document local queue integration separately without changing
+  pinned generator bytes incidentally.
+- Keep `BASH_COMPAT_MODE=frozen`, `BASH_COMPAT_ENGINES=own-shell`,
+  `BASH_COMPAT_SKIP_BUILD=1` after the explicit build, and `BASH_COMPAT_RECORD=0`
+  in compatibility CI. `BASH_COMPAT_SHELL_WASM` can select the existing artifact.
+  `BASH_COMPAT_BASE_REF` must be a full commit SHA **present in destination
+  history**, not a source-host PR base SHA; target baseline/manifest reads still
+  use their committed paths. Never bootstrap a new weaker baseline just because
+  the repository name changed.
+- Explicitly own scratch/results: `BASH_COMPAT_SCRATCH`, generator `FUZZ_*_SCRATCH`
+  and `RUNNER_TEMP` must resolve to suitable storage; local heavyweight work
+  belongs on `/work`. Audit/runner tests currently contain task-specific
+  `/work/tmp/brush-web-climb-subst` defaults to revisit in their final merged
+  versions. Substitution mismatch output survives outside its per-run scratch
+  intentionally, so record a retention/cleanup owner. Do not copy `.build`,
+  `.sources`, `node_modules`, `.scratch`, browser profiles or reference binaries
+  into the destination.
+- Leave terminal, Bun payloads, browser UI, browser process/runtime adapters,
+  measurements and reference-engine build scripts in the host. The worker's
+  optional `just-bash`/Bashkit imports and the entry point's default all-engine
+  live mode otherwise reintroduce those dependencies; adapt selection explicitly
+  before calling the standalone harness independent. The product's separate
+  runtime package remains the owner of actual browser transport/filesystems.
