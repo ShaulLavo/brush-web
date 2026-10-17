@@ -329,7 +329,7 @@ impl Printer {
                 self.out.push(' ');
             }
             if matches!(r.kind, RedirectKind::HereDoc | RedirectKind::HereDocStrip) {
-                let delim = r.heredoc_delim.clone().unwrap_or_default();
+                let delim = normalize_raw_word(r.heredoc_delim.as_deref().unwrap_or_default());
                 self.out.push_str(&redirector(r, 0));
                 self.out.push_str(if r.kind == RedirectKind::HereDocStrip {
                     "<<-"
@@ -922,6 +922,12 @@ mod tests {
             print_fn("f() { cat <<'E'\n$x\nE\necho z; }"),
             "f () \n{ \n    cat <<'E'\n$x\nE\n\n    echo z\n}"
         );
+    }
+
+    #[test]
+    fn heredoc_continuations_do_not_reappear_in_printed_delimiters() {
+        let script = Parser::new(": <<EO\\\nF\nbody\nEOF\n").parse().unwrap();
+        assert_eq!(comsub_commands(&script.commands), ": <<EOF\nbody\nEOF\n");
     }
 
     #[test]

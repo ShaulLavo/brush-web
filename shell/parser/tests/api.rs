@@ -1439,9 +1439,17 @@ fn quoted_heredoc_delimiters_preserve_substitution_and_operand_boundaries() {
                 .with_strict_substitution_bodies()
                 .parse()
                 .unwrap_or_else(|error| panic!("{source:?}: {error}"));
-            let Some(Command::Simple(command)) = script.commands.last() else {
+            let mut command = script.commands.last().expect("the script has a command");
+            while let Command::List(list) = command {
+                command = list
+                    .rest
+                    .last()
+                    .map_or(list.first.as_ref(), |(_, command)| command);
+            }
+            let Command::Simple(command) = command else {
                 panic!("expected trailing simple command: {source:?}");
             };
+            assert_eq!(command.name.to_string(), "args", "{source:?}");
             assert_eq!(command.args.len(), 2, "{source:?}");
             assert_eq!(command.args[1].to_string(), "suffix", "{source:?}");
         }
