@@ -26,6 +26,7 @@ mod guest {
     #[link(wasm_import_module = "shell_terminal")]
     unsafe extern "C" {
         fn phase(value: i32);
+        fn columns() -> i32;
     }
     fn set_phase(value: i32) {
         unsafe {
@@ -145,6 +146,7 @@ mod guest {
                 .get("PS1")
                 .cloned()
                 .unwrap_or_else(|| "$ ".into());
+            editor.begin(&prompt, unsafe { columns() }.max(2) as usize);
             if write(&output, prompt.as_bytes()).await.is_err() {
                 return 1;
             }
@@ -173,7 +175,14 @@ mod guest {
                     continue;
                 }
                 skip_lf = false;
+                editor.resize(&prompt, unsafe { columns() }.max(2) as usize);
                 match editor.feed(byte[0]) {
+                    Action::Echo(byte) => {
+                        if write(&output, &[byte]).await.is_err() {
+                            return 1;
+                        }
+                        editor.echoed(byte);
+                    }
                     Action::Submit(source) => {
                         skip_lf = byte[0] == b'\r';
                         if write(&output, b"\r\n").await.is_err() {

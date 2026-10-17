@@ -70,6 +70,8 @@ export class SubprocessBroker {
   private runtimeTerminals?: typeof import("./runtime-terminals");
   private runtimeRegistry?: import("@bun-wasm/runtime/proc/pipes").PipePublicationRegistry;
   private runtimeChildren = new Map<number, RuntimeChild>();
+  private rejectedRuntimeSpawns = new Set<string>();
+  private runtimeRejections = new Set<Promise<void>>();
   private children = new Map<number, Child>();
   private registrations = new Map<string, ExecutableRegistration>();
   private activation?: Promise<ProcessSupervisor>;
@@ -148,7 +150,19 @@ export class SubprocessBroker {
           this.runtimeDescriptorCodec(this.runtimeRoot),
         );
       }
-      supervisor.onChildExit((event) => this.exited(supervisor, event));
+      supervisor.onChildExit((event) => {
+        this.exited(supervisor, event);
+        // The root may exit before sending its first runtime message, which activates
+        // the generic broker's listeners. Its supervisor fence is authoritative already.
+        if (event.pid === this.root?.pid && this.runtimeRoot) {
+          Atomics.store(this.runtimeApi!.workerProcessState(this.runtimeRoot).confirmed, 0, 1);
+          this.runtimeApi!.wakeWorkerProcess(this.runtimeRoot);
+        }
+      });
+      supervisor.onProcessQuiescent((event) => {
+        if (event.pid === this.root?.pid && this.runtimeRoot)
+          this.runtimeApi!.confirmWorkerProcessJob(this.runtimeRoot);
+      });
       return supervisor;
     }));
   }
@@ -177,6 +191,7 @@ export class SubprocessBroker {
           );
         },
         pumpPipes: () => this.runtimePipes!.pump(),
+        quiesce: (_pid, transport) => this.quiesceRuntimeTransport(transport),
         onError: (error) => this.report(error),
       }));
       if (this.disposed) {
@@ -210,15 +225,25 @@ export class SubprocessBroker {
   }
   /** Supervisor quiescence runs after revocation and before every exit confirmation. */
   private quiesceRuntimeProcess(pid: number): void | Promise<void> {
+    // Retained transports also cover reservations that fail before a worker is launched,
+    // and remain available after physical shutdown removes runtimeChildren entries.
     const transport =
+      this.runtime?.get(pid) ??
       this.runtimeChildren.get(pid)?.transport ??
       (this.root?.pid === pid ? this.runtimeRoot : undefined);
-    const admission = (transport?.data as { terminalAdmission?: TerminalAdmission } | undefined)
+    if (transport) return this.quiesceRuntimeTransport(transport);
+    const filesystem = this.children.get(pid)?.spawn.filesystem;
+    if (filesystem) return this.filesystem.quiesce(filesystem);
+  }
+  private async quiesceRuntimeTransport(transport: WorkerProcessTransport): Promise<void> {
+    const admission = (transport.data as { terminalAdmission?: TerminalAdmission } | undefined)
       ?.terminalAdmission;
-    if (!admission) return undefined;
-    return (async () => {
-      await quiesceTerminal(admission);
-    })();
+    const [, terminalQuiesced] = await Promise.all([
+      this.filesystem.quiesce(this.runtimeFilesystem(transport)),
+      admission ? quiesceTerminal(admission) : true,
+    ]);
+    if (!terminalQuiesced)
+      throw new Error("runtime terminal did not become quiescent before process confirmation");
   }
   private runtimeFilesystem(
     transport: WorkerProcessTransport,
@@ -260,25 +285,51 @@ export class SubprocessBroker {
       result?.kind === "signaled" ||
       (!result && isRevoked(this.runtimeFilesystem(sender)))
     ) {
-      this.rejectRuntimeMessage(message);
+      await this.rejectRuntimeMessage(message);
       return;
     }
     await broker.handle(message, senderPid);
     if (message.operation !== "pipe") this.watch();
   }
-  rejectRuntimeMessage(message: WorkerProcessMessage): void {
+  rejectRuntimeMessage(message: WorkerProcessMessage): void | Promise<void> {
     if (message.operation !== "spawn") return;
     // A generic sender is adopted before it can run, so this path never activates Bun runs.
     if (!this.runtimeApi || !this.runtimeCodec) return;
     const transport = message.transport;
     const state = this.runtimeApi.workerProcessState(transport);
-    requestSignal(state.signals, 9);
-    this.revokeRuntimeProcess(state.pid);
-    const identity = this.runtimeFilesystem(transport);
-    this.filesystem.revoke(identity);
-    const codec = this.runtimeDescriptorCodec(transport);
-    for (const token of transport.resources) codec.discard(token);
-    this.runtimeApi.wakeWorkerProcess(transport);
+    // A duplicate notification owns no new resources, whether the first was admitted or
+    // rejected. Process ids never recycle within a directory.
+    if (this.runtime?.getIdentity(state.pid)) return;
+    const key = `${this.runtimeApi.workerProcessDirectoryId(transport)}:${state.pid}`;
+    if (this.rejectedRuntimeSpawns.has(key)) return;
+    this.rejectedRuntimeSpawns.add(key);
+    const pending = (async () => {
+      requestSignal(state.signals, 9);
+      this.runtimeRegistry?.revoke(state.pid);
+      const identity = this.runtimeFilesystem(transport);
+      this.filesystem.revoke(identity);
+      const codec = this.runtimeDescriptorCodec(transport);
+      let cleaned = true;
+      for (const token of transport.resources) {
+        try {
+          codec.discard(token);
+        } catch (error) {
+          cleaned = false;
+          this.report(error);
+        }
+      }
+      // This transfer never reaches the supervisor, so it owns both confirmations.
+      // In particular, a same-job reservation must retire its pending membership once.
+      await this.quiesceRuntimeTransport(transport);
+      if (cleaned) {
+        Atomics.store(state.confirmed, 0, 1);
+        this.runtimeApi!.confirmWorkerProcessJob(transport);
+      }
+      this.runtimeApi!.wakeWorkerProcess(transport);
+    })().catch((error) => this.report(error));
+    this.runtimeRejections.add(pending);
+    void pending.then(() => this.runtimeRejections.delete(pending));
+    return pending;
   }
 
   private exited(supervisor: ProcessSupervisor, event: ChildExitEvent): void {
@@ -813,7 +864,7 @@ export class SubprocessBroker {
     this.disposed = true;
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
-    const stopping: Promise<void>[] = [];
+    const stopping: Promise<void>[] = Array.from(this.runtimeRejections);
     for (const child of Array.from(this.children.values())) {
       this.cancel(child.spawn);
       if (child.worker) {
@@ -826,6 +877,21 @@ export class SubprocessBroker {
       for (const slot of this.runtimeApi!.workerProcessSlots(this.runtimeRoot)) {
         this.revokeRuntimeProcess(this.runtimeApi!.workerProcessState(this.runtimeRoot, slot).pid);
       }
+      // The root can be disposed before the first runtime message activates the generic
+      // broker. Keep its shared confirmations independent of broker listeners being cleared.
+      const root = this.runtimeRoot;
+      stopping.push(
+        (this.activation
+          ? this.activation.then((supervisor) =>
+              supervisor.waitForExit(0, this.runtimeApi!.workerProcessState(root).pid),
+            )
+          : this.quiesceRuntimeTransport(root)
+        ).then(() => {
+          const state = this.runtimeApi!.workerProcessState(root);
+          Atomics.store(state.confirmed, 0, 1);
+          this.runtimeApi!.confirmWorkerProcessJob(root);
+        }),
+      );
     }
     for (const child of this.runtimeChildren.values()) {
       this.revokeRuntimeProcess(child.context.pid);
@@ -841,7 +907,10 @@ export class SubprocessBroker {
         }),
       );
     return Promise.all(stopping)
-      .then(() => {
+      .then(async () => {
+        // Worker messages queued before shutdown can reserve independent cleanup work
+        // while earlier workers are still fenced. Drain additions, not just the snapshot.
+        while (this.runtimeRejections.size) await Promise.all(Array.from(this.runtimeRejections));
         this.runtimePipes?.dispose();
       })
       .catch((error) => this.report(error));

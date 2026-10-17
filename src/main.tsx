@@ -10,6 +10,7 @@ import terminalWasmUrl from "ghostty-webgpu/ghostty-vt.wasm?url";
 import terminalBridgeUrl from "ghostty-webgpu/bridge.wasm?url";
 import { BrowserSession } from "./session";
 import type { Engine } from "./session";
+import { TerminalNewlines } from "./shell-terminal-output";
 import "./style.css";
 
 interface BrowserTestAccess {
@@ -264,6 +265,10 @@ function Workbench(handle: Handle) {
 
   async function createSession(current: Terminal, expectedGeneration: number) {
     const grid = current.appearance.grid;
+    // Brush and the comparison editors already own their terminal discipline.
+    // The runtime-backed shell shares raw descriptors with children instead, so
+    // apply ONLCR only at this display sink, after file/pipe/descriptor handling.
+    const newlines = engine === "own-shell" ? new TerminalNewlines() : undefined;
     performance.mark("brush:session-start");
     const created = await BrowserSession.create({
       engine,
@@ -282,7 +287,8 @@ function Workbench(handle: Handle) {
         if (generation !== expectedGeneration || handle.signal.aborted) return;
         try {
           hasOutput = true;
-          current.write(bytes);
+          if (newlines) newlines.write(bytes, (chunk) => current.write(chunk));
+          else current.write(bytes);
         } catch (cause) {
           fail(cause, expectedGeneration);
         }

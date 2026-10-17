@@ -123,6 +123,14 @@ they are removed, and they remain mandatory before step 6 replaces Brush:
   `runtime_proc` child inheritance is not affected. The full foreground-descendant
   and independent-background browser test remains unchanged but explicitly
   `fixme` pending 7b; this is a known failure, not passing cancellation evidence.
+- **Bun guest libc preopen discovery.** The pinned Bun guest's wasi-libc scans
+  descriptors from 3 until BADF and exits 71 on any other error. A truthful NOTSUP
+  for an inherited terminal at fd 3 therefore aborts startup before the real
+  relocated root preopen is found. The Bun fd3/fd4 offset and root-preopen browser
+  cases remain explicitly `fixme` pending a guest libc fix that skips occupied
+  non-preopen descriptors. Do not invent successful directory metadata or invalid
+  prestat tags. Builtins and direct `runtime_proc` shell children retain active
+  arbitrary-fd/root-preopen browser coverage; those do not use Bun's libc scan.
 - **Filesystem stall/cancellation.** Rust `Runtime::open` currently calls Preview1
   `path_open`; directory creation/stat likewise use synchronous Preview1 calls.
   `FilesystemClient.call` can enter an indefinite `Atomics.wait`.

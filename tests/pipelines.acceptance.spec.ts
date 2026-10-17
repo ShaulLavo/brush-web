@@ -13,6 +13,18 @@ test.beforeEach(async ({ page }) => {
 });
 test.afterEach(async ({ page }, info) => {
   if (info.status !== info.expectedStatus) {
+    if ((await page.evaluate(() => window.brushWeb?.snapshot().state)) === "ready") {
+      await page.locator("textarea").focus();
+      await page.keyboard.insertText(`printf '\\r\\nRUNTIME_STATUS:%s\\r\\n' "$?"`);
+      await page.keyboard.press("Enter");
+      await page
+        .waitForFunction(
+          () => window.brushWeb?.readLines().some((line) => /RUNTIME_STATUS:\d+/.test(line)),
+          undefined,
+          { timeout: 2000 },
+        )
+        .catch(() => {});
+    }
     console.error(
       "RUNTIME_FAILURE",
       JSON.stringify(

@@ -556,8 +556,7 @@ ctx.onmessage = async (event: MessageEvent<RunRequest>) => {
                   exportAdmission: terminalAdmission,
                 }),
               ),
-              commit: end,
-              cancel: end,
+              release: end,
             };
           } catch (error) {
             end();

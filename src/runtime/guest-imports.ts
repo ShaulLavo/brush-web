@@ -18,8 +18,9 @@ export function preserveRootPreopen(table: DescriptorTable, inherited: readonly 
   return fd;
 }
 /** An occupied terminal/file/pipe is not a directory preopen, but is not a bad descriptor.
- * NOTSUP lets libc discover the real relocated directory without inventing preopen metadata
- * on an inherited binding. The first absent fd after the preopen still returns BADF. */
+ * Report NOTSUP rather than inventing preopen metadata on an inherited binding. Discovery
+ * must skip it: wasi-libc's contiguous-only scan instead exits 71 and needs a guest-side fix.
+ * The first absent fd after the preopen still returns BADF. */
 export function preservePreopenDiscovery(
   imports: WebAssembly.Imports,
   table: DescriptorTable,
@@ -35,6 +36,9 @@ export function preservePreopenDiscovery(
 }
 export function shellTerminalImports(buffer?: SharedArrayBuffer) {
   return {
+    columns() {
+      return buffer ? Math.max(2, Atomics.load(new SharedBridge(buffer).state, control.cols)) : 80;
+    },
     phase(phase: number) {
       if (!buffer) return;
       const bridge = new SharedBridge(buffer);
