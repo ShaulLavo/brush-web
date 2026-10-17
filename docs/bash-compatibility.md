@@ -203,6 +203,43 @@ terminates the supervisor if Node is killed abruptly; bubblewrap then tears down
 the private process namespace. Updating existing frozen observations requires a
 complete eligible-case audit and the target-baseline proof described below.
 
+### Output-stream recording correction
+
+The [2026-10-17 transport audit](evidence/oracle-pipe-audit.json) covers all **5,792**
+eligible cases: two independent pipe captures and one legacy socket capture per
+case. All three captures completed; the repeated pipe observations agreed in both
+scored output and diagnostic bytes. The **3,429** existing skips and all case,
+source and environment identities remain unchanged.
+
+Seven cases have corrected stdout or status, and one has a stderr-only correction:
+
+| Case                                             | Recording error                                                              |
+| ------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `oils:redirect:521`                              | Reopening `/dev/stdout` failed instead of printing each command's arguments. |
+| `oils:redirect:543`                              | The same failure suppressed output and descriptor-allocation updates.        |
+| `bashkit-suite:dev-fd-paths:10`                  | Reopening merged `/dev/stderr` failed instead of printing `err`.             |
+| `bashkit-suite:dev-fd-paths:16`                  | Appending to merged `/dev/stderr` failed instead of printing two lines.      |
+| `bashkit-suite:dev-fd-paths:23`                  | Reopening `/dev/stdout` for stderr failed instead of printing `e`.           |
+| `bashkit-suite:dev-fd-paths:29`                  | Reopening `/dev/fd/1` failed instead of printing `two`.                      |
+| `bashkit-suite:dev-fd-paths:45`                  | A variable naming merged `/dev/stderr` failed instead of printing `warn`.    |
+| `bashkit-suite:bashbox-interpreter-builtins:274` | Stderr-only: reopening `/dev/stderr` now prints `x`, not the socket error.   |
+
+For each correction, the legacy socket observation reproduces the original
+frozen answer exactly for the affected streams, and both pipe captures reproduce
+the corrected answer. Each script was inspected to establish that the difference
+comes from reopening an output descriptor, not merely from correlated captures.
+The initial recorder metadata is preserved; `oracle.transportCorrection` records
+the separate audit capture and its different Bash executable hash.
+
+Other host-dependent differences are **not** refreshed. Frozen observations for
+host names, dates, user IDs, resource limits and locally unavailable commands stay
+as recorded. In particular, `bashkit-suite:time:78` happened to have repeatable
+pipe timing diagnostics different from the socket capture; its script does not
+reopen an output descriptor, so those diagnostic bytes remain frozen too. The
+evidence lists every observed scored difference and the retained unrelated ones.
+The archived target's old passing-case membership is proven before the same
+binary is rescored; this is a recording correction, not an engine improvement.
+
 `docs/evidence/own-shell-oracle.json` contains script text, category, case ID,
 classification and exact normalized stdout/stderr bytes in base64 plus numeric
 status. Only stdout and status decide a pass. stderr stays separate and is kept
