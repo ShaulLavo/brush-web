@@ -1464,10 +1464,11 @@ async fn arithmetic_command_program(
     context: &Context,
     work: &mut expand::Work,
 ) -> Outcome {
+    let arithmetic_cancel = context.cancel.without_probe();
     let value = arithmetic::evaluate_program(
         program,
         state,
-        &context.cancel,
+        &arithmetic_cancel,
         context.limits().expansion_bytes,
         work,
     )

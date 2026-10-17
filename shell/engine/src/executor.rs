@@ -295,12 +295,16 @@ impl std::fmt::Display for Cancelled {
 impl std::error::Error for Cancelled {}
 const HOST_PROBE_STRIDE: usize = 16;
 
+struct CancelShared {
+    flag: Cell<bool>,
+    probe_remaining: Cell<usize>,
+}
+
 #[derive(Clone)]
 pub struct Cancel {
-    flag: Rc<Cell<bool>>,
+    shared: Rc<CancelShared>,
     event: Event,
     probe: Option<Rc<dyn Fn() -> bool>>,
-    probe_remaining: Rc<Cell<usize>>,
 }
 impl Cancel {
     pub fn new() -> Self {
@@ -308,43 +312,56 @@ impl Cancel {
     }
     pub fn with_probe(probe: Rc<dyn Fn() -> bool>) -> Self {
         Self {
+            shared: Rc::new(CancelShared {
+                flag: Cell::new(false),
+                probe_remaining: Cell::new(0),
+            }),
+            event: Event::default(),
             probe: Some(probe),
-            ..Self::default()
         }
     }
     pub fn cancel(&self) {
-        if !self.flag.replace(true) {
+        if !self.shared.flag.replace(true) {
             self.event.notify();
         }
     }
+    pub(crate) fn without_probe(&self) -> Self {
+        Self {
+            shared: self.shared.clone(),
+            event: self.event.clone(),
+            probe: None,
+        }
+    }
     pub fn is_cancelled(&self) -> bool {
-        if self.flag.get() {
+        let shared = &*self.shared;
+        if shared.flag.get() {
             return true;
         }
         let Some(probe) = &self.probe else {
             return false;
         };
-        let remaining = self.probe_remaining.get();
+        let remaining = shared.probe_remaining.get();
         if remaining != 0 {
-            self.probe_remaining.set(remaining - 1);
+            shared.probe_remaining.set(remaining - 1);
             return false;
         }
-        self.probe_remaining.set(HOST_PROBE_STRIDE - 1);
+        shared.probe_remaining.set(HOST_PROBE_STRIDE - 1);
         if probe() {
             self.cancel();
         }
-        self.flag.get()
+        shared.flag.get()
     }
     /// Probe the consuming host interrupt immediately at parser and runtime
     /// boundaries that must not wait for the ordinary work stride.
     pub fn probe_now(&self) -> bool {
-        if self.flag.get() {
+        let shared = &*self.shared;
+        if shared.flag.get() {
             return true;
         }
         if self.probe.as_ref().is_some_and(|probe| probe()) {
             self.cancel();
         }
-        self.flag.get()
+        shared.flag.get()
     }
     pub async fn cancelled(&self) {
         let notification = self.event.listen();
@@ -367,10 +384,12 @@ impl Cancel {
 impl Default for Cancel {
     fn default() -> Self {
         Self {
-            flag: Rc::new(Cell::new(false)),
+            shared: Rc::new(CancelShared {
+                flag: Cell::new(false),
+                probe_remaining: Cell::new(0),
+            }),
             event: Event::default(),
             probe: None,
-            probe_remaining: Rc::new(Cell::new(0)),
         }
     }
 }
