@@ -124,7 +124,10 @@ const signalControls = [
   ["invalid-signal", "kill -s INVALID %1", "kill"],
 ];
 
-const finiteSignalJob = "i=0; while ((i < 1000000)); do ((i += 1)); done &";
+// Keep the owned job alive independently of interpreter throughput. The
+// million-iteration arithmetic loop is measured separately in plan 004; it
+// must not be an incidental prerequisite for this signal semantic control.
+const finiteSignalJob = "sleep 1 &";
 
 function signalSource(kill, observation) {
   const value = observation === "kill" ? "kill_status" : "wait_status";

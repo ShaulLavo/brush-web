@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "sourceHash": "b6d1c89cf0778c48b49a3c920d956da88e3bad37e47ee28848ae4f9be1ecf223",
+  "sourceHash": "6a443b3a7765e211ad3474e8f4dc542b8a5af15a9e677f8a52e4c9028339e55c",
   "seed": 1,
   "count": 600,
   "timeoutMs": 2000,
@@ -634,9 +634,9 @@
         "node": {
           "kind": "raw",
           "id": "fixed-job-signal-default-term",
-          "text": "i=0; while ((i < 1000000)); do ((i += 1)); done & kill %1; wait %1; wait_status=$?; printf 'wait=%s\\n' \"$wait_status\""
+          "text": "sleep 1 & kill %1; wait %1; wait_status=$?; printf 'wait=%s\\n' \"$wait_status\""
         },
-        "script": "i=0; while ((i < 1000000)); do ((i += 1)); done & kill %1; wait %1; wait_status=$?; printf 'wait=%s\\n' \"$wait_status\"; status=$?; printf 'status=%s\\n' \"$status\"; exit \"$status\""
+        "script": "sleep 1 & kill %1; wait %1; wait_status=$?; printf 'wait=%s\\n' \"$wait_status\"; status=$?; printf 'status=%s\\n' \"$status\"; exit \"$status\""
       },
       "bash": {
         "status": 0,
@@ -661,9 +661,9 @@
         "node": {
           "kind": "raw",
           "id": "fixed-job-signal-named-term",
-          "text": "i=0; while ((i < 1000000)); do ((i += 1)); done & kill -s TERM %1; wait %1; wait_status=$?; printf 'wait=%s\\n' \"$wait_status\""
+          "text": "sleep 1 & kill -s TERM %1; wait %1; wait_status=$?; printf 'wait=%s\\n' \"$wait_status\""
         },
-        "script": "i=0; while ((i < 1000000)); do ((i += 1)); done & kill -s TERM %1; wait %1; wait_status=$?; printf 'wait=%s\\n' \"$wait_status\"; status=$?; printf 'status=%s\\n' \"$status\"; exit \"$status\""
+        "script": "sleep 1 & kill -s TERM %1; wait %1; wait_status=$?; printf 'wait=%s\\n' \"$wait_status\"; status=$?; printf 'status=%s\\n' \"$status\"; exit \"$status\""
       },
       "bash": {
         "status": 0,
@@ -688,9 +688,9 @@
         "node": {
           "kind": "raw",
           "id": "fixed-job-signal-numeric-term",
-          "text": "i=0; while ((i < 1000000)); do ((i += 1)); done & kill -15 %1; wait %1; wait_status=$?; printf 'wait=%s\\n' \"$wait_status\""
+          "text": "sleep 1 & kill -15 %1; wait %1; wait_status=$?; printf 'wait=%s\\n' \"$wait_status\""
         },
-        "script": "i=0; while ((i < 1000000)); do ((i += 1)); done & kill -15 %1; wait %1; wait_status=$?; printf 'wait=%s\\n' \"$wait_status\"; status=$?; printf 'status=%s\\n' \"$status\"; exit \"$status\""
+        "script": "sleep 1 & kill -15 %1; wait %1; wait_status=$?; printf 'wait=%s\\n' \"$wait_status\"; status=$?; printf 'status=%s\\n' \"$status\"; exit \"$status\""
       },
       "bash": {
         "status": 0,
@@ -715,9 +715,9 @@
         "node": {
           "kind": "raw",
           "id": "fixed-job-signal-named-int",
-          "text": "i=0; while ((i < 1000000)); do ((i += 1)); done & kill -s INT %1; kill_status=$?; wait %1; printf 'kill=%s\\n' \"$kill_status\""
+          "text": "sleep 1 & kill -s INT %1; kill_status=$?; wait %1; printf 'kill=%s\\n' \"$kill_status\""
         },
-        "script": "i=0; while ((i < 1000000)); do ((i += 1)); done & kill -s INT %1; kill_status=$?; wait %1; printf 'kill=%s\\n' \"$kill_status\"; status=$?; printf 'status=%s\\n' \"$status\"; exit \"$status\""
+        "script": "sleep 1 & kill -s INT %1; kill_status=$?; wait %1; printf 'kill=%s\\n' \"$kill_status\"; status=$?; printf 'status=%s\\n' \"$status\"; exit \"$status\""
       },
       "bash": {
         "status": 0,
@@ -742,9 +742,9 @@
         "node": {
           "kind": "raw",
           "id": "fixed-job-signal-numeric-int",
-          "text": "i=0; while ((i < 1000000)); do ((i += 1)); done & kill -2 %1; kill_status=$?; wait %1; printf 'kill=%s\\n' \"$kill_status\""
+          "text": "sleep 1 & kill -2 %1; kill_status=$?; wait %1; printf 'kill=%s\\n' \"$kill_status\""
         },
-        "script": "i=0; while ((i < 1000000)); do ((i += 1)); done & kill -2 %1; kill_status=$?; wait %1; printf 'kill=%s\\n' \"$kill_status\"; status=$?; printf 'status=%s\\n' \"$status\"; exit \"$status\""
+        "script": "sleep 1 & kill -2 %1; kill_status=$?; wait %1; printf 'kill=%s\\n' \"$kill_status\"; status=$?; printf 'status=%s\\n' \"$status\"; exit \"$status\""
       },
       "bash": {
         "status": 0,
@@ -769,9 +769,9 @@
         "node": {
           "kind": "raw",
           "id": "fixed-job-signal-invalid-signal",
-          "text": "i=0; while ((i < 1000000)); do ((i += 1)); done & kill -s INVALID %1; kill_status=$?; wait %1; printf 'kill=%s\\n' \"$kill_status\""
+          "text": "sleep 1 & kill -s INVALID %1; kill_status=$?; wait %1; printf 'kill=%s\\n' \"$kill_status\""
         },
-        "script": "i=0; while ((i < 1000000)); do ((i += 1)); done & kill -s INVALID %1; kill_status=$?; wait %1; printf 'kill=%s\\n' \"$kill_status\"; status=$?; printf 'status=%s\\n' \"$status\"; exit \"$status\""
+        "script": "sleep 1 & kill -s INVALID %1; kill_status=$?; wait %1; printf 'kill=%s\\n' \"$kill_status\"; status=$?; printf 'status=%s\\n' \"$status\"; exit \"$status\""
       },
       "bash": {
         "status": 0,

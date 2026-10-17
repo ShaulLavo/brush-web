@@ -609,13 +609,17 @@ Ctrl-C cancellation as INT, job scope/identity, descendant ownership and work
 bounds. Require native/WASI coverage, Bash differential agreement and zero lost
 passing corpus cases before calling this follow-up complete.
 
-The generator's INT controls use a finite arithmetic job, save the `kill`
-command status, then wait and reap the job. They compare the kill-command result
-with Bash because noninteractive asynchronous Bash jobs ignore SIGINT; those
-controls do not claim that Bash's wait status is 130. Native and WASI ProcessHost
-controls assert requested signal 2 and wait status 130. Full POSIX asynchronous
+The generator's INT controls use an owned `sleep 1` job whose lifetime does
+not depend on interpreter throughput, save the `kill` command status, then wait
+and reap the job. They compare the kill-command result with Bash because
+noninteractive asynchronous Bash jobs ignore SIGINT; those controls do not
+claim that Bash's wait status is 130. Native and WASI ProcessHost controls
+assert requested signal 2 and wait status 130. Full POSIX asynchronous
 signal-mask parity remains an Approved follow-up after this unit, with no source
-text or corpus-case exception.
+text or corpus-case exception. The old million-iteration arithmetic job was
+only a lifetime guard; the generator now records Bash 5.3.15 observations for
+the independent sleep-based control, while the arithmetic loop remains an
+explicit performance benchmark below.
 
 The current builtin boundary supports signal 0 as a non-destructive owned-job
 existence check and supports HUP, INT, QUIT, KILL, and TERM as terminating
@@ -717,6 +721,18 @@ instructions and recorded enabled/running time for multiplex scaling. The
 experiment changed no permissions, kernel settings, profile or timeout. Its
 source and temporary binaries were removed; it is not part of accepted source.
 No quiet timing hold ran. Do not assume that fewer allocations meet the target.
+
+The host-probe isolation repair at `1976a05` was independently reviewed and
+passed native shell tests, but exact-head CI run `39060501467` still timed out
+the old invalid-signal million-loop control under the unchanged 2,000 ms bound.
+The matching local diagnostic measured 1,495.5 ms for the plain foreground
+million-iteration loop and 1,526.7 ms for the invalid-signal foreground loop,
+versus Bash 5.3.15 at 593.8 ms and 603.7 ms. These are bounded local
+observations, not a completion claim. The generator's signal control now uses
+`sleep 1 &`, so it tests owned-job signal semantics without making the
+correctness gate an incidental arithmetic benchmark. Record the next matched
+retired-instruction profile before choosing another general hot-path repair;
+the target remains at most 1,000 ms, then parity with Bash.
 
 The final evidence head `bc4e3b5` then reproduced the timing failure on CI:
 [run 39055395219, shell job 117462215829](https://github.com/ShaulLavo/brush-web/actions/runs/39055395219/job/117462215829)
