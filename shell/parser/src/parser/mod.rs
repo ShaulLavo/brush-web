@@ -1673,7 +1673,8 @@ impl<'a> Parser<'a> {
         let start_span = self.current_span;
         self.push_depth()?;
         self.advance(); // consume 'for'
-        self.skip_newlines()?;
+        // Bash requires the next word on the same line (`for` then a newline
+        // is "unexpected token `newline'").
 
         // Check for C-style for loop: for ((init; cond; step))
         if matches!(self.current_token, Some(tokens::Token::DoubleLeftParen)) {
@@ -1798,7 +1799,8 @@ impl<'a> Parser<'a> {
         let start_span = self.current_span;
         self.push_depth()?;
         self.advance(); // consume 'select'
-        self.skip_newlines()?;
+        // Bash requires the next word on the same line (`select` then a newline
+        // is "unexpected token `newline'").
 
         // Expect variable name
         let variable = match &self.current_token {
@@ -2114,7 +2116,8 @@ impl<'a> Parser<'a> {
         let start_span = self.current_span;
         self.push_depth()?;
         self.advance(); // consume 'case'
-        self.skip_newlines()?;
+        // Bash requires the next word on the same line (`case` then a newline
+        // is "unexpected token `newline'").
 
         // Get the word to match against
         let word = self.expect_word()?;
@@ -2917,7 +2920,8 @@ impl<'a> Parser<'a> {
     fn parse_function_keyword(&mut self) -> Result<Command> {
         let start_span = self.current_span;
         self.advance(); // consume 'function'
-        self.skip_newlines()?;
+        // Bash requires the next word on the same line (`function` then a newline
+        // is "unexpected token `newline'").
 
         // Get function name
         let name = match &self.current_token {

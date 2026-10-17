@@ -91,6 +91,8 @@ enum Mode {
         quote: Option<char>,
         /// Open parentheses of a `$(` inside the delimiter word.
         parens: usize,
+        /// Quote open inside that `$(...)`, whose parentheses do not count.
+        inner: Option<char>,
     },
     /// Inside heredoc bodies; `line` accumulates the current line.
     Body {
@@ -270,15 +272,19 @@ impl SubstScanner {
                 started,
                 quote,
                 mut parens,
+                mut inner,
             } => {
                 // A `$(...)` in the delimiter is part of its word (bash reads
                 // the word with its substitutions; the body line matches the
                 // literal text).
                 if quote.is_none() && (parens > 0 || (c == '(' && word.ends_with('$'))) {
                     word.push(c);
-                    match c {
-                        '(' => parens += 1,
-                        ')' => parens -= 1,
+                    match (inner, c) {
+                        (Some(q), _) if c == q => inner = None,
+                        (Some(_), _) => {}
+                        (None, '\'' | '"') => inner = Some(c),
+                        (None, '(') => parens += 1,
+                        (None, ')') => parens -= 1,
                         _ => {}
                     }
                     self.mode = Mode::Delimiter {
@@ -287,19 +293,24 @@ impl SubstScanner {
                         started: true,
                         quote,
                         parens,
+                        inner,
                     };
                     return Step::Body;
                 }
                 if quote == Some('\\') {
                     // An escaped character is part of the delimiter word, even
-                    // a metacharacter (`<<foo\)` waits for the line `foo)`).
-                    word.push(c);
+                    // a metacharacter (`<<foo\)` waits for the line `foo)`);
+                    // an escaped newline is a continuation.
+                    if c != '\n' {
+                        word.push(c);
+                    }
                     self.mode = Mode::Delimiter {
                         strip_tabs,
                         word,
                         started: true,
                         quote: None,
                         parens,
+                        inner,
                     };
                     return Step::Body;
                 }
@@ -314,6 +325,7 @@ impl SubstScanner {
                         started: true,
                         quote,
                         parens: 0,
+                        inner: None,
                     };
                     return Step::Body;
                 }
@@ -324,6 +336,7 @@ impl SubstScanner {
                         started: false,
                         quote: None,
                         parens: 0,
+                        inner: None,
                     };
                     return Step::Body;
                 }
@@ -334,6 +347,7 @@ impl SubstScanner {
                         started,
                         quote: None,
                         parens: 0,
+                        inner: None,
                     };
                     return Step::Body;
                 }
@@ -360,6 +374,7 @@ impl SubstScanner {
                         started: true,
                         quote: Some(c),
                         parens: 0,
+                        inner: None,
                     };
                     return Step::Body;
                 }
@@ -370,6 +385,7 @@ impl SubstScanner {
                         started: true,
                         quote: Some('\\'),
                         parens,
+                        inner,
                     };
                     return Step::Body;
                 }
@@ -380,6 +396,7 @@ impl SubstScanner {
                     started: true,
                     quote: None,
                     parens: 0,
+                    inner: None,
                 };
                 Step::Body
             }
@@ -716,6 +733,7 @@ impl SubstScanner {
                 started: false,
                 quote: None,
                 parens: 0,
+                inner: None,
             };
             return self.feed_inner(c);
         }
@@ -801,8 +819,9 @@ impl SubstScanner {
             }
             ')' => {
                 self.end_word();
-                // `)` ending a case pattern list starts the branch body.
-                if let Some(CasePhase::Pattern { .. }) = self.case_here() {
+                // `)` ending a case pattern list starts the branch body. With
+                // no pattern yet (`;;)`) it is no terminator: bash reports it.
+                if let Some(CasePhase::Pattern { started: true }) = self.case_here() {
                     self.set_case_phase(CasePhase::Body);
                     self.set_cmd_pos(true);
                     return Step::Body;

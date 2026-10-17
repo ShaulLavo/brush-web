@@ -1339,6 +1339,14 @@ fn substitution_end_of_input_and_heredoc_boundaries_follow_bash() {
         "echo $(echo >",
         "echo $(echo <<",
         "echo <(echo <",
+        // A keyword that needs its word on the same line.
+        "echo $(case",
+        "echo <(case",
+        "echo $(for",
+        "echo $(select",
+        "echo $(function",
+        // `)` after `;;` is no pattern terminator.
+        "echo $(case x in x) :;;)",
     ] {
         assert!(
             matches!(strict(source), Err(Error::ShellWord { .. })),
@@ -1347,6 +1355,9 @@ fn substitution_end_of_input_and_heredoc_boundaries_follow_bash() {
     }
     // A trailing line continuation joins the end of input: the EOF error.
     for source in [
+        "echo $(case x",
+        "echo $(case x in",
+        "echo $(while",
         "echo $(echo |",
         "echo $(if true",
         "echo $( (x)",
@@ -1371,6 +1382,10 @@ fn substitution_end_of_input_and_heredoc_boundaries_follow_bash() {
         "echo $(cat <<-E\n\tx\n\tE)",
         "echo $(cat <<'E'\nx\nE)",
         "echo $(cat <<$(echo E)\nx\n$(echo E)\n)",
+        // A continuation inside the delimiter, and quotes in a nested `$(`.
+        "echo $(printf x <<foo\\\nbar\nfoobar\n)",
+        "echo $(printf x <<-foo\\\nbar\n\tfoobar\n)",
+        "echo $(printf x <<$(echo ')')\nx\n$(echo ')')\n)",
         // Escaped metacharacters belong to the delimiter (`foo)`, `$(`).
         "echo $(printf x <<foo\\)\nfoo)\n)",
         "echo $(printf x <<-foo\\)\n\tfoo)\n)",
