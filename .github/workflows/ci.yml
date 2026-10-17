@@ -66,6 +66,8 @@ jobs:
       - run: npm run fuzz:shell-words:ci -- --shell .build/shell/release/shell-engine
       - run: npm run fuzz:shell-arithmetic:ci -- --shell .build/shell/release/shell-engine
       - run: npm run fuzz:shell-readonly:ci -- --shell .build/shell/release/shell-engine
+      - run: npm run test:fuzz-shell-substitutions
+      - run: npm run fuzz:shell-substitutions:ci -- --shell .build/shell/release/shell-engine
       - run: node scripts/fuzz-shell-parse-boundaries.mjs --shell .build/shell/release/shell-engine --replay scripts/fixtures/shell-parse-boundaries.json
 
   own-shell-compatibility:

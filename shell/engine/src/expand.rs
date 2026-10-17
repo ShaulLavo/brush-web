@@ -11,6 +11,7 @@ use shell_parser::parser::{ParameterOp, Word, WordPart};
 
 mod braces;
 mod case;
+mod case_pattern;
 mod command;
 mod indirect;
 mod operand;
@@ -1665,6 +1666,9 @@ impl Expansion<'_> {
                 self.part(&part, state, quoted || protected, scalar, depth)
                     .await
             }
+            operand::Piece::Positional { at, protected } => {
+                self.case_positionals(state, at, protected).await
+            }
         }
     }
     async fn separator(&mut self, ch: Option<char>, protected: bool) -> Result<(), Error> {
@@ -2175,8 +2179,8 @@ pub(crate) async fn word(
 }
 
 /// Expand one case-pattern word while retaining the quote protection that the
-/// bounded glob matcher needs. The parser's raw spelling is the authoritative
-/// source; the display fallback is only for synthetic ASTs in unit tests.
+/// bounded glob matcher needs. Raw parser spelling is required: Display cannot
+/// reconstruct the quote protection of a synthetic AST.
 pub(crate) async fn pattern(
     word: &Word,
     state: &SharedState,
@@ -2184,10 +2188,8 @@ pub(crate) async fn pattern(
     max_raw: usize,
     work: &mut Work,
 ) -> Result<pattern::Pattern, Error> {
-    let source = word
-        .raw
-        .as_deref()
-        .map_or_else(|| word.to_string(), str::to_owned);
+    work.checkpoint(cancel).await?;
+    let source = word.raw.as_deref().ok_or(2)?;
     let mut expansion = Expansion {
         segments: Segments::default(),
         captured: None,
@@ -2203,9 +2205,12 @@ pub(crate) async fn pattern(
         raw_remaining: max_raw,
         elements_remaining: max_raw,
     };
-    expansion
-        .operand(&source, state, false, false, 0, true)
-        .await?;
+    let mut scanner = operand::Scanner::case_pattern(source);
+    while let Some(piece) = scanner.next(expansion.work, cancel).await? {
+        expansion
+            .operand_piece(piece, state, false, false, 0)
+            .await?;
+    }
     expansion.pattern.take().ok_or(2.into())
 }
 

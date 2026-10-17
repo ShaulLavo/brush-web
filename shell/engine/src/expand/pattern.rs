@@ -17,8 +17,14 @@ struct Character {
 pub(crate) struct Pattern {
     chars: Vec<Character>,
     quoted_empty: bool,
+    /// Case matching selects the first field from a quoted multi-value `$@`.
+    /// Continue evaluating the remaining source, but discard its emitted text.
+    first_field_complete: bool,
 }
 impl Pattern {
+    pub(super) fn finish_first_field(&mut self) {
+        self.first_field_complete = true;
+    }
     pub(super) fn keep_empty(&mut self) {
         self.quoted_empty = true;
     }
@@ -28,6 +34,9 @@ impl Pattern {
         protection: Protection,
         work: &mut Work,
     ) -> Result<(), Error> {
+        if self.first_field_complete {
+            return Ok(());
+        }
         admit_vec_slot(&mut self.chars, work)?;
         self.chars.push(Character {
             value,

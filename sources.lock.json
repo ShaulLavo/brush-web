@@ -386,6 +386,17 @@
       "shell/engine/src/builtins.rs"
     ],
     "testDestinations": ["shell/engine/tests/words.rs"],
+    "casePatternAdapter": {
+      "classification": "Original case-pattern positional adapter and GNU Bash C.UTF-8 regression controls; no additional upstream implementation or tests copied.",
+      "paths": [
+        "shell/engine/src/expand.rs",
+        "shell/engine/src/expand/operand.rs",
+        "shell/engine/src/expand/pattern.rs",
+        "shell/engine/src/expand/case_pattern.rs"
+      ],
+      "change": "Borrow retained raw pattern spelling after an initial cooperative checkpoint; synthetic words without raw text fail explicitly instead of using quote-losing Display. A case-only scanner mode admits direct bare/braced positional @/* reads without widening general scalar operand syntax. Positional elements retain wildcard quote protection, join scalar @ with spaces and scalar * with the first IFS character, and preserve GNU Bash's first-field selection for quoted multi-value @ under unset/nonempty IFS. Later source still expands and enforces shared limits even when its pattern text is discarded. Positional snapshots are checked and storage-admitted before copying. Helper-local controls cover unset/nonempty/empty IFS, quotes, multiple/empty values, suffix side effects, pre-cancel, raw borrowing, explicit unsupported synthetic ASTs, matcher work/storage exhaustion and no body dispatch after failure.",
+      "verification": "Focused direct GNU Bash C.UTF-8 controls, rustfmt and diff checks only in the helper lane. Native, seed and WASI verification remains coordinator-owned; no engine test pass is claimed by this metadata."
+    },
     "strategy": "Adapt quote-aware literal/basic variable/positional/PIPESTATUS fields, IFS rules, scalar contexts and command-name promotion into the original streaming engine. Structural protection replaces sentinel strings. Declaration syntax requires an unquoted literal command and assignment prefix; retained raw spelling rejects escapes lost by token decoding, using only continuation removal from normalize_raw_word. An original bounded engine adapter uses the unchanged public Lexer raw-capture API for top-level declaration words not retained by the parser; quoted-at words trim leading mixed-IFS delimiters as verified with GNU Bash, diverging from upstream where needed. Cooperative Budget work, intermediate byte/element bounds and aggregate command field/byte limits reject overflow instead of truncating. No parser modifications, general parameter operators, globbing, substitutions, mapfile or output buffering are ported."
   },
   "shellParameterDefaults": {

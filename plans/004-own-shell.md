@@ -130,6 +130,88 @@ Run all native/WASI word tests, regenerate word fixtures 1/42 independently and
 diff byte-for-byte, and require zero lost fixed-corpus cases. Own and clean any
 task-created targets and scratch under the usual lane rules.
 
+## Follow-up: admit every isolated shell-state snapshot
+
+Status: Approved. This is a bounded, pre-existing engine follow-up outside the
+current command/process-substitution critical path. Carry it with this plan in
+the approved repository extraction below; do not reopen the substitution unit or
+fold a broad execution/AST ownership rewrite into it.
+
+**Evidence (source-confirmed, not executed):** inspected the `climb/subst-gen`
+working tree based on `3fb4fab8ae707141b0f948a352558ba5c2439fe0`, including the
+current substitution edits, on 2026-10-17. These three remaining
+`state.borrow().clone().shared()` calls bypass `Work::admit_storage` and
+cooperative checkpoints:
+
+- `shell/engine/src/interpreter.rs:656`, `execute`'s multi-stage pipeline path;
+  the loop makes one copy per stage before awaiting `join_all`.
+- `shell/engine/src/interpreter.rs:1022`, `subshell`, before spawning its task;
+  its redirect-expansion `Work` is created later at line 1032.
+- `shell/engine/src/interpreter.rs:1130`, synchronous `background`, called by
+  `list_command` at line 1072.
+
+`State` still derives `Clone` (`shell/engine/src/state.rs:24`). Function bodies
+now use `Rc<Command>` (line 32), avoiding recursive function-AST copies, but
+variables, binding names, exported/readonly sets, positionals, cwd/shell name,
+pipeline statuses and saved local/prefix values still copy eagerly. There is no
+aggregate retained-state limit: `Limits::expansion_bytes` is command-wide
+(`interpreter.rs:25`), preparation creates fresh work for each simple command
+(line 1489), and assignment checks at lines 1767/1790 cover the current command's
+bytes, not previously retained bindings. `Session::start` retains the same state
+across submissions (lines 349–375); public `Session::state` (line 331) also allows
+host-injected state. Pipeline/job count limits do not bound bytes per copy.
+
+**Deterministic reproduction to add, not yet run:** use the existing native
+`Rig` in `shell/engine/tests/words.rs`, with default limits and a single session:
+
+```rust
+let rig = Rig::new(Limits::default());
+let seed = "x".repeat(16 * 1024);
+assert_eq!(rig.run(&format!("seed='{seed}'")), 0);
+for index in 0..96 {
+    assert_eq!(rig.run(&format!("v{index}=$seed")), 0);
+}
+for source in ["( : )", ": | : | :", ": & wait"] {
+    assert_eq!(rig.run(source), 0); // source-predicted existing behavior
+}
+```
+
+Each submission is below the source/command limits, but 97 retained payloads
+alone occupy 1,589,248 bytes, above the default 1 MiB expansion allowance. The
+three fork forms are predicted to copy that state successfully without emitting
+it; the pipeline makes three copies without a checkpoint inside the setup loop.
+This is not an observed failure, crash, cancellation latency measurement or
+corpus regression. First add and execute the failing-first admission test; after
+the repair require explicit status 2 before child dispatch, not the old status 0.
+A separate smaller-state case must cover a pipeline whose individual snapshots
+fit but whose combined snapshots exceed one command's allowance.
+
+**Bounded implementation:** reuse `State::snapshot(&state, &cancel, &mut work)`
+(`state.rs:75`), including its accounting for saved frames, collection metadata
+and shared function bindings. Preserve the command/process-substitution snapshot
+admission already in this unit. Subshell setup uses one work account for its
+snapshot and redirections. Make background setup async and await it from its
+caller; admit its snapshot before allocating a process group, registering a job
+or spawning the body, using one work account for that background command. Use
+one shared `Work` for all snapshots of a multi-stage pipeline, not a fresh
+allowance per stage; the single-stage path retains the caller's shared state.
+Prepare/admit all child states before spawning any stages, or explicitly cancel,
+join and unwind every already-started task/descriptor/scope on a later setup
+failure. Do not solve this by imposing an unrelated new global variable cap or
+by cloning first and checking afterwards. Immutable shared AST payloads remain
+separate from any admitted AST copies needed for execution.
+
+**Gates:** focused native and WASI tests cover each fork form, metadata-only and
+saved-frame admission, exact/over-budget storage, shared pipeline accounting,
+ordinary state isolation, and cancellation both before admission and during a
+snapshot yield. Instrument the existing process-host fixture to require zero
+partial dispatch on failed/cancelled setup; assert no leftover jobs, open pipe
+ends or stranded tasks. Preserve background ownership and cancellation isolation,
+`PIPESTATUS`/`pipefail`, redirect inheritance, and all command/process-substitution
+regressions. Run the full native/WASI suites and fixed-corpus zero-loss ratchet
+through the shared queue. Record the small reproduction/results and clean every
+task-created target, process and scratch directory under the existing lane rules.
+
 ## Next word unit: ANSI-C operands and two-phase parameter extraction
 
 Status: Approved. Land command/process substitution first and restore the

@@ -38,8 +38,19 @@ fn basic_name(name: &str) -> bool {
 }
 
 pub(super) enum Piece<'a> {
-    Text { value: &'a str, protected: bool },
-    Expansion { part: WordPart, protected: bool },
+    Text {
+        value: &'a str,
+        protected: bool,
+    },
+    Expansion {
+        part: WordPart,
+        protected: bool,
+    },
+    /// Direct case-pattern positional reads bypass the scalar token parser.
+    Positional {
+        at: bool,
+        protected: bool,
+    },
 }
 #[derive(Clone, Copy, PartialEq)]
 enum Quote {
@@ -55,6 +66,7 @@ pub(super) struct Scanner<'a> {
     outer_quoted: bool,
     pattern: bool,
     pattern_source: bool,
+    case_positionals: bool,
 }
 impl<'a> Scanner<'a> {
     pub(super) fn new(
@@ -70,6 +82,13 @@ impl<'a> Scanner<'a> {
             outer_quoted,
             pattern,
             pattern_source,
+            case_positionals: false,
+        }
+    }
+    pub(super) fn case_pattern(source: &'a str) -> Self {
+        Self {
+            case_positionals: true,
+            ..Self::new(source, false, true, true)
         }
     }
     fn protected(&self) -> bool {
@@ -203,10 +222,23 @@ impl<'a> Scanner<'a> {
                     protected: self.protected(),
                 });
             }
+            Some('@' | '*') if self.case_positionals => {
+                let at = self.take() == Some("@");
+                return Ok(Piece::Positional {
+                    at,
+                    protected: self.protected(),
+                });
+            }
             Some('\'' | '"' | '@' | '*' | '!' | '$' | '-') => return Err(2.into()),
             _ => return Ok(self.text("$", self.protected())),
         }
         let token = &self.source[start..self.cursor];
+        if self.case_positionals && matches!(token, "${@}" | "${*}") {
+            return Ok(Piece::Positional {
+                at: token == "${@}",
+                protected: self.protected(),
+            });
+        }
         validate_token(token, work)?;
         work.admit_parse(token.len(), cancel).await?;
         // Bound the scalar AST's owned strings and parser token allocations
