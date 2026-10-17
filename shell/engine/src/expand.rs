@@ -7,10 +7,11 @@ use crate::{
     state::SharedState,
 };
 use futures::{FutureExt, future::LocalBoxFuture};
-use shell_parser::parser::{ParameterOp, Word, WordPart};
+use shell_parser::parser::{Command, ParameterOp, Word, WordPart};
 
 mod braces;
 mod case;
+mod command;
 mod indirect;
 mod operand;
 mod pattern;
@@ -119,6 +120,10 @@ pub(crate) struct Work {
     arithmetic_depth: usize,
     arithmetic_names: Vec<(String, u64)>,
     pub(crate) arithmetic_writes: u64,
+    /// Runs command substitutions; absent where a word cannot run commands.
+    pub(crate) substitutions: Option<crate::interpreter::Substitutions>,
+    /// Status of the last command substitution this command ran.
+    pub(crate) substitution_status: Option<i32>,
 }
 impl Work {
     pub(crate) fn new(steps: usize, storage: usize, fields: usize) -> Self {
@@ -131,6 +136,8 @@ impl Work {
             arithmetic_depth: 0,
             arithmetic_names: Vec::new(),
             arithmetic_writes: 0,
+            substitutions: None,
+            substitution_status: None,
         }
     }
     pub(crate) fn enter_arithmetic(&mut self) -> Result<(), Error> {
@@ -836,6 +843,24 @@ impl Expansion<'_> {
                     )
                     .await;
             }
+            if let WordPart::CommandSubstitution(commands) = part {
+                return self
+                    .command_substitution(commands, state, quoted, scalar)
+                    .await;
+            }
+            if let WordPart::ProcessSubstitution { commands, is_input } = part {
+                let runner = self.work.substitutions.clone().ok_or(2)?;
+                let fd = runner.process(commands.clone(), *is_input, state)?;
+                self.work.admit_storage(16)?;
+                return self
+                    .segment(&format!("/dev/fd/{fd}"), Protection::All, false)
+                    .await;
+            }
+            if let WordPart::UnparsedCommandSubstitution { source, error } = part {
+                return self
+                    .unparsed_substitution(source, error, state, quoted, scalar)
+                    .await;
+            }
             if let WordPart::ArithmeticExpansion(source) = part {
                 let value = crate::arithmetic::evaluate(
                     source,
@@ -940,8 +965,9 @@ impl Expansion<'_> {
                 continue;
             }
             let begin = index + 2;
-            let end = self.slice_body_end(source, begin).await?;
-            if c != '$' {
+            let (end, fused) = self.slice_body_end(source, begin).await?;
+            // A fused `<((` span is parsed only if it expands.
+            if c != '$' && !fused {
                 self.validate_slice_body(&source[begin..end]).await?;
             }
             while chars.peek().is_some_and(|&(index, _)| index <= end) {
@@ -952,7 +978,11 @@ impl Expansion<'_> {
         Ok(())
     }
 
-    async fn slice_body_end(&mut self, source: &str, begin: usize) -> Result<usize, Error> {
+    async fn slice_body_end(
+        &mut self,
+        source: &str,
+        begin: usize,
+    ) -> Result<(usize, bool), Error> {
         // Reserve initial scanner buffers, then their conservative cumulative
         // growth allowance before each character. Text after its closing `)`
         // must not consume scanner storage.
@@ -965,7 +995,7 @@ impl Expansion<'_> {
             }
             self.work.admit_storage(512)?;
             if scanner.feed(c) == shell_parser::parser::CommandBoundaryStep::Close {
-                return Ok(begin + index);
+                return Ok((begin + index, scanner.arithmetic_start().is_some()));
             }
         }
         self.work.admit_storage(256)?;

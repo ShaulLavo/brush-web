@@ -445,6 +445,97 @@ impl<'a> Parser<'a> {
         Ok(word)
     }
 
+    /// Parse one already-admitted, boundary-scanned `$(...)` token from lazy
+    /// operand text into the part a word would hold: a command substitution,
+    /// an arithmetic `$((...))`, or a `$((` span bash parses only when it
+    /// expands. Bodies use bash's substitution grammar. Work is bounded by
+    /// `max_fuel`, depth by `max_depth`.
+    pub fn parse_substitution_token_with_limits(
+        input: &str,
+        max_depth: usize,
+        max_fuel: usize,
+    ) -> Result<WordPart> {
+        let budget = crate::limits::ExecutionBudget::new(
+            &crate::limits::ExecutionLimits {
+                max_work_units: u64::try_from(max_fuel).unwrap_or(u64::MAX),
+                timeout: Duration::MAX,
+                ..crate::limits::ExecutionLimits::default()
+            },
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let parser = Parser::with_limits("", max_depth, max_fuel)
+            .with_execution_budget(budget.clone())
+            .with_strict_substitution_bodies();
+        let mut chars = WordChars::new(input, &[]);
+        if chars.next() != Some('$') || chars.next() != Some('(') {
+            return Err(parser.error("expected command substitution token"));
+        }
+        let part = match parser.read_word_substitution(&mut chars)? {
+            WordSubstitution::Arithmetic { expression, nested } => {
+                for body in nested {
+                    parser.validate_parameter_command(&body)?;
+                }
+                WordPart::ArithmeticExpansion(expression)
+            }
+            WordSubstitution::Command {
+                body,
+                fused,
+                nested,
+            } => {
+                for body in nested {
+                    parser.validate_parameter_command(&body)?;
+                }
+                match parser.parse_substitution_body(&body) {
+                    Ok(script) => WordPart::CommandSubstitution(script.commands),
+                    Err(error) => substitution_error(body, fused, error, 1)?,
+                }
+            }
+        };
+        budget.check()?;
+        if chars.next().is_some() {
+            return Err(parser.error("expected one command substitution"));
+        }
+        if let Some(error) = parser.deferred_error.take() {
+            return Err(error);
+        }
+        Ok(part)
+    }
+
+    /// Parse a backtick body after its backslashes were processed. Bash
+    /// parses it only when it expands: a syntax error becomes an unparsed
+    /// substitution that reports itself and exits 2 in the child.
+    pub fn parse_backtick_body_with_limits(
+        body: &str,
+        max_depth: usize,
+        max_fuel: usize,
+    ) -> Result<WordPart> {
+        let budget = crate::limits::ExecutionBudget::new(
+            &crate::limits::ExecutionLimits {
+                max_work_units: u64::try_from(max_fuel).unwrap_or(u64::MAX),
+                timeout: Duration::MAX,
+                ..crate::limits::ExecutionLimits::default()
+            },
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        );
+        let parser = Parser::with_limits("", max_depth, max_fuel)
+            .with_execution_budget(budget.clone())
+            .with_strict_substitution_bodies();
+        let part = match parser.parse_substitution_body(body) {
+            Ok(script) => WordPart::CommandSubstitution(script.commands),
+            Err(error @ Error::ResourceLimit(_)) => return Err(error),
+            Err(Error::Parse { message, .. }) => WordPart::UnparsedCommandSubstitution {
+                source: body.to_string(),
+                error: message,
+            },
+            Err(Error::ShellWord { line }) => WordPart::UnparsedCommandSubstitution {
+                source: body.to_string(),
+                error: format!("syntax error while looking for matching `)' at line {line}"),
+            },
+        };
+        budget.check()?;
+        Ok(part)
+    }
+
     /// Parse one already-admitted `${...}` token, retaining its enclosing
     /// operand context. Unlike a whole word this token has no quote markers.
     pub fn parse_parameter_token_with_limits(
@@ -1814,16 +1905,47 @@ impl<'a> Parser<'a> {
             }
         };
         self.advance();
-
-        // Expect 'in' keyword
-        if !self.is_keyword("in") {
-            self.pop_depth();
-            return Err(Error::parse("expected 'in' in select".to_string()));
-        }
-        self.advance(); // consume 'in'
-
-        // Parse word list until a list terminator (newline/;)
+        // Bash's grammar matches `for`: newlines may come before `in`, and
+        // without `in` the list is `"$@"` (`select i; do`, `select i NL do`).
+        self.skip_newlines()?;
         let mut words = Vec::new();
+        if !self.is_keyword("in") {
+            if matches!(self.current_token, Some(tokens::Token::Semicolon)) {
+                self.advance();
+            }
+            words.push(Word {
+                parts: vec![WordPart::Variable("@".to_string())],
+                quoted: true,
+                has_unquoted_glob: false,
+                part_quoted: Vec::new(),
+                raw: Some("\"$@\"".to_string()),
+            });
+        } else {
+            self.advance(); // consume 'in'
+            self.parse_select_words(&mut words)?;
+        }
+
+        self.skip_newlines()?;
+
+        let body = match self.parse_for_body() {
+            Ok(body) => body,
+            Err(e) => {
+                self.pop_depth();
+                return Err(e);
+            }
+        };
+
+        self.pop_depth();
+        Ok(CompoundCommand::Select(SelectCommand {
+            variable,
+            words,
+            body,
+            span: start_span.merge(self.current_span),
+        }))
+    }
+
+    /// The `in` word list of a `select`, through its list terminator.
+    fn parse_select_words(&mut self, words: &mut Vec<Word>) -> Result<()> {
         loop {
             match &self.current_token {
                 // `do`/`done` are reserved words only in command position.
@@ -1863,32 +1985,7 @@ impl<'a> Parser<'a> {
                 _ => break,
             }
         }
-
-        self.skip_newlines()?;
-
-        // Expect 'do'
-        self.expect_keyword("do")?;
-        self.skip_newlines()?;
-
-        // Parse body
-        let body = self.parse_compound_list("done")?;
-
-        // Bash requires at least one command in loop body
-        if body.is_empty() {
-            self.pop_depth();
-            return Err(self.error("syntax error: empty select loop body"));
-        }
-
-        // Expect 'done'
-        self.expect_keyword("done")?;
-
-        self.pop_depth();
-        Ok(CompoundCommand::Select(SelectCommand {
-            variable,
-            words,
-            body,
-            span: start_span.merge(self.current_span),
-        }))
+        Ok(())
     }
 
     /// Parse C-style arithmetic for loop inner: for ((init; cond; step)); do body; done
@@ -5510,7 +5607,17 @@ impl<'a> Parser<'a> {
             self.max_depth,
         );
         let mut out = String::new();
+        // Bash parses an unquoted `<(`/`>(` in a `${...}` operand at parse
+        // time and keeps its printed form (`parse_comsub`, `print_comsub`).
+        let mut angle = false;
         while let Some(&ch) = chars.peek() {
+            if angle && ch == '(' && scanner.unquoted() {
+                angle = false;
+                out.extend(chars.next());
+                self.copy_process_substitution(chars, &mut out);
+                continue;
+            }
+            angle = matches!(ch, '<' | '>') && !angle && scanner.unquoted();
             let mut lookahead = chars.clone();
             lookahead.next();
             match scanner.feed(ch, lookahead.peek().copied()) {
@@ -5600,6 +5707,49 @@ impl<'a> Parser<'a> {
             }
         }
         Ok((scanner.offset(), false))
+    }
+
+    /// Copy a `<(...)` or `>(...)` body (after its `(`) into operand text the
+    /// way bash stores it: the parsed command printed back, with a space
+    /// before a leading `(`. A fused `<((` span, an unterminated body or one
+    /// that does not parse is copied as written (its error is reported by
+    /// the operand's body validation).
+    #[inline(never)]
+    fn copy_process_substitution(&self, chars: &mut WordChars<'_>, out: &mut String) {
+        let mut scanner = subst_scan::SubstScanner::new();
+        let (end, closed) = match self.scan_word_substitution(&mut scanner, chars) {
+            Ok(found) => found,
+            Err(err) => {
+                let first = self.deferred_error.take();
+                self.deferred_error.set(first.or(Some(err)));
+                return;
+            }
+        };
+        let mut body = String::new();
+        let mut consumed = 0;
+        while consumed < end {
+            let Some(c) = chars.next() else {
+                break;
+            };
+            consumed += c.len_utf8();
+            body.push(c);
+        }
+        if !closed || scanner.arithmetic_start().is_some() {
+            out.push_str(&body);
+            return;
+        }
+        body.pop();
+        match self.parse_substitution_body(&body) {
+            Ok(script) => {
+                let printed = print_cmd::inline_commands(&script.commands);
+                if printed.starts_with('(') {
+                    out.push(' ');
+                }
+                out.push_str(&printed);
+            }
+            Err(_) => out.push_str(&body),
+        }
+        out.push(')');
     }
 
     fn copy_replace_substitution(&self, chars: &mut WordChars<'_>, out: &mut String) {

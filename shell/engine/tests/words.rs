@@ -4014,6 +4014,8 @@ fn cancellation_during_redirect_target_keeps_effects_and_restores_frames() {
 mod arithmetic;
 #[path = "words/braces.rs"]
 mod braces;
+#[path = "words/command.rs"]
+mod command;
 #[path = "words/indirect.rs"]
 mod indirect;
 

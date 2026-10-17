@@ -276,34 +276,7 @@ impl Session {
         if source.len() > self.core.limits.source_bytes {
             return Err("shell source limit exceeded".into());
         }
-        let parser_limits = shell_parser::limits::ExecutionLimits {
-            max_input_bytes: self.core.limits.source_bytes,
-            ..Default::default()
-        };
-        let budget = shell_parser::limits::ExecutionBudget::new(
-            &parser_limits,
-            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        );
-        let (script, error) = Parser::with_limits_and_timeout(
-            source,
-            parser_limits.max_ast_depth,
-            parser_limits.max_parser_operations,
-            Some(parser_limits.parser_timeout),
-        )
-        .with_execution_budget(budget.clone())
-        // The whole script is parsed before aliases it defines exist, so the
-        // top level stays lenient; substitution bodies get bash's grammar.
-        .with_strict_substitution_bodies()
-        .parse_recovering();
-        budget.check().map_err(|error| error.to_string())?;
-        let word_error = match error {
-            None => None,
-            Some(shell_parser::Error::ShellWord { line }) => Some(expand::Error::ShellBoundary {
-                stage: expand::ShellBoundaryStage::Word,
-                line: Some(line),
-            }),
-            Some(error) => return Err(error.to_string()),
-        };
+        let (commands, failure) = parse_shell(source, &self.core.limits)?;
         let group = self.core.host.allocate_group();
         let cancel = Cancel::new();
         let foreground_cancel = cancel.clone();
@@ -321,18 +294,16 @@ impl Session {
             let _foreground = ForegroundGuard(context.core.clone());
             let mut processes = ProcessGroup::new(context.core.host.clone(), group);
             let mut result = script_sequence(
-                script.commands,
+                commands,
                 state.clone(),
                 context.core.descriptors.clone(),
                 context.clone(),
             )
             .await;
             if matches!(result.flow, Flow::Normal | Flow::DiscardReadUnit)
-                && let Some(error) = word_error
+                && let Some(failure) = failure
             {
-                let mut work = expansion_work(context.limits());
-                let error = work.admit_storage(256).err().unwrap_or(error);
-                result = expansion_failure(error.into(), &context.core.descriptors, &context).await;
+                result = parse_failure(failure, "-c", &context.core.descriptors, &context).await;
             }
             let code = context.finish_group(&mut processes, result.code).await;
             state.borrow_mut().status = code;
@@ -388,6 +359,121 @@ impl Drop for ForegroundGuard {
     fn drop(&mut self) {
         self.0.foreground.borrow_mut().take();
     }
+}
+
+/// Where parsing stopped. Bash reads and runs a script one complete line at
+/// a time, so the commands on earlier lines still run first.
+enum ParseFailure {
+    /// A command substitution body that does not parse (status 127).
+    Word(usize),
+    /// Any other syntax error (status 2).
+    Syntax { message: String, line: usize },
+}
+
+/// Parse shell source the way the script reader and `eval` do. Resource
+/// limits are errors; a syntax error keeps the complete lines before it.
+fn parse_shell(
+    source: &str,
+    limits: &Limits,
+) -> Result<(Vec<Command>, Option<ParseFailure>), String> {
+    if source.len() > limits.source_bytes {
+        return Err("shell source limit exceeded".into());
+    }
+    let parser_limits = shell_parser::limits::ExecutionLimits {
+        max_input_bytes: limits.source_bytes,
+        ..Default::default()
+    };
+    let budget = shell_parser::limits::ExecutionBudget::new(
+        &parser_limits,
+        std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    );
+    let (script, error) = Parser::with_limits_and_timeout(
+        source,
+        parser_limits.max_ast_depth,
+        parser_limits.max_parser_operations,
+        Some(parser_limits.parser_timeout),
+    )
+    .with_execution_budget(budget.clone())
+    // The whole script is parsed before aliases it defines exist, so the
+    // top level stays lenient; substitution bodies get bash's grammar.
+    .with_strict_substitution_bodies()
+    .parse_recovering();
+    budget.check().map_err(|error| error.to_string())?;
+    let failure = match error {
+        None => None,
+        Some(shell_parser::Error::ShellWord { line }) => Some(ParseFailure::Word(line)),
+        Some(shell_parser::Error::Parse { message, line, .. }) => {
+            Some(ParseFailure::Syntax { message, line })
+        }
+        Some(error) => return Err(error.to_string()),
+    };
+    Ok((script.commands, failure))
+}
+
+/// Report where parsing stopped, after the commands before it ran. A bad
+/// substitution body ends the shell with 127; other syntax errors with 2.
+async fn parse_failure(
+    failure: ParseFailure,
+    reader: &str,
+    fds: &Descriptors,
+    context: &Context,
+) -> Outcome {
+    let (message, line) = match failure {
+        ParseFailure::Word(line) => {
+            let mut work = expansion_work(context.limits());
+            let error = work
+                .admit_storage(256)
+                .err()
+                .unwrap_or(expand::Error::ShellBoundary {
+                    stage: expand::ShellBoundaryStage::Word,
+                    line: Some(line),
+                });
+            return expansion_failure(error.into(), fds, context).await;
+        }
+        ParseFailure::Syntax { message, line } => (message, line),
+    };
+    if message.len() > context.limits().expansion_bytes {
+        return Outcome::status(2);
+    }
+    let diagnostic = format!("/usr/bin/bash: {reader}: line {line}: {message}\n");
+    let stderr = fds.borrow().get(2);
+    if let Some(stderr) = stderr {
+        let _ = stderr
+            .write_all(diagnostic.as_bytes(), &context.cancel)
+            .await;
+    }
+    if context.cancel.is_cancelled() {
+        return Outcome::status(130);
+    }
+    Outcome {
+        code: 2,
+        flow: Flow::Exit,
+    }
+}
+
+/// `eval`: the arguments joined by spaces, read like a script in the
+/// current shell. A syntax error returns 2 after the complete lines before
+/// it ran; `return` and `exit` act on the caller.
+async fn eval(args: Vec<String>, state: SharedState, fds: Descriptors, context: Context) -> Outcome {
+    let source = args.join(" ");
+    let (commands, failure) = match parse_shell(&source, context.limits()) {
+        Ok(parsed) => parsed,
+        Err(_) => return Outcome::status(2),
+    };
+    let context = Context {
+        source: Rc::from(source),
+        ..context
+    };
+    let mut result = sequence(commands, state, fds.clone(), context.clone()).await;
+    if result.flow == Flow::Normal
+        && let Some(failure) = failure
+    {
+        result = parse_failure(failure, "eval", &fds, &context).await;
+        if result.code == 2 && result.flow == Flow::Exit {
+            result.flow = Flow::Normal;
+        }
+    }
+    result
 }
 
 async fn script_sequence(
@@ -526,10 +612,19 @@ fn execute(
                 subshell(commands, redirs, state.clone(), fds, context.clone()).await
             }
             Command::Compound(compound, redirs) => {
-                let mut work = expansion_work(context.limits());
+                let fds = Rc::new(RefCell::new(fds.borrow().clone()));
+                let mut work = substitution_work(&context, &fds);
                 match command_redirects(&redirs, &state, fds, &context, &mut work).await {
                     Err(outcome) => outcome,
                     Ok(fds) => {
+                        // Only `((...))` expands words itself, after its
+                        // redirections; other bodies must not retain the
+                        // caller's descriptors while they run.
+                        work.substitutions = matches!(compound, CompoundCommand::Arithmetic(_))
+                            .then(|| Substitutions {
+                                context: context.compound_body(),
+                                fds: fds.clone(),
+                            });
                         execute_compound_body(
                             compound,
                             state.clone(),
@@ -743,12 +838,13 @@ async fn subshell(
             .core
             .executor
             .spawn(async move {
-                let mut work = expansion_work(child_context.limits());
+                let mut work = substitution_work(&child_context, &child_fds);
                 let result =
                     match command_redirects(&redirs, &child, child_fds, &child_context, &mut work)
                         .await
                     {
                         Ok(fds) => {
+                            work.substitutions = None;
                             let body_context = Context {
                                 parameter_error_status: 1,
                                 compound_child: false,
@@ -863,6 +959,18 @@ fn background(
     state.borrow_mut().pipestatus = vec![0];
     Outcome::status(0)
 }
+/// Bash's own device names: `/dev/fd/N` duplicates open descriptor N (a
+/// process substitution, for instance); `/dev/stdin`, `/dev/stdout` and
+/// `/dev/stderr` are descriptors 0, 1 and 2. A closed descriptor is an error.
+pub(crate) fn device_endpoint(path: &str, fds: &FdTable) -> Option<Result<io::Endpoint, i32>> {
+    let fd = match path {
+        "/dev/stdin" => 0,
+        "/dev/stdout" => 1,
+        "/dev/stderr" => 2,
+        _ => path.strip_prefix("/dev/fd/")?.parse::<u32>().ok()?,
+    };
+    Some(fds.get(fd).ok_or(1))
+}
 fn expansion_work(limits: &Limits) -> expand::Work {
     expand::Work::new(
         limits
@@ -872,6 +980,160 @@ fn expansion_work(limits: &Limits) -> expand::Work {
         limits.expansion_bytes,
         limits.arguments,
     )
+}
+/// Expansion work that can run command substitutions with `fds` (the
+/// descriptors in effect before the command's own redirections).
+fn substitution_work(context: &Context, fds: &Descriptors) -> expand::Work {
+    let mut work = expansion_work(context.limits());
+    work.substitutions = Some(Substitutions {
+        context: context.clone(),
+        fds: fds.clone(),
+    });
+    work
+}
+
+/// Runs `$(...)` bodies as subshell tasks. Expansion work carries one while it
+/// expands a command's words; it is taken out before dispatch so its
+/// descriptor reference cannot keep a pipe endpoint open during the command.
+#[derive(Clone)]
+pub(crate) struct Substitutions {
+    context: Context,
+    fds: Descriptors,
+}
+impl Substitutions {
+    /// Start `commands` in an isolated copy of `state`, with stdout on a new
+    /// pipe whose reader is returned. The body runs as its own executor task,
+    /// so nested substitutions add no native or WASM stack depth.
+    pub(crate) fn start(
+        &self,
+        commands: Vec<Command>,
+        state: &SharedState,
+    ) -> (io::Endpoint, SubstitutionTask) {
+        let (reader, writer) = io::pipe();
+        let child = state.borrow().clone().shared();
+        let mut table = self.fds.borrow().clone();
+        table.insert(1, writer);
+        let fds = Rc::new(RefCell::new(table));
+        let cancel = Cancel::new();
+        let parent = self.context.cancel.clone();
+        let context = Context {
+            cancel: cancel.clone(),
+            parameter_error_status: 1,
+            compound_child: false,
+            ..self.context.isolated()
+        };
+        let link = cancel.clone();
+        let join = self.context.core.executor.spawn(async move {
+            let body = async {
+                let result = sequence(commands, child, fds, context.clone()).await;
+                context.cleanup_jobs().await;
+                result.code
+            };
+            // The parent's cancellation reaches the body through its own
+            // token; the body still unwinds normally and reports its status.
+            let forward = async {
+                parent.cancelled().await;
+                link.cancel();
+                futures::future::pending::<()>().await
+            };
+            futures::pin_mut!(body, forward);
+            match futures::future::select(body, forward).await {
+                futures::future::Either::Left((code, _)) => code,
+                futures::future::Either::Right(((), body)) => body.await,
+            }
+        });
+        (
+            reader,
+            SubstitutionTask {
+                cancel,
+                join,
+                finished: false,
+            },
+        )
+    }
+    /// Start `<(commands)` (`is_input`) or `>(commands)` as a job of this
+    /// shell and open its end of the pipe in the command's descriptor table,
+    /// at the highest free descriptor from 63 down, as bash does. Returns
+    /// that descriptor; the caller expands it to `/dev/fd/N`. The table is
+    /// the command's own copy, so the descriptor closes with the command.
+    pub(crate) fn process(
+        &self,
+        commands: Vec<Command>,
+        is_input: bool,
+        state: &SharedState,
+    ) -> Result<u32, i32> {
+        let fd = (3..=63u32)
+            .rev()
+            .find(|fd| self.fds.borrow().get(*fd).is_none())
+            .ok_or(2)?;
+        let core = &self.context.core;
+        if core.jobs.borrow().len() >= self.context.limits().jobs {
+            return Err(2);
+        }
+        let (reader, writer) = io::pipe();
+        let mut table = self.fds.borrow().clone();
+        let parent_end = if is_input {
+            table.insert(1, writer);
+            reader
+        } else {
+            table.insert(0, reader);
+            writer
+        };
+        let fds = Rc::new(RefCell::new(table));
+        let child = state.borrow().clone().shared();
+        let cancel = Cancel::new();
+        let context = Context {
+            cancel: cancel.clone(),
+            parameter_error_status: 1,
+            compound_child: false,
+            ..self.context.isolated()
+        };
+        let join = core.executor.spawn(async move {
+            let result = sequence(commands, child, fds, context.clone()).await;
+            context.cleanup_jobs().await;
+            result.code
+        });
+        let job = core.next_job.get();
+        core.next_job.set(job + 1);
+        core.jobs.borrow_mut().insert(
+            job,
+            Job {
+                owner: self.context.scope,
+                cancel,
+                join,
+            },
+        );
+        self.fds.borrow_mut().insert(fd, parent_end);
+        Ok(fd)
+    }
+    /// Standard error of the shell running the substitution.
+    pub(crate) fn stderr(&self) -> Option<io::Endpoint> {
+        self.fds.borrow().get(2)
+    }
+    pub(crate) fn cancel(&self) -> &Cancel {
+        &self.context.cancel
+    }
+}
+/// A running substitution body. Dropping it before `finish` (an expansion
+/// error or cancellation) cancels the body, which then unwinds on its own.
+pub(crate) struct SubstitutionTask {
+    cancel: Cancel,
+    join: JoinHandle<i32>,
+    finished: bool,
+}
+impl SubstitutionTask {
+    pub(crate) async fn finish(mut self) -> i32 {
+        let code = self.join.clone().await;
+        self.finished = true;
+        code
+    }
+}
+impl Drop for SubstitutionTask {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.cancel.cancel();
+        }
+    }
 }
 
 /// Function words already retain raw spelling. For top-level declarations use
@@ -970,7 +1232,9 @@ async fn prepare_simple_command(
     }
     let mut bytes = 0usize;
     let mut budget = Budget::default();
-    let mut work = expansion_work(context.limits());
+    // Process substitutions open descriptors for this command only.
+    let fds = Rc::new(RefCell::new(fds.borrow().clone()));
+    let mut work = substitution_work(context, &fds);
     let mut argv = expand::fields(
         &simple.name,
         state,
@@ -1034,6 +1298,7 @@ async fn prepare_simple_command(
         )
         .await?;
         let fds = redirects(&simple.redirects, state, fds, context, &mut work).await?;
+        work.substitutions = None;
         return Ok(PreparedCommand {
             argv,
             assigned: Vec::new(),
@@ -1051,6 +1316,7 @@ async fn prepare_simple_command(
         false,
     )
     .await?;
+    work.substitutions = None;
     Ok(PreparedCommand {
         argv,
         assigned,
@@ -1072,7 +1338,9 @@ async fn dispatch_simple_command(
     } = prepared;
     let mut fields = argv.into_iter();
     let Some(name) = fields.next() else {
-        return Ok(Outcome::status(0));
+        // A command with no words left takes the status of the last command
+        // substitution it ran (words, then redirects and assignments).
+        return Ok(Outcome::status(work.substitution_status.unwrap_or(0)));
     };
     let args: Vec<_> = fields.collect();
     // Prefix assignments for external commands belong only to their environment.
@@ -1128,6 +1396,12 @@ async fn dispatch_simple_command(
             }
         }
         return Ok(result);
+    }
+    if name == "eval" {
+        if !assigned.is_empty() {
+            return Err(2);
+        }
+        return Ok(eval(args, state, fds, context).await);
     }
     if builtins::is_builtin(&name) {
         if !assigned.is_empty() {
@@ -1288,6 +1562,10 @@ async fn redirects(
             | RedirectKind::Output
             | RedirectKind::Clobber
             | RedirectKind::Append => {
+                if let Some(endpoint) = device_endpoint(&target, &fds) {
+                    fds.insert(fd, endpoint?);
+                    continue;
+                }
                 let path = absolute(&state.borrow().cwd, &target);
                 let options = OpenOptions {
                     read: input,

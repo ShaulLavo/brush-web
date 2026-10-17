@@ -13,6 +13,10 @@ pub(super) const MAX_DEPTH: usize = 16;
 // Each synchronous parser call receives one admitted scalar token. Large
 // literal runs stream through the scanner without entering the parser.
 const MAX_TOKEN_BYTES: usize = 4096;
+// The boundary scanner keeps a frame per open `$(`/quote, the current
+// keyword and here-document delimiter and line text: linear in input.
+const SCANNER_BASE: usize = 2048;
+const SCANNER_PER_CHAR: usize = 128;
 
 pub(super) fn scalar_name(name: &str) -> bool {
     let mut chars = name.chars();
@@ -128,8 +132,22 @@ impl<'a> Scanner<'a> {
             return self.expansion(start, work, cancel).await.map(Some);
         }
         if ch == '`' {
-            self.skip_backticks(start, work, cancel).await?;
-            return Err(2.into());
+            let part = self.backticks(start, work, cancel).await?;
+            return Ok(Some(Piece::Expansion {
+                part,
+                protected: self.protected(),
+            }));
+        }
+        if !self.protected()
+            && !self.outer_quoted
+            && matches!(ch, '<' | '>')
+            && self.peek() == Some('(')
+        {
+            let part = self.process(start, ch == '<', work, cancel).await?;
+            return Ok(Some(Piece::Expansion {
+                part,
+                protected: false,
+            }));
         }
         self.check_literal(ch)?;
         // Bash protects source spaces in a pattern, but not source tabs/newlines.
@@ -177,57 +195,13 @@ impl<'a> Scanner<'a> {
             Some(c) if c.is_ascii_digit() || matches!(c, '?' | '#') => {
                 self.take();
             }
-            Some('(') if self.source[self.cursor..].starts_with("((") => {
-                let begin = self.cursor + 2;
-                self.cursor = begin;
-                let mut depth = 0usize;
-                while let Some(ch) = self.peek() {
-                    work.checkpoint(cancel).await?;
-                    if self.cursor - start > MAX_TOKEN_BYTES {
-                        return Err(2.into());
-                    }
-                    if ch == ')' && depth == 0 && self.source[self.cursor..].starts_with("))") {
-                        let body = &self.source[begin..self.cursor];
-                        work.admit_storage(body.len())?;
-                        self.cursor += 2;
-                        return Ok(Piece::Expansion {
-                            part: WordPart::ArithmeticExpansion(body.to_owned()),
-                            protected: self.protected(),
-                        });
-                    }
-                    if ch == '$' && self.source[self.cursor..].starts_with("${") {
-                        self.take();
-                        self.braced(work, cancel).await?;
-                        continue;
-                    }
-                    if ch == '\\' {
-                        self.take();
-                        self.take();
-                        continue;
-                    }
-                    self.take();
-                    if ch == '(' {
-                        depth += 1;
-                        if depth >= MAX_DEPTH {
-                            return Err(2.into());
-                        }
-                    }
-                    if ch == ')' {
-                        depth = depth.checked_sub(1).ok_or(2)?;
-                    }
-                    if ch == '`'
-                        || ch == '$'
-                            && self.peek() == Some('(')
-                            && !self.source[self.cursor..].starts_with("((")
-                    {
-                        return Err(2.into());
-                    }
-                }
-                return bad_substitution("no closing `)'", work).and(Err(2.into()));
-            }
             Some('(') => {
                 self.skip_command(start, work, cancel).await?;
-                return Err(2.into());
+                let part = substitution(&self.source[start..self.cursor], work, cancel).await?;
+                return Ok(Piece::Expansion {
+                    part,
+                    protected: self.protected(),
+                });
             }
             Some('\'' | '"' | '@' | '*' | '!' | '$' | '-') => return Err(2.into()),
             _ => return Ok(self.text("$", self.protected())),
@@ -306,9 +280,10 @@ impl<'a> Scanner<'a> {
         }
         bad_substitution("no closing `}'", work)
     }
-    // A skipped nested scalar operand may contain unsupported substitution
-    // text. Match its boundary without parsing or evaluating that script.
-    // Heredocs and comment syntax fail closed instead of guessing boundaries.
+    /// Find the `)` closing a `$(` (the cursor is at its `(`) with the
+    /// parser's own boundary scanner, so quotes, comments, `case` patterns
+    /// and here-documents inside the body hide a `)` exactly as when the
+    /// script was parsed. The scanner's state is charged while it lives.
     async fn skip_command(
         &mut self,
         start: usize,
@@ -316,66 +291,89 @@ impl<'a> Scanner<'a> {
         cancel: &Cancel,
     ) -> Result<(), Error> {
         self.take();
-        let mut quotes = [Quote::None; MAX_DEPTH];
-        let mut depth: usize = 1;
+        let mut charged = SCANNER_BASE;
+        work.admit_storage(SCANNER_BASE)?;
+        let result = self.scan_command(start, &mut charged, work, cancel).await;
+        work.release_storage(charged);
+        result
+    }
+    async fn scan_command(
+        &mut self,
+        start: usize,
+        charged: &mut usize,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<(), Error> {
+        let mut scanner = shell_parser::parser::CommandBoundaryScanner::new();
         while let Some(value) = self.take() {
             work.checkpoint(cancel).await?;
             if self.cursor - start > MAX_TOKEN_BYTES {
                 return Err(2.into());
             }
-            let quote = &mut quotes[depth - 1];
-            if value == "\\" && *quote != Quote::Single {
-                self.take().ok_or(2)?;
-                continue;
-            }
-            if value == "'" && *quote != Quote::Double {
-                toggle_quote(quote, Quote::Single);
-                continue;
-            }
-            if value == "\"" && *quote != Quote::Single {
-                toggle_quote(quote, Quote::Double);
-                continue;
-            }
-            if *quote != Quote::None {
-                continue;
-            }
-            if value == "#" || value == "<" && self.peek() == Some('<') {
-                return Err(2.into());
-            }
-            if value == "`" {
-                self.skip_backticks(start, work, cancel).await?;
-            }
-            if value == "(" {
-                depth = depth.checked_add(1).filter(|&d| d <= MAX_DEPTH).ok_or(2)?;
-            }
-            if value == ")" {
-                depth -= 1;
-            }
-            if depth == 0 {
+            work.admit_storage(SCANNER_PER_CHAR)?;
+            *charged += SCANNER_PER_CHAR;
+            let ch = value.chars().next().ok_or(2)?;
+            if scanner.feed(ch) == shell_parser::parser::CommandBoundaryStep::Close {
                 return Ok(());
             }
         }
         bad_substitution("no closing `)'", work)
     }
-    async fn skip_backticks(
+    /// An unquoted `<(...)` or `>(...)` (the cursor is at its `(`).
+    async fn process(
+        &mut self,
+        start: usize,
+        is_input: bool,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<WordPart, Error> {
+        self.skip_command(start, work, cancel).await?;
+        let body = &self.source[start + 2..self.cursor - 1];
+        work.admit_parse(body.len().saturating_add(2), cancel).await?;
+        admit_syntax(body, work)?;
+        match backtick_part(body).map_err(|_| Error::Status(2))? {
+            WordPart::CommandSubstitution(commands) => {
+                Ok(WordPart::ProcessSubstitution { commands, is_input })
+            }
+            _ => Err(2.into()),
+        }
+    }
+    /// A backtick body, after Bash's backslash processing (`\$`, `` \` ``,
+    /// `\\` and `\<newline>` lose their backslash), parsed only now.
+    async fn backticks(
         &mut self,
         start: usize,
         work: &mut Work,
         cancel: &Cancel,
-    ) -> Result<(), Error> {
-        while let Some(value) = self.take() {
+    ) -> Result<WordPart, Error> {
+        let mut body = String::new();
+        loop {
+            let Some(value) = self.take() else {
+                return bad_substitution("no closing backtick", work).and(Err(2.into()));
+            };
             work.checkpoint(cancel).await?;
             if self.cursor - start > MAX_TOKEN_BYTES {
                 return Err(2.into());
             }
             if value == "`" {
-                return Ok(());
+                break;
             }
+            let mut piece = value;
             if value == "\\" {
-                self.take().ok_or(2)?;
+                let next = self.take().ok_or(2)?;
+                if !matches!(next, "$" | "`" | "\\" | "\n") {
+                    super::admit_string_growth(&mut body, 1, work)?;
+                    body.push('\\');
+                }
+                piece = next;
             }
+            super::admit_string_growth(&mut body, piece.len(), work)?;
+            body.push_str(piece);
         }
-        bad_substitution("no closing backtick", work)
+        let token_parse = body.len().saturating_add(2);
+        work.admit_parse(token_parse, cancel).await?;
+        admit_syntax(&body, work)?;
+        backtick_part(&body).map_err(|_| Error::Status(2))
     }
 }
 
@@ -496,6 +494,48 @@ pub(super) fn indirect_operator(operator: &ParameterOp) -> bool {
             | ParameterOp::UseReplacement
             | ParameterOp::AssignDefault
             | ParameterOp::Error
+    )
+}
+
+/// Parse one `$(...)` token. The synchronous parser runs with the token's
+/// admitted fuel; its AST is charged before it is built.
+async fn substitution(token: &str, work: &mut Work, cancel: &Cancel) -> Result<WordPart, Error> {
+    work.admit_parse(token.len(), cancel).await?;
+    admit_syntax(token, work)?;
+    substitution_part(token).map_err(|_| Error::Status(2))
+}
+/// AST storage for parsed shell text, as for reparsed brace words: owned
+/// text and lexical metadata scale with bytes, nodes with syntax characters.
+fn admit_syntax(text: &str, work: &mut Work) -> Result<(), Error> {
+    let syntax = text
+        .chars()
+        .filter(|&ch| ch.is_whitespace() || "$\\'\"`<>()|;&{}".contains(ch))
+        .count();
+    let slot = std::mem::size_of::<WordPart>()
+        + std::mem::size_of::<shell_parser::parser::Word>()
+        + std::mem::size_of::<shell_parser::parser::Command>();
+    work.admit_storage(
+        text.len()
+            .saturating_mul(128)
+            .saturating_add(syntax.saturating_mul(4).saturating_mul(slot))
+            .saturating_add(512),
+    )
+}
+// Keep the parser's synchronous frames out of the recursive expansion future.
+#[inline(never)]
+fn substitution_part(token: &str) -> shell_parser::Result<WordPart> {
+    Parser::parse_substitution_token_with_limits(
+        token,
+        shell_parser::limits::ExecutionLimits::default().max_ast_depth,
+        token.len().saturating_add(3).saturating_mul(16),
+    )
+}
+#[inline(never)]
+fn backtick_part(body: &str) -> shell_parser::Result<WordPart> {
+    Parser::parse_backtick_body_with_limits(
+        body,
+        shell_parser::limits::ExecutionLimits::default().max_ast_depth,
+        body.len().saturating_add(3).saturating_mul(16),
     )
 }
 
