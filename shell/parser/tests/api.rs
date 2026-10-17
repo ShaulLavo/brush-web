@@ -1143,3 +1143,34 @@ fn dollar_continuations_preserve_logical_openers_and_raw_spelling() {
         assert_eq!(word.raw.as_deref(), Some(source));
     }
 }
+
+#[test]
+fn arithmetic_boundaries_stay_opaque_in_quotes_and_parameter_operands() {
+    for expression in ["1 << 2\n", "case == in", "1 + $((2 << 3\n))", "1 + ${u:-2}"] {
+        for source in [
+            format!("$(({expression})){{a,b}}"),
+            format!("\"$(({expression})){{a,b}}\""),
+            format!("${{va:-$(({expression}))}}{{a,b}}"),
+            format!("\"${{va:-$(({expression}))}}{{a,b}}\""),
+        ] {
+            let word = argument(&format!("args {source}"));
+            assert!(
+                word.parts.iter().any(|part| matches!(
+                    part,
+                    WordPart::ArithmeticExpansion(_) | WordPart::ParameterExpansion { .. }
+                )),
+                "{source}: {word:?}"
+            );
+            assert_eq!(word.raw.as_deref(), Some(source.as_str()));
+            let generated = Parser::parse_expanded_word_with_limits(&source, 100, 16384).unwrap();
+            assert_eq!(generated.raw.as_deref(), Some(source.as_str()));
+            assert!(
+                generated.parts.iter().any(|part| matches!(
+                    part,
+                    WordPart::ArithmeticExpansion(_) | WordPart::ParameterExpansion { .. }
+                )),
+                "{source}: {generated:?}"
+            );
+        }
+    }
+}

@@ -1278,10 +1278,7 @@ impl<'a> Lexer<'a> {
                 } else {
                     word.push('\\');
                 }
-            } else if ch == '('
-                && self.extglob_bang
-                && word.ends_with(['@', '?', '*', '+', '!'])
-            {
+            } else if ch == '(' && self.extglob_bang && word.ends_with(['@', '?', '*', '+', '!']) {
                 // Extglob: @(...), ?(...), *(...), +(...), !(...)
                 // Consume through matching ) including nested parens
                 let group_start = word.len();
@@ -1626,9 +1623,7 @@ impl<'a> Lexer<'a> {
                         None => content.push('\\'),
                     }
                 }
-                Some('(')
-                    if self.extglob_bang && content.ends_with(['@', '?', '*', '+', '!']) =>
-                {
+                Some('(') if self.extglob_bang && content.ends_with(['@', '?', '*', '+', '!']) => {
                     // `"$*"*@(.py|cc)`: an extglob group after a quoted start.
                     let mut depth = 0usize;
                     while let Some(c) = self.peek_char() {
@@ -1806,7 +1801,7 @@ impl<'a> Lexer<'a> {
                     let limit = crate::limits::LimitExceeded::ParameterDepth;
                     self.limit_exceeded = Some(limit);
                     return Err(limit.to_string());
-                },
+                }
                 Step::Delimiter => unreachable!("whole parameters have no slash delimiter"),
             }
         }
@@ -2348,7 +2343,7 @@ impl<'a> Lexer<'a> {
     /// closing `)`, with the same scanner as `$(...)`. Nothing is copied; the
     /// caller slices the source. Returns whether the `)` was found.
     pub fn skip_subst_body(&mut self) -> bool {
-        let mut scanner = super::subst_scan::SubstScanner::new();
+        let mut scanner = super::subst_scan::SubstScanner::new_command();
         while let Some(c) = self.advance() {
             if scanner.feed(c) == super::subst_scan::Step::Close {
                 return true;

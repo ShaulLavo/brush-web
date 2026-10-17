@@ -283,6 +283,28 @@ impl SubstScanner {
 
     fn feed_normal(&mut self, c: char) -> Step {
         match self.top() {
+            Frame::Substitution => {
+                if c == '\\' {
+                    self.mode = Mode::SubstitutionEscape;
+                    return Step::Body;
+                }
+                *self.stack.last_mut().expect("substitution frame") = if c == '(' {
+                    Frame::Arithmetic
+                } else {
+                    Frame::Code
+                };
+                self.feed_normal(c)
+            }
+            Frame::Arithmetic => self.feed_arithmetic(c),
+            Frame::Parameter => self.feed_parameter(c),
+            Frame::Ansi => {
+                if c == '\\' {
+                    self.mode = Mode::Escape;
+                } else if c == '\'' {
+                    self.stack.pop();
+                }
+                Step::Body
+            }
             Frame::Single => {
                 if c == '\'' {
                     self.stack.pop();
@@ -296,6 +318,7 @@ impl SubstScanner {
                         self.stack.pop();
                     }
                     '(' if self.prev == Some('$') => self.push_code(),
+                    '{' if self.prev == Some('$') => self.stack.push(Frame::Parameter),
                     '`' => self.stack.push(Frame::Backtick),
                     _ => {}
                 }
@@ -316,12 +339,74 @@ impl SubstScanner {
     }
 
     fn push_code(&mut self) {
-        self.stack.push(Frame::Code);
+        self.stack.push(Frame::Substitution);
         self.parens.push(0);
         self.code.push(CodeState {
             cmd_pos: true,
             ..CodeState::default()
         });
+    }
+
+    fn pop_code(&mut self) -> Step {
+        self.parens.pop();
+        self.code.pop();
+        self.stack.pop();
+        if self.stack.is_empty() {
+            Step::Close
+        } else {
+            Step::Body
+        }
+    }
+
+    fn feed_arithmetic(&mut self, c: char) -> Step {
+        // `$(( cmd ) )` falls back to a command subshell when the inner
+        // closing paren is not immediately followed by its arithmetic mate.
+        if self.parens.last() == Some(&0) && self.prev == Some(')') && c != ')' {
+            *self.stack.last_mut().expect("arithmetic frame") = Frame::Code;
+            return self.feed_code(c);
+        }
+        match c {
+            '\\' => self.mode = Mode::Escape,
+            '\'' => self.stack.push(if self.prev == Some('$') {
+                Frame::Ansi
+            } else {
+                Frame::Single
+            }),
+            '"' => self.stack.push(Frame::Double),
+            '`' => self.stack.push(Frame::Backtick),
+            '{' if self.prev == Some('$') => self.stack.push(Frame::Parameter),
+            '(' if self.prev == Some('$') => self.push_code(),
+            '(' => *self.parens.last_mut().expect("arithmetic frame") += 1,
+            ')' => {
+                let depth = self.parens.last_mut().expect("arithmetic frame");
+                if *depth == 0 {
+                    return self.pop_code();
+                }
+                *depth -= 1;
+            }
+            _ => {}
+        }
+        Step::Body
+    }
+
+    fn feed_parameter(&mut self, c: char) -> Step {
+        match c {
+            '\\' => self.mode = Mode::Escape,
+            '\'' => self.stack.push(if self.prev == Some('$') {
+                Frame::Ansi
+            } else {
+                Frame::Single
+            }),
+            '"' => self.stack.push(Frame::Double),
+            '`' => self.stack.push(Frame::Backtick),
+            '{' if self.prev == Some('$') => self.stack.push(Frame::Parameter),
+            '(' if self.prev == Some('$') => self.push_code(),
+            '}' => {
+                self.stack.pop();
+            }
+            _ => {}
+        }
+        Step::Body
     }
 
     /// Mark the current word as quoted (a quote or escape starts in code).
@@ -437,6 +522,11 @@ impl SubstScanner {
             };
             return self.feed_inner(c);
         }
+        if c == '{' && self.prev == Some('$') {
+            self.quote_word();
+            self.stack.push(Frame::Parameter);
+            return Step::Body;
+        }
         let word_char = !c.is_whitespace()
             && !matches!(
                 c,
@@ -468,7 +558,11 @@ impl SubstScanner {
             }
             '\'' => {
                 self.quote_word();
-                self.stack.push(Frame::Single);
+                self.stack.push(if self.prev == Some('$') {
+                    Frame::Ansi
+                } else {
+                    Frame::Single
+                });
             }
             '"' => {
                 self.quote_word();
@@ -484,6 +578,11 @@ impl SubstScanner {
                 self.on_newline();
             }
             '(' => {
+                if self.prev == Some('$') {
+                    self.quote_word();
+                    self.push_code();
+                    return Step::Body;
+                }
                 self.end_word();
                 // The optional `(` before a case pattern is not nesting.
                 if let Some(CasePhase::Pattern { started: false }) = self.case_here() {
@@ -515,12 +614,7 @@ impl SubstScanner {
                     self.set_cmd_pos(false);
                 } else {
                     // Closes this `$(` frame.
-                    self.parens.pop();
-                    self.code.pop();
-                    self.stack.pop();
-                    if self.stack.is_empty() {
-                        return Step::Close;
-                    }
+                    return self.pop_code();
                 }
             }
             ';' | '&' => {
@@ -636,6 +730,31 @@ mod tests {
             body("case x in x) (echo case);; esac) y"),
             Some("case x in x) (echo case);; esac")
         );
+    }
+
+    #[test]
+    fn dollar_arithmetic_is_not_command_grammar() {
+        for (source, expected) in [
+            ("(1 << 2\n)) rest", "(1 << 2\n)"),
+            ("(case == in)) rest", "(case == in)"),
+            ("(16#ff)) rest", "(16#ff)"),
+            ("(1 + ${u:-')'})) rest", "(1 + ${u:-')'})"),
+            ("(1 + $((2 << 3\n)))) rest", "(1 + $((2 << 3\n)))"),
+            ("(1 + $(echo 2 # ) }\n))) rest", "(1 + $(echo 2 # ) }\n))"),
+        ] {
+            assert_eq!(body(source), Some(expected), "{source}");
+        }
+    }
+
+    #[test]
+    fn process_substitution_starts_with_command_code() {
+        let source = "(case x in x) :;; esac)) suffix";
+        let mut scanner = SubstScanner::new_command();
+        let end = source
+            .char_indices()
+            .find_map(|(index, ch)| (scanner.feed(ch) == Step::Close).then_some(index))
+            .unwrap();
+        assert_eq!(&source[..end], "(case x in x) :;; esac)");
     }
 
     #[test]
