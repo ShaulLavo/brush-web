@@ -141,6 +141,11 @@ fn status_follows_each_substitution_and_empty_commands() {
 
 #[test]
 fn operands_and_arithmetic_run_substitutions_lazily() {
+    check("args \"$((0 + $( (# (\nprintf x) )))\"", &[&["0"]]);
+    check(
+        r#"unset u; args "${u:-'$'{x,y}}" "${u:-"$"((1+2))}""#,
+        &[&["'$'{x,y}", "$((1+2))"]],
+    );
     check(
         r#"unset u; v=set; args "${u:-$(echo picked)}" "${v:-$(echo skipped)}" "${u:-`echo tick`}" $((1 + $(echo 2))) "${u:-$((0 + `echo 3`))}""#,
         &[&["picked", "set", "tick", "3", "3"]],

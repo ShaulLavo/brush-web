@@ -63,6 +63,7 @@ pub(super) struct Scanner<'a> {
     source: &'a str,
     cursor: usize,
     quote: Quote,
+    literal_single: bool,
     outer_quoted: bool,
     pattern: bool,
     pattern_source: bool,
@@ -79,6 +80,7 @@ impl<'a> Scanner<'a> {
             source,
             cursor: 0,
             quote: Quote::None,
+            literal_single: false,
             outer_quoted,
             pattern,
             pattern_source,
@@ -143,6 +145,9 @@ impl<'a> Scanner<'a> {
                 Quote::Single
             };
             return Ok(Some(self.text("", true)));
+        }
+        if ch == '\'' && self.quote == Quote::None && self.outer_quoted {
+            self.literal_single = !self.literal_single;
         }
         if self.quote == Quote::Single {
             return Ok(Some(self.text(value, true)));
@@ -209,6 +214,12 @@ impl<'a> Scanner<'a> {
         cancel: &Cancel,
     ) -> Result<Piece<'a>, Error> {
         match self.peek() {
+            Some('\'') if self.literal_single || self.quote == Quote::Double => {
+                return Ok(self.text("$", self.protected()));
+            }
+            Some('"') if self.quote == Quote::Double => {
+                return Ok(self.text("$", true));
+            }
             Some('{') => self.braced(work, cancel).await?,
             Some(c) if c.is_ascii_alphabetic() || c == '_' => self.identifier(work, cancel).await?,
             Some(c) if c.is_ascii_digit() || matches!(c, '?' | '#') => {
