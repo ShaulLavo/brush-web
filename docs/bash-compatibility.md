@@ -189,6 +189,62 @@ helper hash and classification hash are recorded. Every source file's SHA-256
 and upstream revision is recorded too. The source paths and retained upstream
 licenses are listed in `sources.lock.json` and `THIRD_PARTY_NOTICES.md`.
 
+The capture runner gives Bash independent real OS pipes for both output streams.
+Node's `spawn` option
+named `pipe` creates Unix sockets on this host; reopening those through
+`/dev/stdout`, `/dev/stderr` or `/dev/fd` fails with `ENXIO`. The original Python 3
+supervisor creates actual pipes, forwards exact bytes without combining streams,
+and reports the command's exit status on a private descriptor unavailable to the
+case. It does not wrap or rewrite the source. Timeouts, the combined output limit
+and process-group teardown still belong to the Node runner. The supervisor drains
+already-written bytes when the command exits, rather than waiting indefinitely
+for background descendants to close a stream. Linux parent-death protection also
+terminates the supervisor if Node is killed abruptly; bubblewrap then tears down
+the private process namespace. Updating existing frozen observations requires a
+complete eligible-case audit and the target-baseline proof described below.
+
+### Output-stream recording correction
+
+The [2026-10-17 transport audit](evidence/oracle-pipe-audit.json) covers all **5,792**
+eligible cases: two independent pipe captures and one legacy socket capture per
+case. All three captures completed; the repeated pipe observations agreed in both
+scored output and diagnostic bytes. The **3,429** existing skips and all case,
+source and environment identities remain unchanged.
+
+Seven cases have corrected stdout or status, and one has a stderr-only correction:
+
+| Case                                             | Recording error                                                              |
+| ------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `oils:redirect:521`                              | Reopening `/dev/stdout` failed instead of printing each command's arguments. |
+| `oils:redirect:543`                              | The same failure suppressed output and descriptor-allocation updates.        |
+| `bashkit-suite:dev-fd-paths:10`                  | Reopening merged `/dev/stderr` failed instead of printing `err`.             |
+| `bashkit-suite:dev-fd-paths:16`                  | Appending to merged `/dev/stderr` failed instead of printing two lines.      |
+| `bashkit-suite:dev-fd-paths:23`                  | Reopening `/dev/stdout` for stderr failed instead of printing `e`.           |
+| `bashkit-suite:dev-fd-paths:29`                  | Reopening `/dev/fd/1` failed instead of printing `two`.                      |
+| `bashkit-suite:dev-fd-paths:45`                  | A variable naming merged `/dev/stderr` failed instead of printing `warn`.    |
+| `bashkit-suite:bashbox-interpreter-builtins:274` | Stderr-only: reopening `/dev/stderr` now prints `x`, not the socket error.   |
+
+For each correction, the legacy socket observation reproduces the original
+frozen answer exactly for the affected streams, and both pipe captures reproduce
+the corrected answer. Each script was inspected to establish that the difference
+comes from reopening an output descriptor, not merely from correlated captures.
+The initial recorder metadata is preserved; `oracle.transportCorrection` records
+the separate audit capture and its different Bash executable hash.
+
+Other host-dependent differences are **not** refreshed. Frozen observations for
+host names, dates, user IDs, resource limits and locally unavailable commands stay
+as recorded. In particular, `bashkit-suite:time:78` happened to have repeatable
+pipe timing diagnostics different from the socket capture; its script does not
+reopen an output descriptor, so those diagnostic bytes remain frozen too. The
+evidence lists every observed scored difference and the retained unrelated ones.
+The archived target's old passing-case membership is proven before the same
+binary is rescored; this is a recording correction, not an engine improvement.
+The exact `9b371d4` engine reproduced **525 / 394 / 785** original passes
+(Oils / brush-suite / bashkit-suite), then scored **524 / 394 / 785** against the
+corrected oracle. Only `oils:redirect:543` changed from pass to fail: the old
+socket error had accidentally matched the engine's missing output. The engine
+binary is unchanged, and the evidence records its SHA-256 and both measurements.
+
 `docs/evidence/own-shell-oracle.json` contains script text, category, case ID,
 classification and exact normalized stdout/stderr bytes in base64 plus numeric
 status. Only stdout and status decide a pass. stderr stays separate and is kept
@@ -241,9 +297,16 @@ CI separately checks nonregression against the target branch's baseline read
 with `git show` at the pull request's base SHA. Lowering the candidate baseline
 cannot hide a regression. Bootstrap is allowed
 only when the target source lock has no scoreboard entry. Later missing baseline
-files fail closed. New corpus/oracle/environment identities are incomparable;
-recapture and rerun both base and candidate under identical inputs, then review
-the baseline migration explicitly. Editing the identity alone is insufficient.
+files fail closed. Case membership, corpus sources and environment identities
+must still match exactly. An observation-only oracle correction triggers a
+separate trusted migration: archive the exact target SHA, build its WASI engine
+in a fresh target directory, and reproduce its old committed pass membership
+before changing any oracle input. The same base binary is then rescored against
+the corrected oracle. CI compares the candidate with that independently computed
+base score while retaining `BASH_COMPAT_BASE_REF` and normal baseline validation.
+No candidate-supplied base binary, oracle path or baseline path can replace this
+proof. A failed old-baseline proof, rebuild, identity check or replay fails the
+migration. Editing an identity or lowering the candidate baseline is insufficient.
 
 Capture and initial baseline recording are explicit maintenance operations, not
 part of compatibility CI:

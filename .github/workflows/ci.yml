@@ -70,7 +70,7 @@ jobs:
 
   own-shell-compatibility:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     env:
       CARGO_TARGET_DIR: .build/shell
       BASH_COMPAT_MODE: frozen
@@ -92,6 +92,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: shell -> ../.build/shell
+      - name: Install isolated Bash capture tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap python3
+          # The disposable Ubuntu runner must permit bubblewrap's user namespace.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          bwrap --unshare-all --ro-bind /usr /usr --symlink usr/lib /lib --symlink usr/lib64 /lib64 --proc /proc --dev /dev -- /usr/bin/true
       - run: npm run test:shell:scoreboard
         env:
           BASH_COMPAT_SCRATCH: ${{ runner.temp }}
