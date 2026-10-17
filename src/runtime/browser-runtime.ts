@@ -47,7 +47,6 @@ export class BrowserRuntime implements ShellRuntimePeer {
     return (this.initialization ??= (async () => {
       await this.filesystem.mkdirp("/home/guest");
       await this.filesystem.mkdirp("/tmp");
-      await this.filesystem.mkdirp("/dev");
       await this.filesystem.mkdirp("/bin");
       await this.filesystem.mkdirp("/usr/local/bin");
       await this.filesystem.mkdirp("/programs");

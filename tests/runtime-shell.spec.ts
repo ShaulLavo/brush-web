@@ -42,6 +42,22 @@ test("Brush remains the default engine", async ({ page }) => {
   expect(await page.evaluate(() => window.brushWeb?.snapshot().engine)).toBe("brush");
 });
 
+test("missing runtime devices fail rather than creating a fake /dev/null file", async ({
+  page,
+}) => {
+  const baseline = await open(page);
+  await command(
+    page,
+    `printf secret >/dev/null; printf 'NULL_WRITE_STATUS:%s\\n' "$?"; cat /dev/null; printf 'NULL_READ_STATUS:%s\\n' "$?"`,
+  );
+  await output(page, "NULL_WRITE_STATUS:1");
+  await output(page, "NULL_READ_STATUS:1");
+  await ready(page);
+  const lines = await page.evaluate(() => window.brushWeb?.readLines().map((line) => line.trim()));
+  expect(lines).not.toContain("secret");
+  await expect.poll(() => page.workers().length).toBe(baseline);
+});
+
 test("an always-ready background shell loop cannot starve a foreground command", async ({
   page,
 }) => {

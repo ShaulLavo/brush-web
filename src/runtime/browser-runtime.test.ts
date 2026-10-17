@@ -19,6 +19,7 @@ test("worker construction failure retires its filesystem fork without disposing 
   const connections: ReturnType<typeof connectFilesystemIdentity>[] = [];
   const reaped: FilesystemIdentity[] = [];
   const written: string[] = [];
+  const directories: string[] = [];
   let disposed = 0;
   let closed = 0;
   let runtime: BrowserRuntime | undefined;
@@ -41,7 +42,9 @@ test("worker construction failure retires its filesystem fork without disposing 
   globalThis.document = { baseURI: "https://shell.example/" } as Document;
   globalThis.fetch = async () => new Response(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
   const filesystem = {
-    async mkdirp() {},
+    async mkdirp(path: string) {
+      directories.push(path);
+    },
     async lookup() {
       return undefined;
     },
@@ -87,4 +90,5 @@ test("worker construction failure retires its filesystem fork without disposing 
     assert.equal(disposed, 0);
   }
   assert.ok(!written.includes("/dev/null"), "unsupported devices must not be ordinary files");
+  assert.ok(!directories.includes("/dev"), "redirection must not recreate unsupported devices");
 });
