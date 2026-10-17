@@ -122,9 +122,15 @@ impl Parser<'_> {
                 break;
             }
         }
-        let end = end.ok_or(Error::ShellWord {
-            line: self.current_span.start.line,
-        })?;
+        let Some(end) = end else {
+            // Bash reads a fused span as raw text, so running out of input
+            // is its EOF error (2). Command text is parsed as far as it goes:
+            // stopping at a token is a substitution syntax error (127).
+            if scanner.arithmetic_start().is_none() {
+                self.classify_substitution_text(source, false)?;
+            }
+            return Err(self.error("unexpected EOF while looking for matching `)'"));
+        };
         while chars.remaining().len() >= source.len() - end {
             self.tick()?;
             chars.next();
@@ -149,6 +155,7 @@ impl Parser<'_> {
             Default::default(),
         ));
         parser.strict_command_separators = true;
+        parser.lexer.set_substitution_body(true);
         parser.current_depth = self.current_depth + 1;
         parser.started_at = self.started_at;
         if let Some(budget) = &self.execution_budget {

@@ -151,7 +151,7 @@ pub(crate) fn evaluate<'a>(
                 return Err(2.into());
             }
             let expanded;
-            let source = if source.contains(['$', '"', '\\']) {
+            let source = if source.contains(['$', '"', '\\', '`']) {
                 expanded = expand::arithmetic_text(source, state, cancel, max, work).await?;
                 expanded.as_str()
             } else {

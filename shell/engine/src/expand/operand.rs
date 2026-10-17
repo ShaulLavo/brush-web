@@ -290,21 +290,38 @@ impl<'a> Scanner<'a> {
         work: &mut Work,
         cancel: &Cancel,
     ) -> Result<(), Error> {
+        self.skip_body(start, false, work, cancel).await
+    }
+    /// `command` scans by command grammar only: a leading `(` is a subshell
+    /// (process substitutions), never the start of `((` arithmetic.
+    async fn skip_body(
+        &mut self,
+        start: usize,
+        command: bool,
+        work: &mut Work,
+        cancel: &Cancel,
+    ) -> Result<(), Error> {
         self.take();
         let mut charged = SCANNER_BASE;
         work.admit_storage(SCANNER_BASE)?;
-        let result = self.scan_command(start, &mut charged, work, cancel).await;
+        let result = self
+            .scan_command(start, command, &mut charged, work, cancel)
+            .await;
         work.release_storage(charged);
         result
     }
     async fn scan_command(
         &mut self,
         start: usize,
+        command: bool,
         charged: &mut usize,
         work: &mut Work,
         cancel: &Cancel,
     ) -> Result<(), Error> {
         let mut scanner = shell_parser::parser::CommandBoundaryScanner::new();
+        if command {
+            scanner.feed(' ');
+        }
         while let Some(value) = self.take() {
             work.checkpoint(cancel).await?;
             if self.cursor - start > MAX_TOKEN_BYTES {
@@ -327,7 +344,7 @@ impl<'a> Scanner<'a> {
         work: &mut Work,
         cancel: &Cancel,
     ) -> Result<WordPart, Error> {
-        self.skip_command(start, work, cancel).await?;
+        self.skip_body(start, true, work, cancel).await?;
         let body = &self.source[start + 2..self.cursor - 1];
         work.admit_parse(body.len().saturating_add(2), cancel).await?;
         admit_syntax(body, work)?;
@@ -335,7 +352,14 @@ impl<'a> Scanner<'a> {
             WordPart::CommandSubstitution(commands) => {
                 Ok(WordPart::ProcessSubstitution { commands, is_input })
             }
-            _ => Err(2.into()),
+            // Bash parses the body as it expands; a failure is fatal there.
+            _ => {
+                work.admit_storage(256)?;
+                Err(Error::ShellBoundary {
+                    stage: super::ShellBoundaryStage::Expansion,
+                    line: None,
+                })
+            }
         }
     }
     /// A backtick body, after Bash's backslash processing (`\$`, `` \` ``,

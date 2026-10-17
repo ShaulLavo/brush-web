@@ -469,8 +469,8 @@ Only stdout bytes and exit status decide a match. Stderr is diagnostic. An
 2 with empty stdout because substitutions or compound commands are not
 executable yet. A Bash-accepted parse that the candidate rejects, and status 127
 instead of 2, are `MISMATCH`. Mismatches are structurally shrunk while retaining
-their boundary shape and written to
-`/work/tmp/brush-web-subst-gen/mismatches.json`. The run cleans its directory
+their boundary shape and written to `brush-web-subst-mismatches.json` beside
+the run directory (or `FUZZ_SUBST_MISMATCHES`). The run cleans its directory
 under `FUZZ_SUBST_SCRATCH`, `RUNNER_TEMP` or the OS temporary directory and never
 builds a shell binary. `--record` requires zero mismatches; replay invokes no
 Bash and validates the generator hash and every regenerated case.

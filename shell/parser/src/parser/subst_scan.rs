@@ -59,6 +59,8 @@ struct CodeState {
     cases: Vec<CaseCtx>,
     /// Operators and heredocs belong to this scope, not nested substitutions.
     lt_run: usize,
+    /// Consecutive `>` just read, as `lt_run` counts `<`.
+    gt_run: usize,
     arith_at: Option<usize>,
     pending_heredocs: std::collections::VecDeque<Heredoc>,
 }
@@ -127,6 +129,9 @@ pub struct SubstScanner {
     /// `${...}` or quotes): no enclosing command parse reaches them, but
     /// bash parses them as commands with the script.
     opaque_commands: Vec<(usize, usize)>,
+    /// Offset of the first `)` that ended a here-document on its delimiter
+    /// line (`EOF)`), if any.
+    heredoc_paren: Option<usize>,
 }
 
 impl Default for SubstScanner {
@@ -154,6 +159,7 @@ impl SubstScanner {
             root_arithmetic: None,
             starts: vec![0],
             opaque_commands: Vec::new(),
+            heredoc_paren: None,
         }
     }
 
@@ -174,6 +180,13 @@ impl SubstScanner {
     /// as arithmetic or as a command is [`arithmetic_expression`]'s decision.
     pub fn arithmetic_start(&self) -> Option<usize> {
         self.root_arithmetic
+    }
+
+    /// Byte offset of the first `)` that ended a here-document on the
+    /// delimiter's own line. Bash's process substitution text ends there
+    /// when it reads a fused `<((` span (see the parser's process path).
+    pub fn heredoc_paren(&self) -> Option<usize> {
+        self.heredoc_paren
     }
 
 
@@ -223,6 +236,8 @@ impl SubstScanner {
             }
             Mode::Body { mut line } => {
                 if c == ')' && self.delimiter_line(&line) {
+                    self.heredoc_paren
+                        .get_or_insert(self.offset - c.len_utf8());
                     // Bash, in a command substitution: a line that is the
                     // delimiter followed by the closing `)` ends the
                     // here-document ("delimited by end-of-file") and the `)`
@@ -706,6 +721,20 @@ impl SubstScanner {
     }
 
     fn feed_code(&mut self, c: char) -> Step {
+        // `<(` or `>(` after a single angle bracket opens a process
+        // substitution (bash's LEX_GTLT toggles, so `<<(` and `>>(` do not).
+        let process = c == '('
+            && match self.prev {
+                Some('<') => self.code.last().expect("code state").lt_run == 1,
+                Some('>') => self.code.last().expect("code state").gt_run == 1,
+                _ => false,
+            };
+        let gt_run = if c == '>' {
+            self.code.last_mut().expect("code state").gt_run + 1
+        } else {
+            0
+        };
+        self.code.last_mut().expect("code state").gt_run = gt_run;
         let lt_run = if c == '<' {
             self.code.last_mut().expect("code state").lt_run + 1
         } else {
@@ -784,7 +813,8 @@ impl SubstScanner {
                 self.on_newline();
             }
             '(' => {
-                if self.prev == Some('$') {
+                // Like `$(`, a fused `<((` is raw paren-matched text.
+                if self.prev == Some('$') || process {
                     self.quote_word();
                     self.push_code();
                     return Step::Body;

@@ -19,7 +19,6 @@ const queue = "/work/tmp/wave-heavy/run.sh";
 const sourcePath = fileURLToPath(import.meta.url);
 const oracleVersion = /^GNU bash, version 5\.3\.15(?:\(|\s)/;
 const outputLimit = 4 * 1024 * 1024;
-export const mismatchOutputPath = "/work/tmp/brush-web-subst-gen/mismatches.json";
 
 export const boundaryContexts = [
   "plain",
@@ -715,6 +714,10 @@ function main() {
       }
     }
     const mismatchShapes = reports.flatMap((report) => report.mismatches);
+    // Minimized shapes go beside the run's scratch directory (or where
+    // FUZZ_SUBST_MISMATCHES points), never into the repository.
+    const mismatchOutputPath =
+      process.env.FUZZ_SUBST_MISMATCHES ?? resolve(parent, "brush-web-subst-mismatches.json");
     mkdirSync(dirname(mismatchOutputPath), { recursive: true });
     writeFileSync(mismatchOutputPath, JSON.stringify(mismatchShapes, null, 2) + "\n");
     const report = {
