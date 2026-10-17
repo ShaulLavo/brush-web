@@ -894,7 +894,7 @@
       "scripts/fixtures/shell-substitutions-seed-42.json",
       "scripts/test-shell-wasi.mjs"
     ],
-    "strategy": "Execute typed command substitutions, backticks and non-arithmetic fused substitutions with bounded captures over live pipes; execute process substitutions through owned descriptors instead of captured text. Admit state/AST snapshots and temporary storage before growth; share work and cancellation, preserve trailing-newline removal and status semantics, and retain asynchronous descendants until scoped cleanup. Here-documents/here-strings, eval, unset, scalar nounset and case execution provide the general execution prerequisites. External/unnamed heredoc readers isolate shell effects; builtin readers retain completed parameter effects. Eval source, parser work, AST copies and active execution/read depth share explicit admission; outlined futures and joined executor tasks avoid native/WASI recursive poll-stack growth without enlarging limits. Internal task identities are separate from visible job numbers. Parser grammar, printing and typed-backtick repairs are separately classified under shellParser.changeLog. Generator results and full native/WASI acceptance are recorded only after actual final-source execution.",
+    "strategy": "Execute typed command substitutions, backticks and non-arithmetic fused substitutions with bounded captures over live pipes; execute process substitutions through owned descriptors instead of captured text. Admit state/AST snapshots and temporary storage before growth; share work and cancellation, preserve trailing-newline removal and status semantics, and retain asynchronous descendants until scoped cleanup. Here-documents/here-strings, eval, unset, scalar nounset and case execution provide the general execution prerequisites. External/unnamed heredoc readers isolate shell effects; builtin readers retain completed parameter effects. Eval source, parser work, AST copies and active execution/read depth share explicit admission; outlined futures and joined executor tasks avoid native/WASI recursive poll-stack growth without enlarging limits. Internal task identities are separate from visible job numbers. Last async handles for background jobs and process substitutions are scoped shell metadata; numeric waits and percent-job selectors remain distinct, and wait-all returns zero. Completed process-substitution records remain explicitly waitable within the retained-job cap. Parser grammar, printing and typed-backtick repairs are separately classified under shellParser.changeLog. Generator results and full native/WASI acceptance are recorded only after actual final-source execution.",
     "excluded": [
       "coprocesses",
       "arrays and indexed namerefs",
@@ -923,13 +923,16 @@
       "shell/engine/src/expand.rs",
       "shell/engine/src/expand/indirect.rs",
       "shell/engine/src/arithmetic.rs",
-      "shell/engine/src/interpreter.rs"
+      "shell/engine/src/interpreter.rs",
+      "shell/engine/src/expand/case_pattern.rs",
+      "shell/engine/src/expand/positional.rs"
     ],
     "testDestinations": [
       "shell/engine/tests/words/set_positionals.rs",
-      "shell/engine/tests/words/namerefs.rs"
+      "shell/engine/tests/words/namerefs.rs",
+      "shell/engine/tests/words/scalar_refs.rs"
     ],
-    "strategy": "Implement positional set operands, explicit clearing and function restoration; retain quoted empty values and validate options. Store genuine ordinary-identifier scalar reference metadata, follow live target mutations, resolve supported reads/presence/writes through one bounded cycle-aware interface, restore local bindings and admit saved metadata in shared snapshots. Resource, cancellation and restoration matrices are original controls. Preserve strict nounset and correct wait-all status rather than restoring accidental earlier corpus passes. Scalar references and positional state are substitution-unit zero-loss prerequisites, not a port of the blocking interpreter.",
+    "strategy": "Implement positional set operands, explicit clearing and function restoration; retain quoted empty values and validate options. Store genuine ordinary-identifier scalar reference metadata, follow live target mutations, resolve supported reads/presence/writes through one bounded cycle-aware interface, restore local bindings and admit saved metadata in shared snapshots. Resource, cancellation and restoration matrices are original controls. Preserve strict nounset and correct wait-all status rather than restoring accidental earlier corpus passes. Scalar references and positional state are substitution-unit zero-loss prerequisites, not a port of the blocking interpreter. Supported export/readonly attributes resolve the actual target; effective IFS references govern splitting, positional joins, protection and patterns. Custom IFS snapshots and overflow nodes are admitted before growth, common delimiters stay inline, and alias writes invalidate cached separators. These generic follow-up adapters and all new boundary tests are original, not copied upstream code.",
     "excluded": [
       "array/subscript references",
       "general declaration options",
