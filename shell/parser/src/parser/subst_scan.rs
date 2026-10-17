@@ -72,7 +72,7 @@ struct Heredoc {
     strip_tabs: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 enum Mode {
     Normal,
     /// After a backslash: the next char is literal.
@@ -89,10 +89,9 @@ enum Mode {
         word: String,
         started: bool,
         quote: Option<char>,
-        /// Open parentheses of a `$(` inside the delimiter word.
-        parens: usize,
-        /// Quote open inside that `$(...)`, whose parentheses do not count.
-        inner: Option<char>,
+        /// A `$(...)` inside the delimiter word, scanned by its own scanner
+        /// so quotes, escapes and nested spans cannot end it early.
+        nested: Option<Box<SubstScanner>>,
     },
     /// Inside heredoc bodies; `line` accumulates the current line.
     Body {
@@ -271,29 +270,27 @@ impl SubstScanner {
                 mut word,
                 started,
                 quote,
-                mut parens,
-                mut inner,
+                mut nested,
             } => {
                 // A `$(...)` in the delimiter is part of its word (bash reads
                 // the word with its substitutions; the body line matches the
                 // literal text).
-                if quote.is_none() && (parens > 0 || (c == '(' && word.ends_with('$'))) {
+                if quote.is_none() && (nested.is_some() || (c == '(' && word.ends_with('$'))) {
                     word.push(c);
-                    match (inner, c) {
-                        (Some(q), _) if c == q => inner = None,
-                        (Some(_), _) => {}
-                        (None, '\'' | '"') => inner = Some(c),
-                        (None, '(') => parens += 1,
-                        (None, ')') => parens -= 1,
-                        _ => {}
+                    match nested.as_mut() {
+                        None => nested = Some(Box::new(SubstScanner::new())),
+                        Some(scanner) => {
+                            if scanner.feed(c) == Step::Close {
+                                nested = None;
+                            }
+                        }
                     }
                     self.mode = Mode::Delimiter {
                         strip_tabs,
                         word,
                         started: true,
                         quote,
-                        parens,
-                        inner,
+                        nested,
                     };
                     return Step::Body;
                 }
@@ -309,8 +306,7 @@ impl SubstScanner {
                         word,
                         started: true,
                         quote: None,
-                        parens,
-                        inner,
+                        nested,
                     };
                     return Step::Body;
                 }
@@ -324,8 +320,7 @@ impl SubstScanner {
                         word,
                         started: true,
                         quote,
-                        parens: 0,
-                        inner: None,
+                        nested: None,
                     };
                     return Step::Body;
                 }
@@ -335,8 +330,7 @@ impl SubstScanner {
                         word,
                         started: false,
                         quote: None,
-                        parens: 0,
-                        inner: None,
+                        nested: None,
                     };
                     return Step::Body;
                 }
@@ -346,8 +340,7 @@ impl SubstScanner {
                         word,
                         started,
                         quote: None,
-                        parens: 0,
-                        inner: None,
+                        nested: None,
                     };
                     return Step::Body;
                 }
@@ -373,8 +366,7 @@ impl SubstScanner {
                         word,
                         started: true,
                         quote: Some(c),
-                        parens: 0,
-                        inner: None,
+                        nested: None,
                     };
                     return Step::Body;
                 }
@@ -384,8 +376,7 @@ impl SubstScanner {
                         word,
                         started: true,
                         quote: Some('\\'),
-                        parens,
-                        inner,
+                        nested,
                     };
                     return Step::Body;
                 }
@@ -395,8 +386,7 @@ impl SubstScanner {
                     word,
                     started: true,
                     quote: None,
-                    parens: 0,
-                    inner: None,
+                    nested: None,
                 };
                 Step::Body
             }
@@ -732,8 +722,7 @@ impl SubstScanner {
                 word: String::new(),
                 started: false,
                 quote: None,
-                parens: 0,
-                inner: None,
+                nested: None,
             };
             return self.feed_inner(c);
         }

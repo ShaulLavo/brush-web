@@ -1382,6 +1382,10 @@ fn substitution_end_of_input_and_heredoc_boundaries_follow_bash() {
         "echo $(cat <<-E\n\tx\n\tE)",
         "echo $(cat <<'E'\nx\nE)",
         "echo $(cat <<$(echo E)\nx\n$(echo E)\n)",
+        // A nested `$(` in the delimiter is scanned like any substitution.
+        "echo $(cat <<$(echo \\))\nX\n$(echo \\))\n)",
+        "echo $(cat <<$(echo ${x:-)})\nX\n$(echo ${x:-)})\n)",
+        "echo $(cat <<-$(echo \\))\nX\n\t$(echo \\))\n)",
         // A continuation inside the delimiter, and quotes in a nested `$(`.
         "echo $(printf x <<foo\\\nbar\nfoobar\n)",
         "echo $(printf x <<-foo\\\nbar\n\tfoobar\n)",
