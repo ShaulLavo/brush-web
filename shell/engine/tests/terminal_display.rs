@@ -86,6 +86,9 @@ fn type_bytes(editor: &mut Editor, screen: &mut Screen, bytes: &[u8]) {
                 editor.echoed(byte);
             }
             Action::Redraw => screen.write(&editor.redraw("$ ")),
+            // Escape sequences arrive byte by byte, just as they do in the guest.
+            // Their incomplete prefixes intentionally produce no display action.
+            Action::None => {}
             other => panic!("unexpected action {other:?}"),
         }
     }
