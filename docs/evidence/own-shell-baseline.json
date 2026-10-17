@@ -2,7 +2,7 @@
   "identity": {
     "schema": 1,
     "caseSet": "3c38e4fb351a85ad936d1d324fcd80d75321d20089535b947d23c406ab2b7c5a",
-    "oracle": "2400cabaca2767307b326d625106d327d159cad9b6bf84279de5feebc9e4ba22",
+    "oracle": "ebc3234245249f0e0292f9362c0ad63a71de36c7e1279886a038e747159ddc5d",
     "environment": "507eb1db0221423576b1a0daba7d79a7b2bc3fbbac1a5d86af3a00bc65b29e6a",
     "sources": "6da342fee1380a0932f51e9cbcd306595dee8b77ffda024c591486365372345d"
   },
@@ -10,7 +10,7 @@
   "counts": {
     "oils": {
       "total": 2492,
-      "passed": 525,
+      "passed": 524,
       "skipped": 810,
       "categories": {
         "Quoting and word splitting": {
@@ -65,7 +65,7 @@
         },
         "Here-docs and redirects": {
           "total": 113,
-          "passed": 27,
+          "passed": 26,
           "skipped": 69
         },
         "Pipelines": {
@@ -3364,7 +3364,7 @@
 {"id":"oils:loop:77","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Cg==","stderr":""}},
 {"id":"oils:loop:93","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
 {"id":"oils:loop:110","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
-{"id":"oils:loop:123","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"timeout","actual":{"stdout":"","stderr":"","timeout":true}},
+{"id":"oils:loop:123","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"crash","actual":{"stdout":{"base64":"Y29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQKY29uZApjb25kCmNvbmQK","bytes":4194130,"sha256":"4d8c0edb8a39f52f0964436e3df2e96cbf9ffb1fb97b31fcdfcc6e312a7a1751","prefixBytes":240},"stderr":"","crash":"compatibility output limit exceeded"}},
 {"id":"oils:loop:135","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c3RhdHVzPTEyNwo=","stderr":""}},
 {"id":"oils:loop:145","corpus":"oils","category":"Grammar, functions and control flow","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:loop:154","corpus":"oils","category":"Grammar, functions and control flow","kind":"builtins-only","outcome":"fail","actual":{"status":2,"stdout":"","stderr":""}},
@@ -3665,7 +3665,7 @@
 {"id":"oils:redirect:491","corpus":"oils","category":"Here-docs and redirects","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:redirect:504","corpus":"oils","category":"Here-docs and redirects","kind":"builtins-only","outcome":"pass"},
 {"id":"oils:redirect:521","corpus":"oils","category":"Here-docs and redirects","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"","stderr":""}},
-{"id":"oils:redirect:543","corpus":"oils","category":"Here-docs and redirects","kind":"builtins-only","outcome":"pass"},
+{"id":"oils:redirect:543","corpus":"oils","category":"Here-docs and redirects","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"MAowCjAKMAowCjAK","stderr":""}},
 {"id":"oils:redirect:597","corpus":"oils","category":"Here-docs and redirects","kind":"needs-commands","outcome":"skip"},
 {"id":"oils:redirect-command:8","corpus":"oils","category":"Here-docs and redirects","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c3RhdHVzPTEyNwpzdGF0dXM9MTI3Cg==","stderr":""}},
 {"id":"oils:redirect-command:29","corpus":"oils","category":"Here-docs and redirects","kind":"needs-commands","outcome":"skip"},
@@ -9544,7 +9544,7 @@
 {"id":"bashkit-suite:env:9","corpus":"bashkit-suite","category":"env","kind":"needs-commands","outcome":"skip"},
 {"id":"bashkit-suite:env:17","corpus":"bashkit-suite","category":"env","kind":"needs-commands","outcome":"skip"},
 {"id":"bashkit-suite:errexit-contexts:1","corpus":"bashkit-suite","category":"errexit-contexts","kind":"builtins-only","outcome":"pass"},
-{"id":"bashkit-suite:errexit-contexts:10","corpus":"bashkit-suite","category":"errexit-contexts","kind":"builtins-only","outcome":"timeout","actual":{"stdout":"","stderr":"","timeout":true}},
+{"id":"bashkit-suite:errexit-contexts:10","corpus":"bashkit-suite","category":"errexit-contexts","kind":"builtins-only","outcome":"crash","actual":{"stdout":{"base64":"aW4gZgppbiBmCmFuZCBvawppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4gZgppbiBmCmluIGYKaW4g","bytes":4194242,"sha256":"dac9f68725b2db8606a864457f8b1ea59f76e6c488b94847a40ddaba3ddc43da","prefixBytes":240},"stderr":"","crash":"compatibility output limit exceeded"}},
 {"id":"bashkit-suite:errexit-contexts:28","corpus":"bashkit-suite","category":"errexit-contexts","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"Y2hlY2sgb2sKcGFzc2VkIG9rCmNoZWNrIGJhZApwYXNzZWQgYmFkCmFuZCByYW4KY29udGludWUKY2hlY2sgYmFkCnBhc3NlZCBiYWQKbmV2ZXIK","stderr":""}},
 {"id":"bashkit-suite:errexit-contexts:47","corpus":"bashkit-suite","category":"errexit-contexts","kind":"builtins-only","outcome":"pass"},
 {"id":"bashkit-suite:errexit-contexts:56","corpus":"bashkit-suite","category":"errexit-contexts","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"eD0KaW5oZXJpdGVkIHJjPTIKeT1bXQpuZXZlcgo=","stderr":""}},
@@ -10273,7 +10273,7 @@
 {"id":"bashkit-suite:pipes-redirects:335","corpus":"bashkit-suite","category":"pipes-redirects","kind":"needs-commands","outcome":"skip"},
 {"id":"bashkit-suite:pipes-redirects:345","corpus":"bashkit-suite","category":"pipes-redirects","kind":"builtins-only","outcome":"timeout","actual":{"stdout":"","stderr":"","timeout":true}},
 {"id":"bashkit-suite:pipes-redirects:355","corpus":"bashkit-suite","category":"pipes-redirects","kind":"needs-commands","outcome":"skip"},
-{"id":"bashkit-suite:pipes-redirects:365","corpus":"bashkit-suite","category":"pipes-redirects","kind":"builtins-only","outcome":"timeout","actual":{"stdout":"","stderr":"","timeout":true}},
+{"id":"bashkit-suite:pipes-redirects:365","corpus":"bashkit-suite","category":"pipes-redirects","kind":"builtins-only","outcome":"crash","actual":{"stdout":{"base64":"Z290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkKZ290IHkK","bytes":4194252,"sha256":"b00bc9eae5af89b5869454ddd352606304679fa26ff26ae54bfab2a153fc9375","prefixBytes":240},"stderr":"","crash":"compatibility output limit exceeded"}},
 {"id":"bashkit-suite:pipes-redirects:375","corpus":"bashkit-suite","category":"pipes-redirects","kind":"needs-commands","outcome":"skip"},
 {"id":"bashkit-suite:pipes-redirects:384","corpus":"bashkit-suite","category":"pipes-redirects","kind":"builtins-only","outcome":"fail","actual":{"status":0,"stdout":"c3RhdHVzIDIKbm8gZmlsZQo=","stderr":""}},
 {"id":"bashkit-suite:pipes-redirects:394","corpus":"bashkit-suite","category":"pipes-redirects","kind":"needs-commands","outcome":"skip"},

@@ -239,6 +239,11 @@ reopen an output descriptor, so those diagnostic bytes remain frozen too. The
 evidence lists every observed scored difference and the retained unrelated ones.
 The archived target's old passing-case membership is proven before the same
 binary is rescored; this is a recording correction, not an engine improvement.
+The exact `9b371d4` engine reproduced **525 / 394 / 785** original passes
+(Oils / brush-suite / bashkit-suite), then scored **524 / 394 / 785** against the
+corrected oracle. Only `oils:redirect:543` changed from pass to fail: the old
+socket error had accidentally matched the engine's missing output. The engine
+binary is unchanged, and the evidence records its SHA-256 and both measurements.
 
 `docs/evidence/own-shell-oracle.json` contains script text, category, case ID,
 classification and exact normalized stdout/stderr bytes in base64 plus numeric

@@ -270,7 +270,7 @@
   "shellScoreboard": {
     "oracleFile": "docs/evidence/own-shell-oracle.json",
     "baselineFile": "docs/evidence/own-shell-baseline.json",
-    "oracleSha256": "cb17fa836a504cf12c49c85c01026900ae3b317f0d054f34429bc65ae1c7fe75",
+    "oracleSha256": "901bc8c971dc53e50350896ff235c006efd1a2d819841b2975f5ed3b77dac1be",
     "format": "Schema 1, exact base64 stdout/stderr and numeric exit status; original classifications retained; source files SHA-256 in oracle fixture.",
     "corpora": {
       "oils": {
