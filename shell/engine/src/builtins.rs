@@ -604,6 +604,11 @@ async fn declarations(
     }
     let mut status = 0;
     for arg in args {
+        // A pending reference-IFS classification belongs to the binding before
+        // a declaration retargets or shadows it. Finish it before mutation.
+        State::admit_scalar_access(state, "IFS", &context.cancel, work)
+            .await
+            .map_err(error_status)?;
         for _ in arg.bytes() {
             work.checkpoint(&context.cancel)
                 .await

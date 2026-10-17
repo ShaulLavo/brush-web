@@ -1031,9 +1031,7 @@ impl<'a> Parser<'a> {
         {
             return Err(self.error("unexpected token"));
         }
-        if !parsed
-            && self.current_token.is_some()
-            && self.current_span.start.offset == start_offset
+        if !parsed && self.current_token.is_some() && self.current_span.start.offset == start_offset
         {
             return Err(self.error("unexpected token"));
         }
@@ -3914,8 +3912,7 @@ impl<'a> Parser<'a> {
             | Some(tokens::Token::HereDocFd(..)) => {
                 // Words and redirects may follow on the same line
                 // (`cat <<A <<B`, `paste - <<A 3<<B`, `cat <<A file`).
-                let fd_var = if matches!(self.current_token, Some(tokens::Token::HereDocFd(..)))
-                {
+                let fd_var = if matches!(self.current_token, Some(tokens::Token::HereDocFd(..))) {
                     None
                 } else {
                     Self::pop_fd_var(&mut parts.words)
@@ -4804,12 +4801,9 @@ impl<'a> Parser<'a> {
         }
         // ${VAR} format with possible parameter expansion
         chars.next(); // consume '{'
-        if let Err(error) = self.parameter_shell_bodies(
-            chars,
-            in_quoted_segment,
-            pattern_context,
-            operand_bodies,
-        ) {
+        if let Err(error) =
+            self.parameter_shell_bodies(chars, in_quoted_segment, pattern_context, operand_bodies)
+        {
             let first = self.deferred_error.take();
             self.deferred_error.set(first.or(Some(error)));
         }
@@ -4863,7 +4857,7 @@ impl<'a> Parser<'a> {
                     push_part!(WordPart::Length(var_name));
                 }
             }
-        } else if chars.peek() == Some(&'!') {
+        } else if chars.peek() == Some(&'!') && !bang_parameter_operator(chars) {
             // Check for ${!arr[@]} or ${!arr[*]} - array indices
             // or ${!var} - indirect expansion
             chars.next(); // consume '!'
@@ -5023,7 +5017,7 @@ impl<'a> Parser<'a> {
             // ${?...}, ${$...}
             if var_name.is_empty()
                 && let Some(&c) = chars.peek()
-                && matches!(c, '@' | '*' | '-' | '?' | '$' | '#')
+                && matches!(c, '@' | '*' | '-' | '?' | '$' | '#' | '!')
             {
                 var_name.push(chars.next().unwrap());
             }
@@ -5682,7 +5676,9 @@ impl<'a> Parser<'a> {
         for pending in std::mem::take(&mut scanned.pending) {
             let result = match pending.index {
                 Some(_) => self.parse_substitution_body(&pending.body).map(Some),
-                None => self.validate_parameter_command(&pending.body).map(|()| None),
+                None => self
+                    .validate_parameter_command(&pending.body)
+                    .map(|()| None),
             };
             self.place_substitution(scanned, pending, result, &mut replaced_later_error);
         }
@@ -6354,6 +6350,25 @@ fn empty_background(span: Span) -> (ListOperator, Command) {
             assignments: vec![],
             span,
         }),
+    )
+}
+
+fn bang_parameter_operator(chars: &mut WordChars<'_>) -> bool {
+    let mut lookahead = chars.clone();
+    lookahead.next();
+    if matches!(
+        lookahead.peek(),
+        Some(&'-') | Some(&'=') | Some(&'+') | Some(&'?')
+    ) {
+        return true;
+    }
+    if lookahead.peek() != Some(&':') {
+        return false;
+    }
+    lookahead.next();
+    matches!(
+        lookahead.peek(),
+        Some(&'-') | Some(&'=') | Some(&'+') | Some(&'?')
     )
 }
 

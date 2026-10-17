@@ -1,4 +1,6 @@
-use super::{Context, Descriptors, Flow, Limits, Outcome, parse_failure, parse_shell, sequence};
+use super::{
+    Context, Descriptors, Flow, Limits, Outcome, parse_failure, parse_shell, script_sequence,
+};
 use crate::{
     executor::{Budget, Cancel},
     state::SharedState,
@@ -14,7 +16,7 @@ use shell_parser::{
 use std::{
     cell::Cell,
     future::Future,
-    mem::size_of,
+    mem::{align_of, size_of, size_of_val},
     rc::Rc,
     sync::{Arc, atomic::AtomicBool},
     time::Duration,
@@ -30,6 +32,24 @@ pub(super) type Frame<'a, T = Outcome> = Either<Ready<T>, LocalBoxFuture<'a, T>>
 struct Shared {
     storage: Cell<usize>,
     parser: ExecutionBudget,
+    /// Bytes retained by currently active boxed execution frames. This is an
+    /// active-memory bound, so a loop may keep running after each iteration's
+    /// frame has been dropped instead of spending a cumulative parser budget.
+    execution: Cell<usize>,
+    execution_limit: usize,
+}
+
+pub(super) struct Allocation {
+    shared: Rc<Shared>,
+    bytes: usize,
+}
+
+impl Drop for Allocation {
+    fn drop(&mut self) {
+        self.shared
+            .execution
+            .set(self.shared.execution.get().saturating_sub(self.bytes));
+    }
 }
 
 #[derive(Clone)]
@@ -57,6 +77,11 @@ impl Scope {
             shared: Rc::new(Shared {
                 storage: Cell::new(limits.expansion_bytes),
                 parser,
+                execution: Cell::new(0),
+                // Reuse the former execution-byte ceiling, now for live
+                // memory instead of the sum of every frame ever executed.
+                execution_limit: usize::try_from(ExecutionLimits::default().max_work_units)
+                    .unwrap_or(usize::MAX),
             }),
             depth: 0,
             execution_depth: 0,
@@ -67,23 +92,42 @@ impl Scope {
         &self.shared.parser
     }
 
-    // Fixed execution allocations spend their byte size from shared request work
-    // before allocation. Source/AST copies also keep their storage admission.
-    // Rejection is inline, including when no allocation allowance remains.
+    // Fixed execution allocations are charged while their boxed futures are
+    // live. Source/AST copies keep their separate storage/work admission.
+    // Task metadata retains its allocation until reaping. Rejection is inline,
+    // including when no active execution allowance remains.
     pub(super) fn frame<'a, T: 'a, F: Future<Output = T> + 'a>(
         &self,
         future: F,
         failure: impl FnOnce(i32) -> T,
     ) -> Frame<'a, T> {
-        if self.admit_execution(size_of::<F>()).is_err() {
-            return Either::Left(ready(failure(2)));
-        }
+        // The wrapper retains F, its admission guard and an async state tag.
+        // Two alignment slots conservatively cover their padding and tag.
+        let bytes = size_of::<F>()
+            .saturating_add(size_of::<Allocation>())
+            .saturating_add(2 * align_of::<F>().max(align_of::<Allocation>()));
+        let allocation = match self.admit_execution(bytes) {
+            Ok(allocation) => allocation,
+            Err(code) => return Either::Left(ready(failure(code))),
+        };
+        let future = async move {
+            let _allocation = allocation;
+            future.await
+        };
+        debug_assert!(size_of_val(&future) <= bytes);
         Either::Right(future.boxed_local())
     }
 
-    pub(super) fn admit_execution(&self, bytes: usize) -> Result<(), i32> {
-        let bytes = u64::try_from(bytes).map_err(|_| 2)?.max(1);
-        self.shared.parser.consume_work(bytes).map_err(|_| 2)
+    pub(super) fn admit_execution(&self, bytes: usize) -> Result<Allocation, i32> {
+        let used = self.shared.execution.get().checked_add(bytes).ok_or(2)?;
+        if used > self.shared.execution_limit {
+            return Err(2);
+        }
+        self.shared.execution.set(used);
+        Ok(Allocation {
+            shared: self.shared.clone(),
+            bytes,
+        })
     }
 
     pub(super) fn new_task(&self) -> Self {
@@ -274,11 +318,11 @@ async fn run_body(
         Ok(source) => source,
         Err(code) => return Outcome::status(code),
     };
-    let (commands, failure) =
-        match parse_shell(&source, context.limits(), evaluation.parser_budget()) {
-            Ok(parsed) => parsed,
-            Err(_) => return Outcome::status(2),
-        };
+    let (script, failure) = match parse_shell(&source, context.limits(), evaluation.parser_budget())
+    {
+        Ok(parsed) => parsed,
+        Err(_) => return Outcome::status(2),
+    };
     if context.cancel.is_cancelled() {
         return Outcome::status(130);
     }
@@ -293,7 +337,13 @@ async fn run_body(
     let mut result = context
         .core
         .executor
-        .spawn(sequence(commands, state, fds.clone(), context.clone()))
+        .spawn(script_sequence(
+            script.commands,
+            script.command_end_lines,
+            state,
+            fds.clone(),
+            context.clone(),
+        ))
         .await;
     if result.flow == Flow::Normal
         && let Some(failure) = failure
@@ -304,4 +354,24 @@ async fn run_body(
         }
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn live_execution_admission_rejects_growth_and_releases_dropped_allocations() {
+        let scope = Scope::new(&Limits::default(), None);
+        let allocation = scope.admit_execution(scope.shared.execution_limit).unwrap();
+        assert!(scope.admit_execution(1).is_err());
+        drop(allocation);
+        assert_eq!(scope.shared.execution.get(), 0);
+        let frame = scope.frame(futures::future::pending::<()>(), |_| ());
+        assert!(scope.shared.execution.get() > 0);
+        drop(frame);
+        assert_eq!(scope.shared.execution.get(), 0);
+        assert_eq!(scope.frame(ready(7), |_| 2).now_or_never(), Some(7));
+        assert_eq!(scope.shared.execution.get(), 0);
+    }
 }

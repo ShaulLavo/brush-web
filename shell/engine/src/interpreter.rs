@@ -172,15 +172,21 @@ impl JobSelector {
     }
     fn matches(self, id: JobId, job: &Job) -> bool {
         match self {
-            Self::Handle(handle) => id == handle && job.kind != JobKind::Internal,
+            Self::Handle(handle) => id == handle && !matches!(job.kind, JobKind::Internal),
             Self::Number(number) => job.kind == JobKind::Background(number),
         }
+    }
+    fn matches_live(self, id: JobId, job: &Job) -> bool {
+        self.matches(id, job) && !matches!(job.kind, JobKind::Completed)
     }
 }
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum JobKind {
     Background(JobNumber),
     ProcessSubstitution,
+    /// A completed numeric handle retained until the bounded job table needs
+    /// its slot again. Percent-job selectors intentionally do not match it.
+    Completed,
     Internal,
 }
 struct Job {
@@ -190,6 +196,7 @@ struct Job {
     cancel: Cancel,
     signal: Rc<Cell<Option<i32>>>,
     join: JoinHandle<i32>,
+    _allocation: Option<eval::Allocation>,
 }
 struct Core {
     executor: Executor,
@@ -306,17 +313,26 @@ impl Context {
         let mut code = 0;
         loop {
             let Some((id, job)) = self.next_job(selector, include_internal) else {
-                return if selector.is_some() {
-                    Err(127)
-                } else {
-                    Ok(code)
-                };
+                if selector.is_some() {
+                    return Err(127);
+                }
+                self.core
+                    .jobs
+                    .borrow_mut()
+                    .retain(|_, job| job.owner != self.scope || job.kind != JobKind::Completed);
+                return Ok(code);
             };
             code = self.cancel.run(job).await.map_err(|_| 130)?;
-            self.core.jobs.borrow_mut().remove(&id);
             if selector.is_some() {
+                self.core
+                    .jobs
+                    .borrow_mut()
+                    .get_mut(&id)
+                    .expect("owned job stays registered while waiting")
+                    .kind = JobKind::Completed;
                 return Ok(code);
             }
+            self.core.jobs.borrow_mut().remove(&id);
             // Exiting children may transfer their own descendants to this
             // scope. Supervisors drain those too, unlike the shell's `wait`.
         }
@@ -332,7 +348,11 @@ impl Context {
             .iter()
             .find(|(id, job)| {
                 let selected = selector.map_or(
-                    include_internal || job.kind != JobKind::Internal,
+                    include_internal
+                        || matches!(
+                            job.kind,
+                            JobKind::Background(_) | JobKind::ProcessSubstitution
+                        ),
                     |selector| selector.matches(**id, job),
                 );
                 selected && job.owner == self.scope
@@ -344,7 +364,7 @@ impl Context {
             .jobs
             .borrow()
             .iter()
-            .find(|(id, job)| selector.matches(**id, job) && job.owner == self.scope)
+            .find(|(id, job)| selector.matches_live(**id, job) && job.owner == self.scope)
             .map(|_| ())
             .ok_or(1)
     }
@@ -352,7 +372,7 @@ impl Context {
         let jobs = self.core.jobs.borrow();
         let job = jobs
             .iter()
-            .find(|(id, job)| selector.matches(**id, job) && job.owner == self.scope)
+            .find(|(id, job)| selector.matches_live(**id, job) && job.owner == self.scope)
             .map(|(_, job)| job)
             .ok_or(1)?;
         if job.join.is_finished() {
@@ -462,17 +482,15 @@ impl Session {
             &self.core.limits,
             Some(Rc::new(move || parser_host.interrupted())),
         );
-        let (commands, failure) =
-            parse_shell(source, &self.core.limits, evaluation.parser_budget()).map_err(
-                |error| {
-                    if error == "request cancelled" {
-                        StartError::Interrupted
-                    } else {
-                        StartError::Invalid(error)
-                    }
-                },
-            )?;
-        if commands.is_empty()
+        let (script, failure) = parse_shell(source, &self.core.limits, evaluation.parser_budget())
+            .map_err(|error| {
+                if error == "request cancelled" {
+                    StartError::Interrupted
+                } else {
+                    StartError::Invalid(error)
+                }
+            })?;
+        if script.commands.is_empty()
             && let Some(ParseFailure::Syntax { message, .. }) = failure.as_ref()
         {
             return Err(StartError::Invalid(message.clone()));
@@ -496,7 +514,8 @@ impl Session {
             let _foreground = ForegroundGuard(context.core.clone());
             let mut processes = ProcessGroup::new(context.core.host.clone(), group);
             let mut result = script_sequence(
-                commands,
+                script.commands,
+                script.command_end_lines,
                 state.clone(),
                 context.core.descriptors.clone(),
                 context.clone(),
@@ -521,6 +540,7 @@ impl Session {
             cancel: foreground_cancel,
             signal: Rc::new(Cell::new(None)),
             join: join.clone(),
+            _allocation: None,
         });
         Ok(join)
     }
@@ -560,6 +580,26 @@ impl Core {
         self.jobs
             .borrow_mut()
             .retain(|_, job| job.kind != JobKind::Internal || !job.join.is_finished());
+    }
+    fn has_job_capacity(&self) -> bool {
+        self.jobs
+            .borrow()
+            .values()
+            .filter(|job| job.kind != JobKind::Completed)
+            .count()
+            < self.limits.jobs
+    }
+    fn reap_completed_jobs(&self) {
+        let mut jobs = self.jobs.borrow_mut();
+        // Reserve one launch slot by evicting the oldest retained handle.
+        // Inspect the bounded table in place; eviction allocates no scratch.
+        while jobs.len() >= self.limits.jobs {
+            let oldest = jobs
+                .iter()
+                .find_map(|(id, job)| matches!(job.kind, JobKind::Completed).then_some(*id));
+            let Some(id) = oldest else { break };
+            jobs.remove(&id);
+        }
     }
     fn allocate_job_number(&self, owner: &Scope) -> Result<JobNumber, i32> {
         let jobs = self.jobs.borrow();
@@ -601,13 +641,18 @@ enum ParseFailure {
     Syntax { message: String, line: usize },
 }
 
+struct ParsedScript {
+    commands: Vec<Command>,
+    command_end_lines: Vec<usize>,
+}
+
 /// Parse shell source the way the script reader and `eval` do. Resource
 /// limits are errors; a syntax error keeps the complete lines before it.
 fn parse_shell(
     source: &str,
     limits: &Limits,
     budget: &shell_parser::limits::ExecutionBudget,
-) -> Result<(Vec<Command>, Option<ParseFailure>), String> {
+) -> Result<(ParsedScript, Option<ParseFailure>), String> {
     if source.len() > limits.source_bytes {
         return Err("shell source limit exceeded".into());
     }
@@ -635,7 +680,13 @@ fn parse_shell(
         }
         Some(error) => return Err(error.to_string()),
     };
-    Ok((script.commands, failure))
+    Ok((
+        ParsedScript {
+            commands: script.commands,
+            command_end_lines: script.command_end_lines,
+        },
+        failure,
+    ))
 }
 
 /// Report where parsing stopped, after the commands before it ran. A bad
@@ -681,20 +732,28 @@ async fn parse_failure(
 
 async fn script_sequence(
     commands: Vec<Command>,
+    command_end_lines: Vec<usize>,
     state: SharedState,
     fds: Descriptors,
     context: Context,
 ) -> Outcome {
     let mut result = Outcome::status(0);
+    let mut discarded_line = None;
     // The parser groups each top-level read unit through its terminating
     // newline. Arithmetic expansion errors unwind functions and compound
     // commands in that unit, then Bash's reader accepts the next one.
-    for command in commands {
+    for (index, command) in commands.into_iter().enumerate() {
+        let end_line = command_end_lines.get(index).copied();
+        if discarded_line.is_some_and(|line| end_line.is_some_and(|end| end <= line)) {
+            continue;
+        }
         result = execute(command, state.clone(), fds.clone(), context.clone()).await;
         if context.cancel.is_cancelled() {
             return Outcome::status(130);
         }
-        if matches!(result.flow, Flow::Exit | Flow::Abort | Flow::Return) {
+        if result.flow == Flow::DiscardReadUnit {
+            discarded_line = end_line;
+        } else if matches!(result.flow, Flow::Exit | Flow::Abort | Flow::Return) {
             break;
         }
     }
@@ -845,9 +904,14 @@ async fn pipeline_command(
     let mut previous = None;
     let mut tasks = Vec::new();
     // All stage task/queue metadata is admitted before the first launch.
-    if admit_task_metadata::<JoinHandle<Outcome>>(&context, count).is_err()
-        || tasks.try_reserve_exact(count).is_err()
-    {
+    let _tasks_allocation = match admit_task_metadata::<JoinHandle<Outcome>>(&context, count) {
+        Ok(allocation) => allocation,
+        Err(_) => {
+            state.borrow_mut().pipestatus = vec![2];
+            return Outcome::status(2);
+        }
+    };
+    if tasks.try_reserve_exact(count).is_err() {
         state.borrow_mut().pipestatus = vec![2];
         return Outcome::status(2);
     }
@@ -1042,14 +1106,12 @@ async fn while_command(
     context: Context,
 ) -> Outcome {
     let mut result = Outcome::status(0);
+    let mut budget = Budget::default();
     loop {
-        let condition = sequence(
-            loop_.condition.clone(),
-            state.clone(),
-            fds.clone(),
-            context.clone(),
-        )
-        .await;
+        if let Err(outcome) = loop_checkpoint(&mut budget, &context).await {
+            return outcome;
+        }
+        let condition = loop_sequence(&loop_.condition, &state, &fds, &context).await;
         if context.cancel.is_cancelled() {
             return Outcome::status(130);
         }
@@ -1059,17 +1121,37 @@ async fn while_command(
         if condition.code != 0 {
             return result;
         }
-        result = sequence(
-            loop_.body.clone(),
-            state.clone(),
-            fds.clone(),
-            context.clone(),
-        )
-        .await;
+        result = loop_sequence(&loop_.body, &state, &fds, &context).await;
         if result.flow != Flow::Normal {
             return result;
         }
     }
+}
+
+fn loop_sequence<'a>(
+    commands: &'a [Command],
+    state: &'a SharedState,
+    fds: &'a Descriptors,
+    context: &'a Context,
+) -> eval::Frame<'a> {
+    context.evaluation.frame(
+        async move {
+            // The prior iteration's copy is gone. Admit this retained AST
+            // copy against fresh command storage, never elapsed loop work.
+            let mut work = expansion_work(context.limits());
+            if let Err(error) = crate::ast_copy::admit(commands, &context.cancel, &mut work).await {
+                return expansion_failure(error.into(), fds, context).await;
+            }
+            sequence(
+                commands.to_vec(),
+                state.clone(),
+                fds.clone(),
+                context.clone(),
+            )
+            .await
+        },
+        Outcome::status,
+    )
 }
 
 async fn loop_checkpoint(budget: &mut Budget, context: &Context) -> Result<(), Outcome> {
@@ -1245,7 +1327,8 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
         Flow::Normal
     } else if matches!(
         error,
-        expand::Error::Arithmetic { .. }
+        expand::Error::AssignmentDepth
+            | expand::Error::Arithmetic { .. }
             | expand::Error::Readonly { .. }
             | expand::Error::ShellBoundary {
                 stage: expand::ShellBoundaryStage::Expansion,
@@ -1260,6 +1343,10 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
     };
     let (name, message, line, status) = match error {
         expand::Error::Status(code) => return Outcome::status(code),
+        expand::Error::AssignmentDepth => return Outcome { code: 1, flow },
+        expand::Error::SpecialAssignment { name, line } => {
+            (name, "cannot assign in this way".to_owned(), line, 1)
+        }
         expand::Error::Readonly { name, line, .. } => {
             (name, "readonly variable".to_owned(), line, 1)
         }
@@ -1342,9 +1429,10 @@ async fn subshell(
     context: Context,
 ) -> Outcome {
     let mut work = expansion_work(context.limits());
-    if let Err(error) = admit_task_metadata::<()>(&context, 1) {
-        return expansion_failure(error.into(), &fds, &context).await;
-    }
+    let _task_allocation = match admit_task_metadata::<()>(&context, 1) {
+        Ok(allocation) => allocation,
+        Err(error) => return expansion_failure(error.into(), &fds, &context).await,
+    };
     let child = match State::snapshot(&state, &context.cancel, &mut work).await {
         Ok(child) => child.shared(),
         Err(error) => return expansion_failure(error.into(), &fds, &context).await,
@@ -1469,7 +1557,7 @@ async fn launch_background(
     context: &Context,
 ) -> Outcome {
     context.core.reap_internal_jobs();
-    if context.core.jobs.borrow().len() >= context.limits().jobs {
+    if !context.core.has_job_capacity() {
         return Outcome::status(2);
     }
     let mut work = expansion_work(context.limits());
@@ -1482,10 +1570,12 @@ async fn launch_background(
         Ok(identity) => identity,
         Err(error) => return expansion_failure(error.into(), fds, context).await,
     };
-    if let Err(error) = admit_job(context) {
-        return expansion_failure(error.into(), fds, context).await;
-    }
+    let allocation = match admit_job(context) {
+        Ok(allocation) => allocation,
+        Err(error) => return expansion_failure(error.into(), fds, context).await,
+    };
     // Snapshot checkpoints may have let another scope create async children.
+    context.core.reap_completed_jobs();
     if context.core.jobs.borrow().len() >= context.limits().jobs {
         return Outcome::status(2);
     }
@@ -1527,13 +1617,17 @@ async fn launch_background(
             cancel,
             signal,
             join,
+            _allocation: Some(allocation),
         },
     );
     state.borrow_mut().last_async = Some(identity);
     Outcome::status(0)
 }
 
-fn admit_task_metadata<T>(context: &Context, count: usize) -> Result<(), expand::Error> {
+fn admit_task_metadata<T>(
+    context: &Context,
+    count: usize,
+) -> Result<eval::Allocation, expand::Error> {
     let bytes = count
         .checked_mul(TASK_METADATA_BYTES + std::mem::size_of::<T>())
         .ok_or(2)?;
@@ -1543,7 +1637,7 @@ fn admit_task_metadata<T>(context: &Context, count: usize) -> Result<(), expand:
         .map_err(Into::into)
 }
 
-fn admit_job(context: &Context) -> Result<(), expand::Error> {
+fn admit_job(context: &Context) -> Result<eval::Allocation, expand::Error> {
     // One conservative B-tree node plus fixed task/queue/cancellation metadata.
     let bytes = std::mem::size_of::<(JobId, Job)>()
         .checked_add(std::mem::size_of::<usize>())
@@ -1629,9 +1723,11 @@ impl Substitutions {
         state: SharedState,
     ) -> Result<(io::Endpoint, SubstitutionTask), i32> {
         self.context.core.reap_internal_jobs();
-        if self.context.core.jobs.borrow().len() >= self.context.limits().jobs {
+        if !self.context.core.has_job_capacity() {
             return Err(2);
         }
+        let allocation = admit_job(&self.context).map_err(admission_status)?;
+        self.context.core.reap_completed_jobs();
         let (reader, writer) = io::pipe();
         let child = state;
         let mut table = self.fds.borrow().clone();
@@ -1699,6 +1795,7 @@ impl Substitutions {
                 cancel: cancel.clone(),
                 signal,
                 join: join.clone(),
+                _allocation: Some(allocation),
             },
         );
         Ok((
@@ -1746,14 +1843,15 @@ impl Substitutions {
             .ok_or(2)?;
         let core = &self.context.core;
         core.reap_internal_jobs();
-        if core.jobs.borrow().len() >= self.context.limits().jobs {
+        if !core.has_job_capacity() {
             return Err(2);
         }
         let job = JobId(core.allocate_id());
         let identity = async_identity(job, &self.context.cancel, work)
             .await
             .map_err(admission_status)?;
-        admit_job(&self.context).map_err(admission_status)?;
+        let allocation = admit_job(&self.context).map_err(admission_status)?;
+        core.reap_completed_jobs();
         if core.jobs.borrow().len() >= self.context.limits().jobs {
             return Err(2);
         }
@@ -1813,6 +1911,7 @@ impl Substitutions {
                 cancel,
                 signal,
                 join,
+                _allocation: Some(allocation),
             },
         );
         self.fds.borrow_mut().insert(fd, parent_end);
@@ -2355,7 +2454,7 @@ async fn assignments(
         if *bytes > context.limits().expansion_bytes {
             return Err(2.into());
         }
-        State::admit_assignment(state, &assignment.name, value.len(), &context.cancel, work)
+        expand::admit_assignment(state, &assignment.name, value.len(), &context.cancel, work)
             .await?;
         names.push(assignment.name.clone());
         if let Err(name) = frame.set(assignment.name, value) {
@@ -2395,20 +2494,9 @@ async fn redirect_target(
     state: &SharedState,
     context: &Context,
     work: &mut expand::Work,
-    local_reader: bool,
+    reader_state: Option<&SharedState>,
 ) -> Result<String, expand::Error> {
-    let expands = redirect
-        .target
-        .parts
-        .iter()
-        .any(|part| !matches!(part, WordPart::Literal(_)));
-    let reader = if local_reader && expands {
-        State::snapshot(state, &context.cancel, work)
-            .await?
-            .shared()
-    } else {
-        state.clone()
-    };
+    let reader = reader_state.cloned().unwrap_or_else(|| state.clone());
     expand::word(
         &redirect.target,
         &reader,
@@ -2438,6 +2526,10 @@ async fn redirects(
         runner.fds = fds.clone();
     }
     let mut budget = Budget::default();
+    // External and unnamed commands use one isolated reader shell for all
+    // their here-documents. Each target sees the previous target's completed
+    // assignments, while the snapshot remains detached from the caller.
+    let mut reader_state: Option<SharedState> = None;
     for redirect in redirs {
         budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
         if redirect.fd_var.is_some() {
@@ -2451,7 +2543,27 @@ async fn redirects(
         } else {
             None
         };
-        let target = redirect_target(redirect, state, context, work, reader_status.is_some())
+        let expands = redirect
+            .target
+            .parts
+            .iter()
+            .any(|part| !matches!(part, WordPart::Literal(_)));
+        if reader_status.is_some() && expands && reader_state.is_none() {
+            reader_state = Some(
+                State::snapshot(state, &context.cancel, work)
+                    .await
+                    .map_err(|error| {
+                        CommandError::redirect(
+                            error.at_line(redirect.expansion_line),
+                            fds.borrow().get(2),
+                            reader_status,
+                        )
+                    })?
+                    .shared(),
+            );
+        }
+        let target_reader = reader_status.and_then(|_| reader_state.as_ref());
+        let target = redirect_target(redirect, state, context, work, target_reader)
             .await
             .map_err(|error| {
                 CommandError::redirect(

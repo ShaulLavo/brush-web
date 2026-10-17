@@ -140,20 +140,74 @@ fn cancelling_after_resolved_attributes_restores_the_local_target() {
 }
 
 #[test]
-fn effective_ifs_follows_live_nonempty_empty_unset_and_unicode_targets() {
+fn reference_ifs_initial_nonempty_empty_unset_and_unicode_targets() {
     check_output(
         r#"sep=:; declare -n IFS=sep; value=a:b; printf '<%s>\n' $value"#,
         "<a>\n<b>\n",
     );
+    // Fresh bindings isolate each supported delimiter set. Repeated target
+    // mutations produced source/environment-sensitive Bash output in probes.
+    for (setup, value, expected) in [
+        ("sep=:", "a:b c", &["a", "b c"][..]),
+        ("sep=' '", "a:b c", &["a:b", "c"][..]),
+        ("sep=", "a:b c", &["a:b c"][..]),
+        ("unset sep", "a:b c", &["a:b", "c"][..]),
+        ("sep=ç", "çxççyç", &["", "x", "", "y"][..]),
+    ] {
+        check(
+            &format!("{setup}; declare -n IFS=sep; value='{value}'; args $value"),
+            &[expected],
+        );
+    }
     check(
-        r#"sep=:; declare -n IFS=sep; value='a:b c'; args $value "$value"; sep=' '; args $value; sep=; args $value; unset sep; args $value; sep=ç; value='çxççyç'; args $value"#,
-        &[
-            &["a", "b c", "a:b c"],
-            &["a:b", "c"],
-            &["a:b c"],
-            &["a:b", "c"],
-            &["", "x", "", "y"],
-        ],
+        r#"sep=:; declare -n IFS=sep; value='a:b c'; args $value "$value""#,
+        &[&["a", "b c", "a:b c"]],
+    );
+}
+
+#[test]
+fn reference_ifs_keeps_quoted_join_state_after_empty_and_unset_target_writes() {
+    // GNU Bash 5.3.15 builtin-only probe: splitting observes the target becoming
+    // empty/unset while quoted star keeps the separator established by IFS.
+    check_output(
+        r#"sep=:; declare -n IFS=sep; value=a:b; printf '<%s>\n' $value; set -- a b; printf 'join:[%s]\n' "$*"; sep=; printf '<%s>\n' $value; printf 'join:[%s]\n' "$*"; unset sep; printf '<%s>\n' $value; printf 'join:[%s]\n' "$*""#,
+        "<a>\n<b>\njoin:[a:b]\n<a:b>\njoin:[a:b]\n<a:b>\njoin:[a:b]\n",
+    );
+}
+
+#[test]
+fn direct_ifs_writes_refresh_quoted_join_state() {
+    check_output(
+        r#"IFS=:; set -- a b; printf 'base:<%s>\n' "$*"; IFS=; printf 'empty:<%s>\n' "$*"; unset IFS; printf 'unset:<%s>\n' "$*""#,
+        "base:<a:b>\nempty:<ab>\nunset:<a b>\n",
+    );
+}
+
+#[test]
+fn reference_join_state_restores_local_ifs_and_refreshes_function_return() {
+    check_output(
+        r#"sep=:; declare -n IFS=sep; set -- a b; f() { local sep=; printf 'target:<%s>\n' "$*"; }; f x y; f() { local IFS=; printf 'direct:<%s>\n' "$*"; }; f x y; printf 'restored:<%s>\n' "$*"; f() { sep=; }; f; printf 'returned:<%s>\n' "$*""#,
+        "target:<x:y>\ndirect:<xy>\nrestored:<a:b>\nreturned:<ab>\n",
+    );
+}
+
+#[test]
+fn reference_star_joins_in_scalar_words_and_case_patterns_keep_the_snapshot() {
+    check_output(
+        r#"sep=:; declare -n IFS=sep; set -- a b; sep=; joined=$*; printf 'quoted:<%s>\nscalar:<%s>\n' "$*" "$joined"; case a:b in "$*") printf 'quoted-pattern\n';; esac; case a:b in $*) printf 'pattern\n';; esac; unset sep; joined=$*; printf 'unset:<%s>\nscalar:<%s>\n' "$*" "$joined""#,
+        "quoted:<a:b>\nscalar:<a:b>\nquoted-pattern\npattern\nunset:<a:b>\nscalar:<a:b>\n",
+    );
+    check_output(
+        r#"sep=:; other=,; declare -n IFS=sep; set -- a b; sep=; declare -n IFS=other; printf 'retarget:<%s>\n' "$*"; other=; printf 'empty:<%s>\n' "$*"; IFS=; printf 'reference:<%s>\n' "$*"; unset IFS; printf 'unset:<%s>\n' "$*""#,
+        "retarget:<a,b>\nempty:<a,b>\nreference:<a,b>\nunset:<a b>\n",
+    );
+}
+
+#[test]
+fn ordinary_ifs_alias_writes_refresh_splitting_and_literal_classification() {
+    check_output(
+        r#"IFS=; declare -n alias=IFS; printf '<%s>\n' a:b${alias:=:}; printf '<%s>\n' a:b$((0)); set -- a b; alias=,; printf '<%s>\n' "$*"; value=a,b; printf '<%s>\n' $value"#,
+        "<a>\n<b>\n<a:b0>\n<a,b>\n<a>\n<b>\n",
     );
 }
 
@@ -181,20 +235,36 @@ fn effective_ifs_joins_and_splits_stars_in_words_assignments_and_patterns() {
 }
 
 #[test]
-fn parameter_writes_invalidate_ifs_through_its_target_and_other_aliases() {
+fn parameter_writes_keep_reference_ifs_classification_through_all_aliases() {
     for name in ["sep", "alias", "IFS"] {
         check(
-            &r#"sep=; declare -n IFS=sep; declare -n alias=sep; args a:b${WRITE:=:}; sep=; args a\:b:c${WRITE:=:}; sep=; value=a:b; args ${value#${WRITE:=:}}; sep=; args "${value/b/${WRITE:=:}}""#.replace("WRITE", name),
-            &[&["a", "b"], &["a:b", "c"], &["a", "b"], &["a::"]],
+            &r#"sep=; declare -n IFS=sep; declare -n alias=sep; f() { local sep=; args a:b${WRITE:=:}; sep=; args a\:b:c${WRITE:=:}; sep=; value=a:b; args ${value#${WRITE:=:}}; sep=; args "${value/b/${WRITE:=:}}"; args "$sep" "$alias" "$IFS"; }; f; args "$sep""#.replace("WRITE", name),
+            // Keep the captured binding alive while all three supported write
+            // names mutate its local shadow. Repeated global-mutation probes
+            // varied with source/environment; this 3-by-4 matrix was stable.
+            &[
+                &["a:b:"],
+                &["a:b:c:"],
+                &["a:b"],
+                &["a::"],
+                &[":", ":", ":"],
+                &[""],
+            ],
         );
     }
 }
 
 #[test]
-fn arithmetic_writes_refresh_effective_ifs_before_star_joining_and_splitting() {
+fn arithmetic_target_writes_keep_the_join_separator_until_function_return() {
     check(
         r#"sep=; declare -n IFS=sep; declare -n alias=sep; f() { args "$((alias=5))$*"; }; f a b; value=a5b; args $value; sep=; args a5b$((IFS=5)); args "$IFS" "$alias""#,
-        &[&["5a5b"], &["a", "b"], &["a", "b"], &["5", "5"]],
+        // Actual GNU Bash 5.3.15 probe: the first write is through the target,
+        // so star remains empty-joined until returning from f refreshes IFS.
+        &[&["5ab"], &["a", "b"], &["a5b"], &["5", "5"]],
+    );
+    check_output(
+        r#"sep=; declare -n IFS=sep; declare -n alias=sep; f() { printf '<%s>\n' "$((alias=5))$*"; }; f a b; value=a5b; printf '<%s>\n' $value; sep=; printf '<%s>\n' a5b$((IFS=5)); printf '<%s>\n' "$IFS" "$alias""#,
+        "<5ab>\n<a>\n<b>\n<a5b>\n<5>\n<5>\n",
     );
 }
 
@@ -203,7 +273,7 @@ fn effective_ifs_tracks_local_targets_and_reference_restoration() {
     check(
         r#"sep=:; declare -n IFS=sep; value='a:b c'; f() { local sep=' '; args $value; }; f; args $value; f() { local IFS=' '; args $value; }; f; args $value; args "${!IFS}""#,
         &[
-            &["a:b", "c"],
+            &["a", "b c"],
             &["a", "b c"],
             &["a:b", "c"],
             &["a", "b c"],

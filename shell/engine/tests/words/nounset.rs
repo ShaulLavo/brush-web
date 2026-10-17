@@ -428,8 +428,14 @@ fn successful_command_local_heredocs_share_state_only_within_their_reader() {
         rig.run("unset x\ncat <<A <<B\n${x:=first}\nA\n${x-unset}\nB\nargs \"${x-unset}\"\n"),
         0
     );
-    assert_eq!(rig.output.bytes(), b"unset\n");
+    assert_eq!(rig.output.bytes(), b"first\n");
     assert_eq!(*rig.calls.borrow(), [vec!["unset"]]);
+
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("unset x; set -u\ncat <<A <<B\n${x:=first}\nA\n${x:?reader lost}:$x\nB\nargs \"${x-unset}\"\n"), 0);
+    assert_eq!(rig.output.bytes(), b"first:first\n");
+    assert_eq!(*rig.calls.borrow(), [vec!["unset"]]);
+    assert!(rig.errors.bytes().is_empty());
 
     let rig = Rig::new(Limits::default());
     assert_eq!(

@@ -527,6 +527,50 @@ fn numeric_async_handles_select_pending_children_independently_of_job_numbers() 
 }
 
 #[test]
+fn repeated_numeric_wait_reuses_retained_completion_without_restoring_percent_job() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run(
+            r#"false & pid=$!; wait "$pid"; first=$?; wait "$pid"; again=$?; wait %1; job=$?; args "$first" "$again" "$job""#
+        ),
+        0
+    );
+    assert_eq!(*rig.calls.borrow(), [vec!["1", "1", "127"]]);
+    assert_eq!(rig.shell.background_jobs(), 0);
+    assert_eq!(rig.run(r#"kill -TERM "$pid"; args $?; wait "$pid""#), 1);
+    assert_eq!(rig.calls.borrow()[1], ["1"]);
+    assert_eq!(rig.run(r#"wait; wait "$pid""#), 127);
+    assert_eq!(rig.host.retained_count(), 0);
+}
+
+#[test]
+fn bounded_wait_history_evicts_completed_handles_without_evicting_pending_jobs() {
+    let rig = Rig::new(Limits {
+        jobs: 2,
+        ..Limits::default()
+    });
+    let _release = register_status_gate(&rig, "status_gate", 9);
+    assert_eq!(rig.run("status_gate & pending=$!"), 0);
+    let mut oldest = String::new();
+    for round in 0..32 {
+        assert_eq!(rig.run(r#"false & pid=$!; wait "$pid"; wait "$pid""#), 1);
+        if round == 0 {
+            oldest = rig.shell.state().borrow().variables["pid"].clone();
+        }
+        assert_eq!(rig.shell.background_jobs(), 1);
+        assert_eq!(rig.host.active_count(), 1);
+    }
+    rig.variable("oldest", &oldest);
+    assert_eq!(rig.run(r#"wait "$oldest""#), 127);
+    assert_eq!(rig.run(r#"(wait "$pid"); args $?; wait "$pid""#), 1);
+    assert_eq!(*rig.calls.borrow(), [vec!["127"]]);
+    assert_eq!(rig.run(r#"kill %1; wait "$pending"; wait "$pending""#), 143);
+    assert_eq!(rig.shell.background_jobs(), 0);
+    assert_eq!(rig.host.active_count(), 0);
+    assert_eq!(rig.host.retained_count(), 0);
+}
+
+#[test]
 fn substitutions_do_not_alias_async_handles_to_visible_job_numbers() {
     for prefix in ["value=$(true)", ": <(true)", ": >(true)"] {
         check(
@@ -559,12 +603,63 @@ fn braced_async_identity_is_empty_before_launch_and_readable_under_nounset_after
     assert_eq!(*rig.calls.borrow(), [vec!["", ""]]);
 
     let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(r#"args "${!+set}""#), 0);
+    assert_eq!(*rig.calls.borrow(), [vec![""]]);
+
+    let rig = Rig::new(Limits::default());
     assert_eq!(
         rig.run(r#"false & pid=$!; set -u; args "$!" "${!}" "${u:-${!}}"; wait "$pid""#),
         1
     );
     let pid = rig.shell.state().borrow().variables["pid"].clone();
     assert_eq!(*rig.calls.borrow(), [vec![pid.clone(), pid.clone(), pid]]);
+
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(r#"set -u; args "${!}"; args forbidden"#), 127);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(
+        rig.errors.bytes(),
+        b"/usr/bin/bash: line 1: !: unbound variable\n"
+    );
+}
+
+#[test]
+fn async_scalar_operators_test_presence_lazily_in_direct_and_nested_operands() {
+    for option in ["+u", "-u"] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(&format!(
+            r#"set {option}; args "${{!-fallback}}" "${{!:-fallback}}" "${{!+set}}" "${{!:+set}}" "${{u:-${{!+set}}}}" "${{u:-${{!:-fallback}}}}""#
+        )), 0);
+        assert_eq!(
+            *rig.calls.borrow(),
+            [vec!["fallback", "fallback", "", "", "", "fallback"]]
+        );
+        assert_eq!(rig.run(
+            r#"false & pid=$!; args "${!-fallback}" "${!:-fallback}" "${!+set}" "${!:+set}" "${u:-${!+set}}" "${!:=unused}" "${!:?$missing}"; wait "$pid""#
+        ), 1);
+        let pid = rig.shell.state().borrow().variables["pid"].clone();
+        assert_eq!(
+            rig.calls.borrow()[1],
+            [
+                pid.clone(),
+                pid.clone(),
+                "set".into(),
+                "set".into(),
+                "set".into(),
+                pid.clone(),
+                pid
+            ]
+        );
+        assert!(rig.errors.bytes().is_empty());
+    }
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(r#"args "${!:=fallback}"; args forbidden"#), 1);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(
+        rig.errors.bytes(),
+        b"/usr/bin/bash: line 1: $!: cannot assign in this way\n"
+    );
+    assert!(!rig.shell.state().borrow().variables.contains_key("!"));
 }
 
 #[test]
@@ -725,6 +820,14 @@ fn process_substitution_handles_retain_status_without_taking_job_numbers() {
 }
 
 #[test]
+fn completed_process_substitution_numeric_waits_remain_repeatable_until_wait_all() {
+    check(
+        r#": <(exit 7); pid=$!; wait "$pid"; args $?; wait "$pid"; args $?; wait; wait "$pid"; args $?"#,
+        &[&["7"], &["7"], &["127"]],
+    );
+}
+
+#[test]
 fn process_substitution_inherits_the_callers_previous_async_identity() {
     let rig = Rig::new(Limits::default());
     assert_eq!(rig.run(r#"false & previous=$!; : <(printf '%s' "$!" > inherited); process=$!; wait "$process"; args "$?" "$!"; wait "$previous""#), 1);
@@ -739,6 +842,77 @@ fn process_substitution_inherits_the_callers_previous_async_identity() {
         *rig.calls.borrow(),
         [vec!["0".to_owned(), state.variables["process"].clone()]]
     );
+}
+
+#[test]
+fn long_running_loop_remains_interruptible_after_cumulative_work_would_exhaust() {
+    let rig = Rig::new(Limits::default());
+    let release = register_status_gate(&rig, "status_gate", 9);
+    assert_eq!(rig.run("status_gate & background=$!"), 0);
+    let job = rig.shell.start("while :; do :; done").unwrap();
+    for _ in 0..20_000 {
+        rig.ex.drive(64);
+        assert!(
+            !job.is_finished(),
+            "elapsed loop work must not terminate the job"
+        );
+    }
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert_eq!(rig.shell.background_jobs(), 1);
+    assert_eq!(rig.host.active_count(), 1);
+    release.cancel();
+    assert_eq!(rig.run(r#"wait "$background""#), 9);
+    assert_eq!(rig.run("wait"), 0);
+    assert_eq!(rig.ex.drive(64).pending, 0);
+    assert_eq!(rig.host.active_count(), 0);
+    assert_eq!(rig.host.retained_count(), 0);
+}
+
+#[test]
+fn repeated_pipeline_subshell_and_capture_tasks_release_execution_admission() {
+    for body in [": | :", "(:)", "value=$(true)"] {
+        let rig = Rig::new(Limits::default());
+        let job = rig
+            .shell
+            .start(&format!("while :; do {body}; done"))
+            .unwrap();
+        for _ in 0..5000 {
+            rig.ex.drive(64);
+            assert!(!job.is_finished(), "elapsed task work terminated {body}");
+        }
+        rig.shell.interrupt();
+        assert_eq!(rig.finish(job), 130, "{body}");
+        shutdown_and_check(&rig);
+    }
+}
+
+#[test]
+fn nameref_assignment_failure_discards_only_the_current_physical_read_unit() {
+    let mut setup = String::from("target=value\n");
+    for index in (1..=9).rev() {
+        let target = if index == 9 {
+            "target".to_owned()
+        } else {
+            format!("n{}", index + 1)
+        };
+        setup.push_str(&format!("declare -n n{index}={target}\n"));
+    }
+
+    let rig = Rig::new(Limits::default());
+    let same_line = format!(
+        "{setup}n1=changed; code=$?; printf '<%s>|<%s>|<%s>\\n' \"$code\" \"$target\" \"$n1\"\n"
+    );
+    assert_eq!(rig.run(&same_line), 1);
+    assert!(rig.output.bytes().is_empty());
+    assert_eq!(rig.shell.state().borrow().variables["target"], "value");
+
+    let rig = Rig::new(Limits::default());
+    let next_line = format!(
+        "{setup}n1=changed\ncode=$?\nprintf '<%s>|<%s>|<%s>\\n' \"$code\" \"$target\" \"$n1\"\n"
+    );
+    assert_eq!(rig.run(&next_line), 0);
+    assert_eq!(rig.output.bytes(), b"<1>|<value>|<>\n");
 }
 
 #[test]

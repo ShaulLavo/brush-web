@@ -13,6 +13,7 @@ mod braces;
 mod case;
 mod case_pattern;
 mod command;
+mod ifs;
 mod indirect;
 mod operand;
 mod pattern;
@@ -24,6 +25,13 @@ use std::{borrow::Cow, collections::BTreeSet};
 /// The interpreter supplies the shell environment's status and diagnostic line.
 pub(crate) enum Error {
     Status(i32),
+    /// A scalar write could not resolve its reference within the supported
+    /// depth. Unlike an ordinary nonzero command, it ends this reader unit.
+    AssignmentDepth,
+    SpecialAssignment {
+        name: String,
+        line: Option<usize>,
+    },
     Readonly {
         name: String,
         line: Option<usize>,
@@ -80,6 +88,7 @@ impl Error {
     }
     pub(crate) fn at_line(self, line: Option<usize>) -> Self {
         match self {
+            Self::SpecialAssignment { name, .. } => Self::SpecialAssignment { name, line },
             Self::Readonly {
                 name, expansion, ..
             } => Self::Readonly {
@@ -111,6 +120,25 @@ impl From<i32> for Error {
     fn from(code: i32) -> Self {
         Self::Status(code)
     }
+}
+
+pub(crate) async fn admit_assignment(
+    state: &SharedState,
+    name: &str,
+    bytes: usize,
+    cancel: &Cancel,
+    work: &mut Work,
+) -> Result<(), Error> {
+    let result = State::admit_assignment(state, name, bytes, cancel, work).await;
+    if matches!(&result, Err(Error::Status(1)))
+        && matches!(
+            state.borrow().resolve_scalar_target(name),
+            crate::state::ScalarResolution::DepthExceeded
+        )
+    {
+        return Err(Error::AssignmentDepth);
+    }
+    result
 }
 
 /// Command-wide work accounting, including words that disappear and empty list
@@ -283,7 +311,7 @@ impl Ifs {
     fn separator(state: &SharedState) -> Option<char> {
         state
             .borrow()
-            .scalar_parameter("IFS")
+            .field_ifs()
             .map_or(Some(' '), |value| value.chars().next())
     }
     async fn admit_access(
@@ -302,7 +330,7 @@ impl Ifs {
         Self::admit_access(state, cancel, work).await?;
         let value: Cow<'static, str> = {
             let s = state.borrow();
-            let value = s.scalar_parameter("IFS").unwrap_or(" \t\n");
+            let value = s.field_ifs().unwrap_or(" \t\n");
             if value.len() > max.max(3) {
                 return Err(2.into());
             }
@@ -320,10 +348,13 @@ impl Ifs {
         } else {
             0
         };
+        let members = state.borrow().cached_ifs_members();
         let mut ifs = Self::default();
         for ch in value.chars() {
             work.checkpoint(cancel).await?;
-            ifs.insert(ch, work)?;
+            if members.is_none_or(|members| members.contains(ch)) {
+                ifs.insert(ch, work)?;
+            }
         }
         drop(value);
         work.release_storage(snapshot_bytes);
@@ -754,7 +785,7 @@ impl Expansion<'_> {
     }
     async fn current_ifs(&mut self, state: &SharedState) -> Result<(), Error> {
         if self.ifs.is_none() {
-            self.ifs = Some(Ifs::new(state, self.cancel, self.max_raw, self.work).await?);
+            self.ifs = Some(Ifs::new(state, self.cancel, self.raw_remaining, self.work).await?);
         }
         Ok(())
     }
@@ -810,13 +841,17 @@ impl Expansion<'_> {
         self.admit_raw(value.len())?;
         self.current_ifs(state).await?;
         let ifs = self.ifs.as_ref().ok_or(2)?;
+        let members = state.borrow().cached_ifs_members();
         // Bash protects literal IFS characters when emitting them. A later
         // assignment may make a previously ordinary literal a delimiter.
         for ch in value.chars() {
             self.work.checkpoint(self.cancel).await?;
             self.segments.character(
                 ch,
-                !matches!(ifs.delimiter(ch), Delimiter::Text),
+                members.map_or_else(
+                    || !matches!(ifs.delimiter(ch), Delimiter::Text),
+                    |members| members.contains(ch),
+                ),
                 self.work,
             )?;
         }
@@ -1343,7 +1378,8 @@ impl Expansion<'_> {
         error_pointer: Option<&str>,
     ) -> Result<(), Error> {
         self.slice_boundaries(operand).await?;
-        if error_pointer.is_none() && !operand::scalar_name(name) || depth >= operand::MAX_DEPTH {
+        if error_pointer.is_none() && !operand::parameter_name(name) || depth >= operand::MAX_DEPTH
+        {
             return Err(2.into());
         }
         // These operators read their source value, unlike the four lazy
@@ -1656,7 +1692,15 @@ impl Expansion<'_> {
         if replacement_output {
             self.admit_replacement_output().await?;
         }
-        State::admit_assignment(state, name, captured.value.len(), self.cancel, self.work).await?;
+        if !operand::scalar_name(name) {
+            self.work
+                .admit_storage(name.len().saturating_mul(2).saturating_add(128))?;
+            return Err(Error::SpecialAssignment {
+                name: format!("${name}"),
+                line: None,
+            });
+        }
+        admit_assignment(state, name, captured.value.len(), self.cancel, self.work).await?;
         State::admit_scalar_access(state, "IFS", self.cancel, self.work).await?;
         let ifs_changed = ifs_changed || state.borrow().shares_scalar_binding(name, "IFS")?;
         self.work.admit_storage(captured.value.len())?;
@@ -1799,20 +1843,28 @@ impl Expansion<'_> {
         }
         self.elements_remaining -= count;
         let ifs_separator = self.ifs_separator(state).await?;
+        let star_separator = if at {
+            ifs_separator
+        } else {
+            self.positional_star_separator(state).await?
+        };
         let list = !scalar && (at || !quoted);
         self.segments.needs_split |= list;
-        self.segments.list_word |= list;
+        // An initially empty IFS selects Bash's list-word space path. A
+        // nonempty reference IFS whose target later becomes empty does not.
+        let reference_ifs = state.borrow().is_nameref("IFS");
+        self.segments.list_word |= list && (at || !reference_ifs || star_separator.is_none());
         self.segments.split_space |= !scalar
             && !quoted
             && !at
             && matches!(part, WordPart::Variable(_))
-            && ifs_separator.is_none();
+            && star_separator.is_none();
         let separator = if scalar && at {
             Some(' ')
         } else if list {
             ifs_separator.or(Some(' '))
         } else {
-            ifs_separator
+            star_separator
         };
         // Quoted '*' and every scalar context keep one field even for no values.
         if scalar || (quoted && !at) {
@@ -1822,7 +1874,7 @@ impl Expansion<'_> {
         for index in 0..count {
             self.element_boundary(index, list, separator, quoted || scalar)
                 .await?;
-            let value = list_value(part, state, index, self.raw_remaining)?;
+            let value = list_value(part, state, index, self.raw_remaining, self.work)?;
             self.segment(&value, protection, quoted || scalar).await?;
         }
         Ok(())
@@ -1956,13 +2008,18 @@ fn list_value(
     state: &SharedState,
     index: usize,
     max: usize,
+    work: &mut Work,
 ) -> Result<String, Error> {
     let s = state.borrow();
     match part {
-        WordPart::Variable(_) => bounded(
-            Cow::Borrowed(s.positional.get(index).map(String::as_str).unwrap_or("")),
-            max,
-        ),
+        WordPart::Variable(_) => {
+            let value = s.positional.get(index).map(String::as_str).unwrap_or("");
+            if value.len() > max {
+                return Err(2.into());
+            }
+            work.admit_storage(value.len())?;
+            bounded(Cow::Borrowed(value), max)
+        }
         WordPart::ArrayAccess { .. } => bounded(
             Cow::Owned(
                 s.pipestatus

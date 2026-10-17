@@ -586,6 +586,47 @@ actions return a diagnostic before job or host mutation. Out-of-range numbers
 are invalid. Traps, ignored-signal inheritance and broader POSIX signal action
 parity remain deferred rather than being represented as termination statuses.
 
+## Current unit: preflight and loop-work repairs
+
+Status: Approved; source repairs in progress, acceptance pending. The exact
+`effa371` CI producer passed native/WASI, deepest nesting and the size gate
+(516,578 bytes Brotli-11). Its frozen replay measured 680 / 606 / 1,028 with no
+lost cases against runtime main `e3f245f` (527 / 394 / 792); the candidate baseline
+and generator fixtures were intentionally still stale. These are diagnostic
+measurements, not final acceptance.
+
+The qualified native CLI from [run 39037414534, producer job 117409933867](https://github.com/ShaulLavo/brush-web/actions/runs/39037414534/job/117409933867)
+exposed five actual finite-control gaps before the full generator sweeps:
+external multiple heredocs need one isolated reader state, `${!+set}` is rejected,
+a repeated numeric wait loses its known status, IFS nameref target mutations
+must not be conflated with positional-join cache invalidation, and an overflowing
+nameref assignment must stop the remainder of its physical input line while
+preserving next-line recovery. The runtime author owns readers, special scalar
+operators, wait lifecycle and assignment error flow; the scalar author owns the
+IFS state/expansion adapter. Controls compare exact stdout bytes and status;
+they do not substitute unsupported `test` syntax for expansion assertions.
+
+The same run's full browser verification passed 125 tests, skipped six existing
+runtime limitations and failed one Chromium control:
+`tests/runtime-shell.spec.ts:74`, **Ctrl+C interrupts executing shell WASM without
+killing an independent background Bun**. The unchanged `while :; do :; done`
+control reported `CPU_STATUS:2` instead of `CPU_STATUS:130`; the unrelated Bun
+kept ticking. Loop work accounting is owned by this unit's runtime author.
+An endless or long loop is valid shell: execution checkpoints yield and poll
+interruption rather than terminate the loop for elapsed work. Keep admitted
+memory/storage and recursion limits, audit other looping/long-running paths,
+and add a native/WASI control that runs beyond the former work allowance before
+interrupting to 130. Do not raise a limit or loosen the browser assertion.
+Inspect `shell/engine/src/interpreter/eval.rs:Scope::frame/admit_execution` and
+its cumulative parser-work charge as a hypothesis, not a proven sole cause.
+
+Every source revision invalidates the earlier binary/generator acceptance.
+Qualify a fresh exact-head push artifact using its completed producer job, run
+ID, job ID, source receipt and binary checksum. Full verification may run in
+parallel, but final acceptance still requires every CI job green, six actual
+Bash differential sweeps, refreshed strict fixture replay, zero lost corpus
+passes and independent review of the exact final head.
+
 ## Follow-up: redirect word expansion contexts
 
 Status: Approved. After the IFS admission fix, handle redirect-target contexts

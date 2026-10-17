@@ -23,6 +23,33 @@ pub(crate) enum ScalarResolution<'a> {
     DepthExceeded,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StarSeparator {
+    Live,
+    /// Captured by Bash's IFS special-variable updates. Writes to a nameref's
+    /// target do not themselves refresh the quoted/scalar star separator.
+    Snapshot {
+        separator: Option<char>,
+        scope: usize,
+    },
+}
+
+/// Original fixed-size IFS byte classification adapter. Keeping the special
+/// variable's classification separate from its scalar value avoids retaining
+/// a borrowed target buffer after that target is assigned or unset.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct IfsMembers([u64; 4]);
+impl IfsMembers {
+    fn insert(&mut self, byte: u8) {
+        self.0[usize::from(byte / 64)] |= 1u64 << (byte % 64);
+    }
+    pub(crate) fn contains(self, ch: char) -> bool {
+        ch.encode_utf8(&mut [0; 4])
+            .bytes()
+            .all(|byte| self.0[usize::from(byte / 64)] & (1u64 << (byte % 64)) != 0)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct LocalVariable {
     previous: Option<String>,
@@ -48,6 +75,8 @@ pub struct State {
     pub nounset: bool,
     /// Last published synthetic async handle. Isolated shells inherit a copy.
     pub(crate) last_async: Option<String>,
+    pub(crate) star_separator: StarSeparator,
+    ifs_members: Option<IfsMembers>,
     pub(crate) positional: Vec<String>,
     pub(crate) locals: Vec<BTreeMap<String, LocalVariable>>,
     prefixes: Vec<BTreeMap<String, Option<String>>>,
@@ -67,6 +96,8 @@ impl Default for State {
             pipefail: false,
             nounset: false,
             last_async: None,
+            star_separator: StarSeparator::Live,
+            ifs_members: None,
             positional: Vec::new(),
             locals: Vec::new(),
             prefixes: Vec::new(),
@@ -94,6 +125,7 @@ impl State {
         work: &mut Work,
     ) -> Result<Self, Error> {
         work.checkpoint(cancel).await?;
+        Self::admit_scalar_access(source, "IFS", cancel, work).await?;
         // Include a future shared() allocation and its RefCell/Rc bookkeeping.
         work.admit_storage(
             std::mem::size_of::<RefCell<Self>>() + 2 * std::mem::size_of::<usize>(),
@@ -134,6 +166,8 @@ impl State {
             pipefail: state.pipefail,
             nounset: state.nounset,
             last_async,
+            star_separator: state.star_separator,
+            ifs_members: state.ifs_members,
             positional,
             locals,
             prefixes,
@@ -173,6 +207,117 @@ impl State {
     pub(crate) fn replace_positional(&mut self, args: Vec<String>) {
         self.positional = args;
     }
+    fn live_star_separator(&self) -> Option<char> {
+        self.scalar_parameter("IFS")
+            .map_or(Some(' '), |value| value.chars().next())
+    }
+    fn refresh_star_separator(&mut self) {
+        self.star_separator = if self.is_nameref("IFS") {
+            StarSeparator::Snapshot {
+                separator: self.live_star_separator(),
+                scope: self.locals.len(),
+            }
+        } else {
+            StarSeparator::Live
+        };
+        // Filled cooperatively before the next scalar access or mutation.
+        self.ifs_members = None;
+    }
+    pub(crate) fn positional_separator(&self) -> Option<char> {
+        match self.star_separator {
+            StarSeparator::Live => self.live_star_separator(),
+            StarSeparator::Snapshot { separator, .. } => separator,
+        }
+    }
+    /// A local shadow does not replace the binding captured by IFS's special
+    /// variable hook. Its saved value remains owned by the local frame.
+    pub(crate) fn field_ifs(&self) -> Option<&str> {
+        let scope = self.ifs_scope();
+        let ScalarResolution::Target(name) = self.resolve_scalar_at("IFS", scope) else {
+            return None;
+        };
+        if name == "PWD" {
+            return Some(&self.cwd);
+        }
+        self.saved_binding(name, scope).map_or_else(
+            || self.variables.get(name).map(String::as_str),
+            |local| local.previous.as_deref(),
+        )
+    }
+    fn ifs_scope(&self) -> Option<usize> {
+        match self.star_separator {
+            StarSeparator::Live => None,
+            StarSeparator::Snapshot { scope, .. } => Some(scope),
+        }
+    }
+    fn saved_binding(&self, name: &str, scope: Option<usize>) -> Option<&LocalVariable> {
+        self.locals
+            .iter()
+            .skip(scope?)
+            .find_map(|frame| frame.get(name))
+    }
+    fn nameref_at(&self, name: &str, scope: Option<usize>) -> Option<&str> {
+        self.saved_binding(name, scope).map_or_else(
+            || self.namerefs.get(name).map(String::as_str),
+            |local| local.nameref.as_deref(),
+        )
+    }
+    pub(crate) fn cached_ifs_members(&self) -> Option<IfsMembers> {
+        self.ifs_members
+    }
+    /// No target String is allocated. The byte map is published only after all
+    /// checkpoints succeed; a cancelled/limited scan leaves it pending.
+    pub(crate) async fn admit_ifs_members(
+        state: &SharedState,
+        cancel: &Cancel,
+        work: &mut Work,
+    ) -> Result<IfsMembers, Error> {
+        work.checkpoint(cancel).await?;
+        if let Some(members) = state.borrow().ifs_members {
+            return Ok(members);
+        }
+        let bytes = {
+            let state = state.borrow();
+            state.reference_work_at("IFS", state.ifs_scope())?
+        };
+        snapshot_steps(bytes, cancel, work).await?;
+        let len = state.borrow().field_ifs().unwrap_or(" \t\n").len();
+        let mut members = IfsMembers::default();
+        let mut offset = 0;
+        while offset < len {
+            let count = (len - offset).min(64);
+            let mut chunk = [0; 64];
+            {
+                let state = state.borrow();
+                let value = state.field_ifs().unwrap_or(" \t\n");
+                chunk[..count]
+                    .copy_from_slice(value.as_bytes().get(offset..offset + count).ok_or(2)?);
+            }
+            for &byte in &chunk[..count] {
+                work.checkpoint(cancel).await?;
+                members.insert(byte);
+            }
+            offset += count;
+            if offset < len {
+                snapshot_steps(bytes, cancel, work).await?;
+            }
+        }
+        if matches!(
+            state.borrow().star_separator,
+            StarSeparator::Snapshot { .. }
+        ) {
+            state.borrow_mut().ifs_members = Some(members);
+        }
+        Ok(members)
+    }
+    pub(crate) async fn admitted_positional_separator(
+        state: &SharedState,
+        cancel: &Cancel,
+        work: &mut Work,
+    ) -> Result<Option<char>, Error> {
+        Self::admit_scalar_access(state, "IFS", cancel, work).await?;
+        Ok(state.borrow().positional_separator())
+    }
     pub(crate) fn is_nameref(&self, name: &str) -> bool {
         self.namerefs.contains_key(name)
     }
@@ -200,20 +345,27 @@ impl State {
     /// cycles are kept distinct so writes can reject them without becoming a
     /// resource error. Floyd's cursor uses constant storage.
     pub(crate) fn resolve_scalar_target<'a>(&'a self, name: &'a str) -> ScalarResolution<'a> {
+        self.resolve_scalar_at(name, None)
+    }
+    fn resolve_scalar_at<'a>(
+        &'a self,
+        name: &'a str,
+        scope: Option<usize>,
+    ) -> ScalarResolution<'a> {
         let mut current = name;
         let mut fast = Some(name);
         for _ in 0..MAX_NAMEREF_DEPTH {
-            let Some(next) = self.namerefs.get(current) else {
+            let Some(next) = self.nameref_at(current, scope) else {
                 return ScalarResolution::Target(current);
             };
             current = next;
-            fast = fast.and_then(|name| self.namerefs.get(name).map(String::as_str));
-            fast = fast.and_then(|name| self.namerefs.get(name).map(String::as_str));
+            fast = fast.and_then(|name| self.nameref_at(name, scope));
+            fast = fast.and_then(|name| self.nameref_at(name, scope));
             if fast == Some(current) {
                 return ScalarResolution::Cycle;
             }
         }
-        if self.namerefs.contains_key(current) {
+        if self.nameref_at(current, scope).is_some() {
             return ScalarResolution::DepthExceeded;
         }
         ScalarResolution::Target(current)
@@ -237,19 +389,39 @@ impl State {
         if cancel.is_cancelled() {
             return Err(130.into());
         }
+        let pending = {
+            let state = state.borrow();
+            matches!(state.star_separator, StarSeparator::Snapshot { .. })
+                && state.ifs_members.is_none()
+        };
+        if pending {
+            Self::admit_ifs_members(state, cancel, work).await?;
+        }
         let bytes = state.borrow().reference_work(name)?;
         snapshot_steps(bytes, cancel, work).await
     }
     fn reference_work(&self, name: &str) -> Result<usize, i32> {
+        self.reference_work_at(name, None)
+    }
+    fn reference_work_at(&self, name: &str, scope: Option<usize>) -> Result<usize, i32> {
         let mut current = name;
         let mut bytes = 0usize;
+        let lookups = scope.map_or(1, |scope| {
+            self.locals.len().saturating_sub(scope).saturating_add(1)
+        });
         for _ in 0..MAX_NAMEREF_DEPTH {
-            let Some(next) = self.namerefs.get(current) else {
+            let Some(next) = self.nameref_at(current, scope) else {
                 return Ok(bytes);
             };
             // Includes the resolver's second cursor and name comparisons.
             bytes = bytes
-                .checked_add(current.len().saturating_add(next.len()).saturating_mul(4))
+                .checked_add(
+                    current
+                        .len()
+                        .saturating_add(next.len())
+                        .saturating_mul(4)
+                        .saturating_mul(lookups),
+                )
                 .ok_or(2)?;
             current = next;
         }
@@ -310,7 +482,11 @@ impl State {
         {
             *saved = Some(value.clone());
         }
+        let direct_ifs = name == "IFS";
         self.variables.insert(name, value);
+        if direct_ifs {
+            self.refresh_star_separator();
+        }
         Ok(())
     }
     pub(crate) fn assignment_name(&self, name: String) -> Result<String, i32> {
@@ -401,11 +577,16 @@ impl State {
         if !self.namerefs.contains_key(name) {
             return self.unset_binding(name);
         }
+        let explicit_ifs = name == "IFS";
         let name = match self.resolve_scalar_target(name) {
             ScalarResolution::Target(name) => name.to_owned(),
             ScalarResolution::Cycle | ScalarResolution::DepthExceeded => return Err(()),
         };
-        self.unset_binding(&name)
+        let removed = self.unset_binding(&name)?;
+        if explicit_ifs {
+            self.refresh_star_separator();
+        }
+        Ok(removed)
     }
     fn unset_binding(&mut self, name: &str) -> Result<bool, ()> {
         if self.is_readonly(name) {
@@ -430,6 +611,9 @@ impl State {
                 Some(value) => self.variables.insert(name.to_owned(), value),
                 None => self.variables.remove(name),
             };
+            if name == "IFS" {
+                self.refresh_star_separator();
+            }
             return Ok(existed);
         }
         if let Some(saved) = self
@@ -440,12 +624,20 @@ impl State {
             *saved = None;
         }
         self.exported.remove(name);
-        Ok(self.variables.remove(name).is_some())
+        let removed = self.variables.remove(name).is_some();
+        if name == "IFS" {
+            self.refresh_star_separator();
+        }
+        Ok(removed)
     }
     pub(crate) fn local(&mut self, name: String, value: String) -> Result<(), i32> {
         self.save_local(&name)?;
         self.namerefs.remove(&name);
+        let direct_ifs = name == "IFS";
         self.variables.insert(name, value);
+        if direct_ifs {
+            self.refresh_star_separator();
+        }
         Ok(())
     }
     fn save_local(&mut self, name: &str) -> Result<(), i32> {
@@ -481,8 +673,12 @@ impl State {
         if local {
             self.save_local(&name)?;
         }
+        let is_ifs = name == "IFS";
         self.variables.remove(&name);
         self.namerefs.insert(name, target);
+        if is_ifs {
+            self.refresh_star_separator();
+        }
         Ok(())
     }
     pub(crate) fn declaration_storage(&self, name: &str, local: bool) -> Result<usize, Error> {
@@ -679,13 +875,21 @@ async fn snapshot_set(
 pub(crate) struct PrefixFrame {
     state: SharedState,
     active: bool,
+    star_separator: StarSeparator,
+    ifs_members: Option<IfsMembers>,
+    restores_ifs: std::cell::Cell<bool>,
 }
 impl PrefixFrame {
     pub(crate) fn enter(state: SharedState) -> Self {
+        let star_separator = state.borrow().star_separator;
+        let ifs_members = state.borrow().ifs_members;
         state.borrow_mut().prefixes.push(BTreeMap::new());
         Self {
             state,
             active: true,
+            star_separator,
+            ifs_members,
+            restores_ifs: std::cell::Cell::new(false),
         }
     }
     pub(crate) fn set(&self, name: String, value: String) -> Result<(), String> {
@@ -697,6 +901,7 @@ impl PrefixFrame {
         if state.is_readonly(&name) {
             return Err(name);
         }
+        let direct_ifs = name == "IFS";
         let previous = state.variables.insert(name.clone(), value);
         state
             .prefixes
@@ -704,6 +909,10 @@ impl PrefixFrame {
             .unwrap()
             .entry(name)
             .or_insert(previous);
+        if direct_ifs {
+            self.restores_ifs.set(true);
+            state.refresh_star_separator();
+        }
         Ok(())
     }
     pub(crate) fn commit(mut self) {
@@ -717,6 +926,10 @@ impl Drop for PrefixFrame {
             return;
         }
         let mut state = self.state.borrow_mut();
+        if self.restores_ifs.get() {
+            state.star_separator = self.star_separator;
+            state.ifs_members = self.ifs_members;
+        }
         let saved = state.prefixes.pop().unwrap();
         // At most the admitted command argument count. Destructors finish
         // restoration synchronously even after cancellation, like FunctionFrame.
@@ -769,6 +982,9 @@ impl Drop for FunctionFrame {
                 }
             }
         }
+        // Bash refreshes special-variable state when a function frame returns,
+        // including a frame that did not declare a local IFS binding.
+        s.refresh_star_separator();
     }
 }
 
@@ -814,6 +1030,15 @@ mod tests {
             }
         }
         panic!("bounded snapshot did not finish");
+    }
+
+    fn short_ifs_members(state: &SharedState) -> IfsMembers {
+        let cancel = Cancel::new();
+        let mut work = Work::new(256, 0, 0);
+        State::admit_ifs_members(state, &cancel, &mut work)
+            .now_or_never()
+            .expect("short IFS classification does not yield")
+            .unwrap_or_else(|_| panic!("fixed-size IFS classification needs no heap storage"))
     }
 
     #[test]
@@ -1006,6 +1231,215 @@ mod tests {
             }
         }
         panic!("bounded cycle resolution must finish");
+    }
+
+    #[test]
+    fn star_separator_is_fixed_size_snapshot_state_and_does_not_replace_live_ifs() {
+        let state = State::default().shared();
+        state
+            .borrow_mut()
+            .variables
+            .insert("sep".into(), ":".into());
+        state
+            .borrow_mut()
+            .declare_nameref("IFS".into(), "sep".into(), false)
+            .unwrap();
+        let members = short_ifs_members(&state);
+        assert!(members.contains(':'));
+        state
+            .borrow_mut()
+            .assign_parameter("sep".into(), String::new())
+            .unwrap();
+        assert_eq!(state.borrow().scalar_parameter("IFS"), Some(""));
+        assert_eq!(state.borrow().positional_separator(), Some(':'));
+        let mut work = Work::new(100_000, 16 * 1024, 0);
+        let mut child = finish_snapshot(&state, &Cancel::new(), &mut work)
+            .unwrap_or_else(|_| panic!("small isolated join state fits"));
+        assert_eq!(child.positional_separator(), Some(':'));
+        assert_eq!(child.cached_ifs_members(), Some(members));
+        child
+            .declare_nameref("IFS".into(), "other".into(), false)
+            .unwrap();
+        assert_eq!(child.positional_separator(), Some(' '));
+        assert_eq!(state.borrow().positional_separator(), Some(':'));
+        assert_eq!(state.borrow().namerefs["IFS"], "sep");
+    }
+
+    #[test]
+    fn ifs_classification_is_atomic_on_work_exhaustion_and_cancellation() {
+        let state = State::default().shared();
+        state
+            .borrow_mut()
+            .variables
+            .insert("sep".into(), ":".repeat(4096));
+        state
+            .borrow_mut()
+            .declare_nameref("IFS".into(), "sep".into(), false)
+            .unwrap();
+        let mut work = Work::new(32, 0, 0);
+        assert!(matches!(
+            State::admit_ifs_members(&state, &Cancel::new(), &mut work).now_or_never(),
+            Some(Err(Error::Status(2)))
+        ));
+        assert_eq!(state.borrow().cached_ifs_members(), None);
+        let cancel = Cancel::new();
+        let mut work = Work::new(16_384, 0, 0);
+        let mut scan = Box::pin(State::admit_ifs_members(&state, &cancel, &mut work));
+        assert!(scan.as_mut().now_or_never().is_none());
+        assert!(state.try_borrow_mut().is_ok());
+        cancel.cancel();
+        assert!(matches!(scan.now_or_never(), Some(Err(Error::Status(130)))));
+        assert_eq!(state.borrow().cached_ifs_members(), None);
+        assert_eq!(
+            state.borrow().scalar_parameter("IFS").map(str::len),
+            Some(4096)
+        );
+        assert_eq!(work.storage_remaining, 0);
+    }
+
+    #[test]
+    fn ifs_field_binding_ignores_later_local_shadows_and_refreshes_on_return() {
+        let state = State::default().shared();
+        state
+            .borrow_mut()
+            .variables
+            .insert("sep".into(), ":".into());
+        state
+            .borrow_mut()
+            .declare_nameref("IFS".into(), "sep".into(), false)
+            .unwrap();
+        let members = short_ifs_members(&state);
+        let frame = FunctionFrame::enter(state.clone(), Vec::new(), 8).unwrap();
+        state.borrow_mut().local("sep".into(), " ".into()).unwrap();
+        assert_eq!(state.borrow().scalar_parameter("IFS"), Some(" "));
+        assert_eq!(state.borrow().field_ifs(), Some(":"));
+        assert_eq!(short_ifs_members(&state), members);
+        drop(frame);
+        assert_eq!(state.borrow().field_ifs(), Some(":"));
+        assert_eq!(short_ifs_members(&state), members);
+        state
+            .borrow_mut()
+            .assign_parameter("sep".into(), String::new())
+            .unwrap();
+        assert_eq!(short_ifs_members(&state), members);
+        let frame = FunctionFrame::enter(state.clone(), Vec::new(), 8).unwrap();
+        drop(frame);
+        assert!(!short_ifs_members(&state).contains(':'));
+        assert_eq!(state.borrow().positional_separator(), None);
+    }
+
+    #[test]
+    fn admitted_writes_through_ifs_and_target_aliases_preserve_cached_classification() {
+        for name in ["sep", "alias", "IFS"] {
+            let state = State::default().shared();
+            state
+                .borrow_mut()
+                .variables
+                .insert("sep".into(), String::new());
+            state
+                .borrow_mut()
+                .declare_nameref("IFS".into(), "sep".into(), false)
+                .unwrap();
+            state
+                .borrow_mut()
+                .declare_nameref("alias".into(), "sep".into(), false)
+                .unwrap();
+            let members = short_ifs_members(&state);
+            let cancel = Cancel::new();
+            let mut work = Work::new(256, 4096, 0);
+            State::admit_assignment(&state, name, 1, &cancel, &mut work)
+                .now_or_never()
+                .expect("short alias write does not yield")
+                .unwrap_or_else(|_| panic!("bounded alias write fits"));
+            state
+                .borrow_mut()
+                .assign_parameter(name.into(), ":".into())
+                .unwrap();
+            assert_eq!(state.borrow().scalar_parameter("IFS"), Some(":"));
+            assert_eq!(state.borrow().field_ifs(), Some(":"));
+            assert_eq!(state.borrow().positional_separator(), None);
+            assert_eq!(state.borrow().cached_ifs_members(), Some(members));
+            assert!(!members.contains(':'));
+        }
+    }
+
+    #[test]
+    fn prefix_ifs_restores_classification_without_rolling_back_durable_rhs_writes() {
+        let state = State::default().shared();
+        state
+            .borrow_mut()
+            .variables
+            .insert("IFS".into(), ":".into());
+        let frame = PrefixFrame::enter(state.clone());
+        frame.set("IFS".into(), " ".into()).unwrap();
+        assert!(short_ifs_members(&state).contains(' '));
+        drop(frame);
+        assert_eq!(state.borrow().positional_separator(), Some(':'));
+        assert!(short_ifs_members(&state).contains(':'));
+        let frame = PrefixFrame::enter(state.clone());
+        frame.set("unrelated".into(), "prefix".into()).unwrap();
+        state
+            .borrow_mut()
+            .assign_parameter("IFS".into(), String::new())
+            .unwrap();
+        drop(frame);
+        assert_eq!(state.borrow().positional_separator(), None);
+        assert!(!short_ifs_members(&state).contains(':'));
+    }
+
+    #[test]
+    fn star_separator_restores_locals_and_refreshes_at_function_return() {
+        let state = State::default().shared();
+        state
+            .borrow_mut()
+            .variables
+            .insert("sep".into(), ":".into());
+        state
+            .borrow_mut()
+            .declare_nameref("IFS".into(), "sep".into(), false)
+            .unwrap();
+        let frame = FunctionFrame::enter(state.clone(), Vec::new(), 8).unwrap();
+        state
+            .borrow_mut()
+            .local("IFS".into(), String::new())
+            .unwrap();
+        assert_eq!(state.borrow().positional_separator(), None);
+        drop(frame);
+        assert_eq!(state.borrow().positional_separator(), Some(':'));
+        let frame = FunctionFrame::enter(state.clone(), Vec::new(), 8).unwrap();
+        state
+            .borrow_mut()
+            .assign_parameter("sep".into(), String::new())
+            .unwrap();
+        assert_eq!(state.borrow().positional_separator(), Some(':'));
+        drop(frame);
+        assert_eq!(state.borrow().positional_separator(), None);
+    }
+
+    #[test]
+    fn star_separator_access_still_admits_reference_work_and_cancellation() {
+        let state = State::default().shared();
+        state
+            .borrow_mut()
+            .variables
+            .insert("sep".into(), ":".into());
+        state
+            .borrow_mut()
+            .declare_nameref("IFS".into(), "sep".into(), false)
+            .unwrap();
+        let cancel = Cancel::new();
+        let mut work = Work::new(0, 0, 0);
+        assert!(matches!(
+            State::admitted_positional_separator(&state, &cancel, &mut work).now_or_never(),
+            Some(Err(Error::Status(2)))
+        ));
+        cancel.cancel();
+        let mut work = Work::new(64, 0, 0);
+        assert!(matches!(
+            State::admitted_positional_separator(&state, &cancel, &mut work).now_or_never(),
+            Some(Err(Error::Status(130)))
+        ));
+        assert_eq!(state.borrow().positional_separator(), Some(':'));
     }
 
     #[test]

@@ -26,6 +26,9 @@ pub(super) fn scalar_name(name: &str) -> bool {
         .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
+pub(super) fn parameter_name(name: &str) -> bool {
+    scalar_name(name) || name == "!"
+}
 pub(super) fn length_name(name: &str) -> bool {
     scalar_name(name)
         || matches!(name, "?" | "#")
@@ -518,6 +521,15 @@ fn validate_token(token: &str, work: &mut Work) -> Result<(), Error> {
             Err(2.into())
         };
     };
+    if let Some(suffix) = body.strip_prefix('!')
+        && (suffix.starts_with(['-', '+', '=', '?'])
+            || suffix.starts_with(':')
+                && suffix
+                    .get(1..)
+                    .is_some_and(|operator| operator.starts_with(['-', '+', '=', '?'])))
+    {
+        return Ok(());
+    }
     if basic_name(body) {
         return Ok(());
     }
@@ -571,7 +583,7 @@ fn supported(part: &WordPart) -> bool {
                 || scalar_name(name) && operator.as_ref().is_none_or(indirect_operator)
         }
         WordPart::ParameterExpansion { name, operator, .. } => {
-            scalar_name(name)
+            parameter_name(name)
                 && matches!(
                     operator,
                     ParameterOp::UseDefault

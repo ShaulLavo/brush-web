@@ -19,7 +19,11 @@ impl Expansion<'_> {
         let ifs_separator = self.ifs_separator(state).await?;
         // Scalar @ joins with spaces. Scalar * uses the first IFS character;
         // empty IFS concatenates, while unset IFS defaults to a space.
-        let separator = if at { Some(' ') } else { ifs_separator };
+        let separator = if at {
+            Some(' ')
+        } else {
+            self.positional_star_separator(state).await?
+        };
         let first_field = at && quoted && ifs_separator.is_some() && count > 1;
         let protection = Protection::expansion(quoted, state);
         for index in 0..count {

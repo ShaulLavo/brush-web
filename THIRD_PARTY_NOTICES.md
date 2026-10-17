@@ -435,6 +435,9 @@ the retained MIT license is `shell/parser/LICENSE`. The eight-link read boundary
 soft unset on acyclic overflow, distinct cycle/write rejection and focused
 8/9-link controls are original adapters measured against GNU Bash 5.3.15, not
 copied implementations. No whole-output buffering is added.
+The IFS classification, positional-join snapshots, scoped resolution and admitted
+restoration corrections are original semantic-reference adapters measured against
+finite GNU Bash 5.3.15 controls; no additional upstream implementation is copied.
 
 The acceptance-only streaming `grep` subset in
 `shell/engine/src/builtins/grep.rs` adapts Bashkit's

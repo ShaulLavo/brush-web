@@ -1504,3 +1504,30 @@ fn process_substitution_printer_charges_flat_elif_output() {
         "flat elif printing must consume the parser budget: {result:?}"
     );
 }
+
+#[test]
+fn last_async_lazy_operators_are_scalar_nodes_and_named_bang_targets_stay_indirect() {
+    for (operator, expected) in [
+        ("-", ParameterOp::UseDefault),
+        ("+", ParameterOp::UseReplacement),
+        ("=", ParameterOp::AssignDefault),
+        ("?", ParameterOp::Error),
+    ] {
+        for colon in [false, true] {
+            let colon_text = if colon { ":" } else { "" };
+            let token = format!("${{!{colon_text}{operator}operand}}");
+            let part =
+                Parser::parse_parameter_token_with_limits(&token, 16, 1024, true, false).unwrap();
+            assert!(
+                matches!(part, WordPart::ParameterExpansion {
+                name, operator, operand, colon_variant,
+            } if name == "!" && operator == expected && operand == "operand" && colon_variant == colon),
+                "{token}"
+            );
+        }
+    }
+    let word = argument("echo \"${!pointer+operand}\"");
+    assert!(
+        matches!(&word.parts[0], WordPart::IndirectExpansion { name, operator: Some(ParameterOp::UseReplacement), .. } if name == "pointer")
+    );
+}
