@@ -1764,7 +1764,7 @@ impl Substitutions {
         let fds = Rc::new(RefCell::new(table));
         let child = state;
         let cancel = Cancel::new();
-        let group = core.allocate_background_group();
+        let group = core.host.allocate_background_group();
         let signal = Rc::new(Cell::new(None));
         let child_signal = signal.clone();
         let context = Context {
@@ -2136,7 +2136,7 @@ async fn dispatch_simple_command_body(
         argv,
         assigned,
         fds,
-        work,
+        mut work,
     } = prepared;
     let mut fields = argv.into_iter();
     let Some(name) = fields.next() else {
