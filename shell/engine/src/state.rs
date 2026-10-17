@@ -37,6 +37,8 @@ pub struct State {
     pub pipestatus: Vec<i32>,
     pub pipefail: bool,
     pub nounset: bool,
+    /// Last published synthetic async handle. Isolated shells inherit a copy.
+    pub(crate) last_async: Option<String>,
     pub(crate) positional: Vec<String>,
     pub(crate) locals: Vec<BTreeMap<String, LocalVariable>>,
     prefixes: Vec<BTreeMap<String, Option<String>>>,
@@ -55,6 +57,7 @@ impl Default for State {
             pipestatus: vec![0],
             pipefail: false,
             nounset: false,
+            last_async: None,
             positional: Vec::new(),
             locals: Vec::new(),
             prefixes: Vec::new(),
@@ -95,6 +98,7 @@ impl State {
         let functions = snapshot_map(source, |s| &s.functions, cancel, work).await?;
         let pipestatus = snapshot_vec(source, |s| &s.pipestatus, cancel, work).await?;
         let positional = snapshot_vec(source, |s| &s.positional, cancel, work).await?;
+        let last_async = snapshot_value(source, |s| Some(&s.last_async), cancel, work).await?;
         let (local_count, prefix_count) = {
             let state = source.borrow();
             (state.locals.len(), state.prefixes.len())
@@ -120,6 +124,7 @@ impl State {
             pipestatus,
             pipefail: state.pipefail,
             nounset: state.nounset,
+            last_async,
             positional,
             locals,
             prefixes,
@@ -131,6 +136,7 @@ impl State {
             "?" => Cow::Owned(self.status.to_string()),
             "PWD" => Cow::Borrowed(&self.cwd),
             "#" => Cow::Owned(self.positional.len().to_string()),
+            "!" => Cow::Borrowed(self.last_async.as_deref().unwrap_or("")),
             _ => name
                 .parse::<usize>()
                 .ok()
@@ -143,6 +149,9 @@ impl State {
         }
     }
     pub(crate) fn scalar_parameter(&self, name: &str) -> Option<&str> {
+        if name == "!" {
+            return self.last_async.as_deref();
+        }
         let name = self.scalar_target(name).ok().flatten()?;
         if name == "PWD" {
             return Some(&self.cwd);

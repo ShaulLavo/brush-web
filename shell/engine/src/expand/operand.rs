@@ -35,6 +35,7 @@ fn basic_name(name: &str) -> bool {
     scalar_name(name)
         || name == "?"
         || name == "#"
+        || name == "!"
         || name.bytes().all(|c| c.is_ascii_digit()) && !name.is_empty()
 }
 
@@ -514,6 +515,9 @@ fn validate_token(token: &str, work: &mut Work) -> Result<(), Error> {
             Err(2.into())
         };
     };
+    if basic_name(body) {
+        return Ok(());
+    }
     let indirect = body.starts_with('!');
     let body = body.strip_prefix('!').unwrap_or(body);
     if basic_name(body) && (!indirect || scalar_name(body)) {
@@ -560,7 +564,8 @@ fn supported(part: &WordPart) -> bool {
         WordPart::Variable(name) => basic_name(name),
         WordPart::Length(name) => length_name(name),
         WordPart::IndirectExpansion { name, operator, .. } => {
-            scalar_name(name) && operator.as_ref().is_none_or(indirect_operator)
+            name.is_empty() && operator.is_none()
+                || scalar_name(name) && operator.as_ref().is_none_or(indirect_operator)
         }
         WordPart::ParameterExpansion { name, operator, .. } => {
             scalar_name(name)

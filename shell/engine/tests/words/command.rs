@@ -78,6 +78,20 @@ fn register_gated(rig: &Rig, bytes: &'static [u8], linger: bool) -> (Cancel, Rc<
     (release, progress)
 }
 
+fn register_status_gate(rig: &Rig, name: &str, status: i32) -> Cancel {
+    let release = Cancel::new();
+    let gate = release.clone();
+    rig.host.register(name, move |_, _| {
+        let gate = gate.clone();
+        async move {
+            gate.cancelled().await;
+            status
+        }
+        .boxed_local()
+    });
+    release
+}
+
 fn shutdown_and_check(rig: &Rig) {
     let shutdown = rig.shell.shutdown();
     futures::pin_mut!(shutdown);
@@ -439,6 +453,241 @@ fn internal_substitutions_do_not_take_background_job_numbers() {
         "false & wait; args $?; false & wait %1; args $?",
         &[&["0"], &["1"]],
     );
+}
+
+#[test]
+fn async_identity_starts_empty_replaces_the_last_launch_and_survives_wait() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(r#"args "$!"; false & first=$!; true & second=$!; args "$first" "$second" "$!"; wait %1; args $?; wait "$second"; args $?; args "$!"; wait; args $?"#), 0);
+    let calls = rig.calls.borrow();
+    assert_eq!(calls[0], [""]);
+    let ids = &calls[1];
+    assert_eq!(ids.len(), 3);
+    assert!(ids[0].parse::<u64>().is_ok_and(|id| id > 0));
+    assert!(ids[1].parse::<u64>().is_ok_and(|id| id > 0));
+    assert_ne!(ids[0], ids[1]);
+    assert_eq!(ids[1], ids[2]);
+    assert_eq!(calls[2], ["1"]);
+    assert_eq!(calls[3], ["0"]);
+    assert_eq!(calls[4], [ids[1].clone()]);
+    assert_eq!(calls[5], ["0"]);
+    assert_eq!(rig.shell.background_jobs(), 0);
+}
+
+#[test]
+fn async_identity_obeys_nounset_before_launch_and_is_bound_after_completion() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("set -u; args \"$!\"; args forbidden"), 127);
+    assert!(rig.calls.borrow().is_empty());
+    assert_eq!(
+        rig.errors.bytes(),
+        b"/usr/bin/bash: line 1: !: unbound variable\n"
+    );
+    assert_eq!(rig.run(r#"false & pid=$!; wait "$pid"; args "$?" "$!""#), 0);
+    let pid = rig.shell.state().borrow().variables["pid"].clone();
+    assert_eq!(*rig.calls.borrow(), [vec!["1".to_owned(), pid]]);
+}
+
+#[test]
+fn numeric_async_handles_select_pending_children_independently_of_job_numbers() {
+    let rig = Rig::new(Limits::default());
+    let first = register_status_gate(&rig, "first", 5);
+    let second = register_status_gate(&rig, "second", 7);
+    let job = rig.shell.start(r#"first & one=$!; second & two=$!; ready=yes; wait "$two"; args second "$?"; wait %1; args first "$?"; args "$!""#).unwrap();
+    rig.drive_until_variable("ready", "yes");
+    assert_eq!(rig.host.active_count(), 2);
+    let one = rig.shell.state().borrow().variables["one"].clone();
+    let two = rig.shell.state().borrow().variables["two"].clone();
+    assert_ne!(one, two);
+    second.cancel();
+    for _ in 0..200 {
+        rig.ex.drive(16);
+        if !rig.calls.borrow().is_empty() {
+            break;
+        }
+    }
+    assert_eq!(*rig.calls.borrow(), [vec!["second", "7"]]);
+    assert!(
+        !job.is_finished(),
+        "waiting for %1 must leave the first child pending"
+    );
+    assert_eq!(rig.host.active_count(), 1);
+    first.cancel();
+    assert_eq!(rig.finish(job), 0);
+    assert_eq!(
+        *rig.calls.borrow(),
+        [
+            vec!["second".to_owned(), "7".to_owned()],
+            vec!["first".to_owned(), "5".to_owned()],
+            vec![two]
+        ]
+    );
+    assert_eq!(rig.host.retained_count(), 0);
+    assert_eq!(rig.ex.drive(64).pending, 0);
+}
+
+#[test]
+fn substitutions_do_not_alias_async_handles_to_visible_job_numbers() {
+    for prefix in ["value=$(true)", ": <(true)", ": >(true)"] {
+        check(
+            &format!(
+                "{prefix}; false & first=$!; true & second=$!; wait \"$first\"; args $?; wait %2; args $?; wait; args $?"
+            ),
+            &[&["1"], &["0"], &["0"]],
+        );
+    }
+}
+
+#[test]
+fn async_identity_expands_in_nested_operands_and_arithmetic_without_reparsing_a_handle() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run(r#"false & pid=$!; args "${u:-$!}" "${u:-${!}}" "$(( $! > 0 ))"; wait "$pid""#),
+        1
+    );
+    let pid = rig.shell.state().borrow().variables["pid"].clone();
+    assert_eq!(
+        *rig.calls.borrow(),
+        [vec![pid.clone(), pid, "1".to_owned()]]
+    );
+}
+
+#[test]
+fn numeric_kill_uses_only_an_async_handle_owned_by_the_current_scope() {
+    let rig = Rig::new(Limits::default());
+    let _release = register_status_gate(&rig, "status_gate", 0);
+    assert_eq!(rig.run("status_gate & pid=$!"), 0);
+    for _ in 0..200 {
+        rig.ex.drive(16);
+        if rig.host.active_count() == 1 {
+            break;
+        }
+    }
+    assert_eq!(rig.host.active_count(), 1);
+    assert_eq!(rig.run(r#"(kill "$pid")"#), 1);
+    assert_eq!(rig.host.active_count(), 1);
+    assert_eq!(rig.run(r#"kill "$pid"; wait "$pid"; args $?"#), 0);
+    assert_eq!(*rig.calls.borrow(), [vec!["130"]]);
+    assert_eq!(rig.shell.background_jobs(), 0);
+    assert_eq!(rig.host.active_count(), 0);
+    assert_eq!(rig.host.retained_count(), 0);
+    assert_eq!(rig.ex.drive(64).pending, 0);
+}
+
+#[test]
+fn isolated_readers_inherit_async_identity_without_changing_the_caller() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(r#"false & parent=$!; capture=$(wait "$parent"; status=$?; true & child=$!; wait %1; printf '%s:%s:%s' "$status" "$parent" "$!"); args "$parent" "$!" "$capture"; (args "$!"; wait "$parent"; args $?; false & local=$!; args "$local" "$!"; wait "$local"; args $?); args "$!"; args "$!" | :; wait "$parent"; args $?"#), 0);
+    let parent = rig.shell.state().borrow().variables["parent"].clone();
+    let calls = rig.calls.borrow();
+    assert_eq!(calls.len(), 8);
+    assert_eq!(calls[0][0], parent);
+    assert_eq!(calls[0][1], parent);
+    let capture: Vec<_> = calls[0][2].split(':').collect();
+    assert_eq!(capture.len(), 3);
+    assert_eq!(capture[0], "127");
+    assert_eq!(capture[1], parent);
+    assert_ne!(capture[2], parent);
+    assert_eq!(calls[1], [parent.clone()]);
+    assert_eq!(calls[2], ["127"]);
+    assert_eq!(calls[3][0], calls[3][1]);
+    assert_ne!(calls[3][0], parent);
+    assert_eq!(calls[4], ["1"]);
+    assert_eq!(calls[5], [parent.clone()]);
+    assert_eq!(calls[6], [parent]);
+    assert_eq!(calls[7], ["1"]);
+    assert!(!rig.shell.state().borrow().variables.contains_key("local"));
+    assert!(!rig.shell.state().borrow().variables.contains_key("child"));
+}
+
+#[test]
+fn background_children_inherit_the_previous_async_identity() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(r#"false & previous=$!; args "$!" & current=$!; wait "$current"; args "$!"; wait "$previous"; args $?"#), 0);
+    let state = rig.shell.state();
+    let state = state.borrow();
+    assert_ne!(state.variables["previous"], state.variables["current"]);
+    assert_eq!(
+        *rig.calls.borrow(),
+        [
+            vec![state.variables["previous"].clone()],
+            vec![state.variables["current"].clone()],
+            vec!["1".to_owned()]
+        ]
+    );
+}
+
+#[test]
+fn process_substitution_handles_retain_status_without_taking_job_numbers() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(r#": <(false); input=$!; : >(true); output=$!; false & background=$!; wait "$input"; args $?; wait "$output"; args $?; wait %1; args $?; args "$!"; wait; args $?"#), 0);
+    let state = rig.shell.state();
+    let state = state.borrow();
+    assert_ne!(state.variables["input"], state.variables["output"]);
+    assert_ne!(state.variables["output"], state.variables["background"]);
+    assert_eq!(
+        *rig.calls.borrow(),
+        [
+            vec!["1".to_owned()],
+            vec!["0".to_owned()],
+            vec!["1".to_owned()],
+            vec![state.variables["background"].clone()],
+            vec!["0".to_owned()]
+        ]
+    );
+    assert_eq!(rig.ex.drive(64).pending, 0);
+}
+
+#[test]
+fn process_substitution_inherits_the_callers_previous_async_identity() {
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run(r#"false & previous=$!; : <(printf '%s' "$!" > inherited); process=$!; wait "$process"; args "$?" "$!"; wait "$previous""#), 1);
+    let state = rig.shell.state();
+    let state = state.borrow();
+    assert_ne!(state.variables["previous"], state.variables["process"]);
+    assert_eq!(
+        rig.fs.read_file("/home/guest/inherited").unwrap(),
+        state.variables["previous"].as_bytes()
+    );
+    assert_eq!(
+        *rig.calls.borrow(),
+        [vec!["0".to_owned(), state.variables["process"].clone()]]
+    );
+}
+
+#[test]
+fn waiting_for_a_pending_process_substitution_observes_its_status() {
+    let rig = Rig::new(Limits::default());
+    let release = register_status_gate(&rig, "status_gate", 9);
+    let job = rig
+        .shell
+        .start(r#": <(status_gate); pid=$!; ready=yes; wait "$pid"; args $?"#)
+        .unwrap();
+    rig.drive_until_variable("ready", "yes");
+    assert_eq!(rig.host.active_count(), 1);
+    assert!(!job.is_finished());
+    assert!(rig.calls.borrow().is_empty());
+    release.cancel();
+    assert_eq!(rig.finish(job), 0);
+    assert_eq!(*rig.calls.borrow(), [vec!["9"]]);
+    assert_eq!(rig.host.retained_count(), 0);
+    assert_eq!(rig.ex.drive(64).pending, 0);
+}
+
+#[test]
+fn interrupting_a_numeric_process_substitution_wait_drains_the_child() {
+    let rig = Rig::new(Limits::default());
+    let _release = register_status_gate(&rig, "status_gate", 9);
+    let job = rig
+        .shell
+        .start(r#": <(status_gate); pid=$!; ready=yes; wait "$pid"; args forbidden"#)
+        .unwrap();
+    rig.drive_until_variable("ready", "yes");
+    assert_eq!(rig.host.active_count(), 1);
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert!(rig.calls.borrow().is_empty());
+    shutdown_and_check(&rig);
 }
 
 #[test]

@@ -3,7 +3,7 @@
 use crate::{
     executor::Budget,
     expand::{Error, Work},
-    interpreter::{Context, Flow, Outcome},
+    interpreter::{Context, Flow, JobSelector, Outcome},
     io::{Endpoint, FdTable, OpenOptions},
     state::{SharedState, State, absolute},
 };
@@ -316,17 +316,14 @@ pub(crate) async fn run(
             if args.len() > 1 {
                 return Err(2);
             }
-            let id = args
-                .first()
-                .map(|s| s.trim_start_matches('%').parse::<u64>().map_err(|_| 2))
-                .transpose()?;
+            let id = args.first().map(|s| JobSelector::parse(s)).transpose()?;
             return Ok(Outcome::status(context.wait_job(id).await?));
         }
         "kill" => {
-            if args.len() != 1 || !args[0].starts_with('%') {
+            if args.len() != 1 {
                 return Err(2);
             }
-            context.kill_job(args[0][1..].parse().map_err(|_| 2)?)?;
+            context.kill_job(JobSelector::parse(&args[0])?)?;
         }
         _ => return Err(127),
     }

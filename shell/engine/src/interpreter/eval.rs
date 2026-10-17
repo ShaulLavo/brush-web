@@ -63,7 +63,7 @@ impl Scope {
         &self.shared.parser
     }
 
-    // Fixed execution frames spend their byte size from shared request work
+    // Fixed execution allocations spend their byte size from shared request work
     // before allocation. Source/AST copies also keep their storage admission.
     // Rejection is inline, including when no allocation allowance remains.
     pub(super) fn frame<'a, T: 'a, F: Future<Output = T> + 'a>(
@@ -71,11 +71,15 @@ impl Scope {
         future: F,
         failure: impl FnOnce(i32) -> T,
     ) -> Frame<'a, T> {
-        let bytes = u64::try_from(size_of::<F>()).unwrap_or(u64::MAX).max(1);
-        if self.shared.parser.consume_work(bytes).is_err() {
+        if self.admit_execution(size_of::<F>()).is_err() {
             return Either::Left(ready(failure(2)));
         }
         Either::Right(future.boxed_local())
+    }
+
+    pub(super) fn admit_execution(&self, bytes: usize) -> Result<(), i32> {
+        let bytes = u64::try_from(bytes).map_err(|_| 2)?.max(1);
+        self.shared.parser.consume_work(bytes).map_err(|_| 2)
     }
 
     pub(super) fn new_task(&self) -> Self {

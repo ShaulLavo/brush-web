@@ -109,6 +109,7 @@ impl From<i32> for CommandError {
 }
 
 type Descriptors = Rc<RefCell<FdTable>>;
+const TASK_METADATA_BYTES: usize = 4096;
 /// Shared forwarding keeps descendants attached when several isolated scopes
 /// finish in a different order. Captured parent handles follow later transfers.
 #[derive(Clone)]
@@ -149,9 +150,32 @@ impl PartialEq for Scope {
     }
 }
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct JobId(u64);
+// Registry identities supply synthetic async handles, never ProcessHost PIDs.
+pub(crate) struct JobId(u64);
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct JobNumber(u64);
+pub(crate) struct JobNumber(u64);
+#[derive(Clone, Copy)]
+pub(crate) enum JobSelector {
+    Handle(JobId),
+    Number(JobNumber),
+}
+impl JobSelector {
+    pub(crate) fn parse(value: &str) -> Result<Self, i32> {
+        match value.strip_prefix('%') {
+            Some(number) => number
+                .parse()
+                .map(|n| Self::Number(JobNumber(n)))
+                .map_err(|_| 2),
+            None => value.parse().map(|n| Self::Handle(JobId(n))).map_err(|_| 2),
+        }
+    }
+    fn matches(self, id: JobId, job: &Job) -> bool {
+        match self {
+            Self::Handle(handle) => id == handle && job.kind != JobKind::Internal,
+            Self::Number(number) => job.kind == JobKind::Background(number),
+        }
+    }
+}
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum JobKind {
     Background(JobNumber),
@@ -227,18 +251,16 @@ impl Context {
         }
     }
     async fn cleanup_jobs(&self) {
-        let jobs: Vec<_> = self
+        for job in self
             .core
             .jobs
             .borrow()
-            .iter()
-            .filter(|(_, job)| job.owner == self.scope)
-            .map(|(&id, job)| {
-                job.cancel.cancel();
-                (id, job.join.clone())
-            })
-            .collect();
-        for (id, join) in jobs {
+            .values()
+            .filter(|job| job.owner == self.scope)
+        {
+            job.cancel.cancel();
+        }
+        while let Some((id, join)) = self.next_job(None, true) {
             join.await;
             self.core.jobs.borrow_mut().remove(&id);
         }
@@ -268,47 +290,57 @@ impl Context {
             Err(_) => processes.terminate(2).await.map(|_| 130).unwrap_or(1),
         }
     }
-    pub(crate) async fn wait_job(&self, id: Option<u64>) -> Result<i32, i32> {
+    pub(crate) async fn wait_job(&self, id: Option<JobSelector>) -> Result<i32, i32> {
         let code = self.wait_jobs(id, false).await?;
         Ok(if id.is_none() { 0 } else { code })
     }
-    async fn wait_jobs(&self, number: Option<u64>, include_internal: bool) -> Result<i32, i32> {
+    async fn wait_jobs(
+        &self,
+        selector: Option<JobSelector>,
+        include_internal: bool,
+    ) -> Result<i32, i32> {
         let mut code = 0;
         loop {
-            let jobs: Vec<_> = self
-                .core
-                .jobs
-                .borrow()
-                .iter()
-                .filter(|(_, job)| {
-                    let selected = match job.kind {
-                        JobKind::Background(id) => number.is_none_or(|number| id.0 == number),
-                        JobKind::ProcessSubstitution => number.is_none(),
-                        JobKind::Internal => include_internal && number.is_none(),
-                    };
-                    selected && job.owner == self.scope
-                })
-                .map(|(id, job)| (*id, job.join.clone()))
-                .collect();
-            if jobs.is_empty() {
-                return if number.is_some() { Err(127) } else { Ok(code) };
-            }
-            for (id, job) in jobs {
-                code = self.cancel.run(job).await.map_err(|_| 130)?;
-                self.core.jobs.borrow_mut().remove(&id);
-            }
-            if !include_internal {
+            let Some((id, job)) = self.next_job(selector, include_internal) else {
+                return if selector.is_some() {
+                    Err(127)
+                } else {
+                    Ok(code)
+                };
+            };
+            code = self.cancel.run(job).await.map_err(|_| 130)?;
+            self.core.jobs.borrow_mut().remove(&id);
+            if selector.is_some() {
                 return Ok(code);
             }
             // Exiting children may transfer their own descendants to this
             // scope. Supervisors drain those too, unlike the shell's `wait`.
         }
     }
-    pub(crate) fn kill_job(&self, id: u64) -> Result<(), i32> {
+    fn next_job(
+        &self,
+        selector: Option<JobSelector>,
+        include_internal: bool,
+    ) -> Option<(JobId, JoinHandle<i32>)> {
+        self.core
+            .jobs
+            .borrow()
+            .iter()
+            .find(|(id, job)| {
+                let selected = selector.map_or(
+                    include_internal || job.kind != JobKind::Internal,
+                    |selector| selector.matches(**id, job),
+                );
+                selected && job.owner == self.scope
+            })
+            .map(|(id, job)| (*id, job.join.clone()))
+    }
+    pub(crate) fn kill_job(&self, selector: JobSelector) -> Result<(), i32> {
         let jobs = self.core.jobs.borrow();
         let job = jobs
-            .values()
-            .find(|job| job.kind == JobKind::Background(JobNumber(id)) && job.owner == self.scope)
+            .iter()
+            .find(|(id, job)| selector.matches(**id, job) && job.owner == self.scope)
+            .map(|(_, job)| job)
             .ok_or(1)?;
         job.cancel.cancel();
         Ok(())
@@ -452,7 +484,7 @@ impl Core {
     fn reap_internal_jobs(&self) {
         self.jobs
             .borrow_mut()
-            .retain(|_, job| matches!(job.kind, JobKind::Background(_)) || !job.join.is_finished());
+            .retain(|_, job| job.kind != JobKind::Internal || !job.join.is_finished());
     }
     fn allocate_job_number(&self, owner: &Scope) -> Result<JobNumber, i32> {
         let jobs = self.jobs.borrow();
@@ -717,8 +749,25 @@ async fn pipeline_command(
         state.borrow_mut().pipestatus = vec![2];
         return Outcome::status(2);
     }
+    let mut work = expansion_work(context.limits());
+    let children = match pipeline_children(count, &state, &context, &mut work).await {
+        Ok(children) => children,
+        Err(error) => {
+            let outcome = expansion_failure(error.into(), &fds, &context).await;
+            state.borrow_mut().pipestatus = vec![outcome.code];
+            return outcome;
+        }
+    };
+    let mut children = children.into_iter();
     let mut previous = None;
     let mut tasks = Vec::new();
+    // All stage task/queue metadata is admitted before the first launch.
+    if admit_task_metadata::<JoinHandle<Outcome>>(&context, count).is_err()
+        || tasks.try_reserve_exact(count).is_err()
+    {
+        state.borrow_mut().pipestatus = vec![2];
+        return Outcome::status(2);
+    }
     for (index, command) in pipeline.commands.into_iter().enumerate() {
         let mut stage_fds = fds.borrow().clone();
         if let Some(input) = previous.take() {
@@ -732,7 +781,7 @@ async fn pipeline_command(
         let child = if count == 1 {
             state.clone()
         } else {
-            state.borrow().clone().shared()
+            children.next().expect("all pipeline state was prepared")
         };
         let stage_context = if count == 1 {
             context.clone()
@@ -774,6 +823,45 @@ async fn pipeline_command(
     }
     state.borrow_mut().pipestatus = codes;
     Outcome::status(code)
+}
+
+#[inline(never)]
+fn pipeline_children<'a>(
+    count: usize,
+    state: &'a SharedState,
+    context: &'a Context,
+    work: &'a mut expand::Work,
+) -> eval::Frame<'a, Result<Vec<SharedState>, expand::Error>> {
+    context.evaluation.frame(
+        pipeline_children_body(count, state, context, work),
+        |code| Err(code.into()),
+    )
+}
+
+async fn pipeline_children_body(
+    count: usize,
+    state: &SharedState,
+    context: &Context,
+    work: &mut expand::Work,
+) -> Result<Vec<SharedState>, expand::Error> {
+    let mut children = Vec::new();
+    if count == 1 {
+        return Ok(children);
+    }
+    work.admit_storage(
+        count
+            .checked_mul(std::mem::size_of::<SharedState>())
+            .ok_or(2)?,
+    )?;
+    children.try_reserve_exact(count).map_err(|_| 2)?;
+    for _ in 0..count {
+        children.push(
+            State::snapshot(state, &context.cancel, work)
+                .await?
+                .shared(),
+        );
+    }
+    Ok(children)
 }
 
 async fn pipeline_stage(
@@ -1168,7 +1256,14 @@ async fn subshell(
     fds: Descriptors,
     context: Context,
 ) -> Outcome {
-    let child = state.borrow().clone().shared();
+    let mut work = expansion_work(context.limits());
+    if let Err(error) = admit_task_metadata::<()>(&context, 1) {
+        return expansion_failure(error.into(), &fds, &context).await;
+    }
+    let child = match State::snapshot(&state, &context.cancel, &mut work).await {
+        Ok(child) => child.shared(),
+        Err(error) => return expansion_failure(error.into(), &fds, &context).await,
+    };
     let parent_scope = context.scope.clone();
     let child_context = context.isolated();
     let child_fds = Rc::new(RefCell::new(fds.borrow().clone()));
@@ -1178,7 +1273,10 @@ async fn subshell(
             .core
             .executor
             .spawn(async move {
-                let mut work = substitution_work(&child_context, &child_fds);
+                work.substitutions = Some(Substitutions {
+                    context: child_context.clone(),
+                    fds: child_fds.clone(),
+                });
                 let result =
                     match command_redirects(&redirs, &child, child_fds, &child_context, &mut work)
                         .await
@@ -1218,7 +1316,7 @@ async fn list_command(
         }
         let command = and_or(first, std::mem::take(&mut links), list.span);
         result = if operator == ListOperator::Background {
-            background(command, &state, &fds, &context)
+            background(command, &state, &fds, &context).await
         } else {
             execute(command, state.clone(), fds.clone(), context.clone()).await
         };
@@ -1253,7 +1351,33 @@ fn and_or(first: Command, rest: Vec<(ListOperator, Command)>, span: Span) -> Com
         })
     }
 }
-fn background(
+#[inline(never)]
+fn background<'a>(
+    command: Command,
+    state: &'a SharedState,
+    fds: &'a Descriptors,
+    context: &'a Context,
+) -> eval::Frame<'a> {
+    context.evaluation.frame(
+        background_body(command, state, fds, context),
+        Outcome::status,
+    )
+}
+
+async fn background_body(
+    command: Command,
+    state: &SharedState,
+    fds: &Descriptors,
+    context: &Context,
+) -> Outcome {
+    let result = launch_background(command, state, fds, context).await;
+    let mut state = state.borrow_mut();
+    state.status = result.code;
+    state.pipestatus = vec![result.code];
+    result
+}
+
+async fn launch_background(
     command: Command,
     state: &SharedState,
     fds: &Descriptors,
@@ -1261,8 +1385,23 @@ fn background(
 ) -> Outcome {
     context.core.reap_internal_jobs();
     if context.core.jobs.borrow().len() >= context.limits().jobs {
-        state.borrow_mut().status = 2;
-        state.borrow_mut().pipestatus = vec![2];
+        return Outcome::status(2);
+    }
+    let mut work = expansion_work(context.limits());
+    let child = match State::snapshot(state, &context.cancel, &mut work).await {
+        Ok(child) => child.shared(),
+        Err(error) => return expansion_failure(error.into(), fds, context).await,
+    };
+    let job = JobId(context.core.allocate_id());
+    let identity = match async_identity(job, &context.cancel, &mut work).await {
+        Ok(identity) => identity,
+        Err(error) => return expansion_failure(error.into(), fds, context).await,
+    };
+    if let Err(error) = admit_job(context) {
+        return expansion_failure(error.into(), fds, context).await;
+    }
+    // Snapshot checkpoints may have let another scope create async children.
+    if context.core.jobs.borrow().len() >= context.limits().jobs {
         return Outcome::status(2);
     }
     let number = match context.core.allocate_job_number(&context.scope) {
@@ -1281,9 +1420,7 @@ fn background(
         compound_child: matches!(command, Command::Compound(..)),
         evaluation: context.evaluation.new_task(),
     };
-    let child = state.borrow().clone().shared();
     let fds = Rc::new(RefCell::new(fds.borrow().clone()));
-    let job = JobId(context.core.allocate_id());
     let parent_scope = context.scope.clone();
     let join = context.core.executor.spawn(async move {
         let mut processes = ProcessGroup::new(child_context.core.host.clone(), group);
@@ -1302,9 +1439,54 @@ fn background(
             join,
         },
     );
-    state.borrow_mut().status = 0;
-    state.borrow_mut().pipestatus = vec![0];
+    state.borrow_mut().last_async = Some(identity);
     Outcome::status(0)
+}
+
+fn admit_task_metadata<T>(context: &Context, count: usize) -> Result<(), expand::Error> {
+    let bytes = count
+        .checked_mul(TASK_METADATA_BYTES + std::mem::size_of::<T>())
+        .ok_or(2)?;
+    context
+        .evaluation
+        .admit_execution(bytes)
+        .map_err(Into::into)
+}
+
+fn admit_job(context: &Context) -> Result<(), expand::Error> {
+    // One conservative B-tree node plus fixed task/queue/cancellation metadata.
+    let bytes = std::mem::size_of::<(JobId, Job)>()
+        .checked_add(std::mem::size_of::<usize>())
+        .and_then(|bytes| bytes.checked_mul(16))
+        .and_then(|bytes| bytes.checked_add(TASK_METADATA_BYTES))
+        .ok_or(2)?;
+    context
+        .evaluation
+        .admit_execution(bytes)
+        .map_err(Into::into)
+}
+
+async fn async_identity(
+    id: JobId,
+    cancel: &Cancel,
+    work: &mut expand::Work,
+) -> Result<String, expand::Error> {
+    let bytes = id.0.checked_ilog10().unwrap_or(0) as usize + 1;
+    work.admit_storage(bytes)?;
+    for _ in 0..bytes {
+        work.checkpoint(cancel).await?;
+    }
+    let mut identity = String::new();
+    identity.try_reserve_exact(bytes).map_err(|_| 2)?;
+    std::fmt::Write::write_fmt(&mut identity, format_args!("{}", id.0)).map_err(|_| 2)?;
+    Ok(identity)
+}
+
+fn admission_status(error: expand::Error) -> i32 {
+    match error {
+        expand::Error::Status(code) => code,
+        _ => 2,
+    }
 }
 /// Bash's own device names: `/dev/fd/N` duplicates open descriptor N (a
 /// process substitution, for instance); `/dev/stdin`, `/dev/stdout` and
@@ -1435,11 +1617,27 @@ impl Substitutions {
     /// at the highest free descriptor from 63 down, as bash does. Returns
     /// that descriptor; the caller expands it to `/dev/fd/N`. The table is
     /// the command's own copy, so the descriptor closes with the command.
-    pub(crate) fn process(
+    pub(crate) fn process<'a>(
+        &'a self,
+        commands: Vec<Command>,
+        is_input: bool,
+        state: SharedState,
+        parent_state: &'a SharedState,
+        work: &'a mut expand::Work,
+    ) -> eval::Frame<'a, Result<u32, i32>> {
+        self.context.evaluation.frame(
+            self.process_body(commands, is_input, state, parent_state, work),
+            Err,
+        )
+    }
+
+    async fn process_body(
         &self,
         commands: Vec<Command>,
         is_input: bool,
         state: SharedState,
+        parent_state: &SharedState,
+        work: &mut expand::Work,
     ) -> Result<u32, i32> {
         let fd = (3..=63u32)
             .rev()
@@ -1447,6 +1645,14 @@ impl Substitutions {
             .ok_or(2)?;
         let core = &self.context.core;
         core.reap_internal_jobs();
+        if core.jobs.borrow().len() >= self.context.limits().jobs {
+            return Err(2);
+        }
+        let job = JobId(core.allocate_id());
+        let identity = async_identity(job, &self.context.cancel, work)
+            .await
+            .map_err(admission_status)?;
+        admit_job(&self.context).map_err(admission_status)?;
         if core.jobs.borrow().len() >= self.context.limits().jobs {
             return Err(2);
         }
@@ -1488,7 +1694,6 @@ impl Substitutions {
                 futures::future::Either::Right(((), body)) => body.await,
             }
         });
-        let job = JobId(core.allocate_id());
         core.jobs.borrow_mut().insert(
             job,
             Job {
@@ -1499,6 +1704,7 @@ impl Substitutions {
             },
         );
         self.fds.borrow_mut().insert(fd, parent_end);
+        parent_state.borrow_mut().last_async = Some(identity);
         Ok(fd)
     }
     /// Standard error of the shell running the substitution.
@@ -1822,7 +2028,7 @@ async fn dispatch_simple_command_body(
         if !assigned.is_empty() {
             return Err(2);
         }
-        return builtin_command(name, args, state, fds, context).await;
+        return builtin_command(name, args, state, fds, context, work).await;
     }
     // A pipe named by an open descriptor exists but cannot be executed.
     if name.starts_with("/dev/fd/")
@@ -1933,12 +2139,13 @@ fn builtin_command(
     state: SharedState,
     fds: Descriptors,
     context: Context,
+    mut work: expand::Work,
 ) -> eval::Frame<'static, Result<Outcome, i32>> {
     let evaluation = context.evaluation.clone();
     evaluation.frame(
         async move {
             let bindings = fds.borrow().clone();
-            builtins::run(&name, args, state, bindings, context).await
+            builtins::run(&name, args, state, bindings, context, &mut work).await
         },
         Err,
     )
@@ -1986,6 +2193,8 @@ async fn assignments(
         if *bytes > context.limits().expansion_bytes {
             return Err(2.into());
         }
+        State::admit_assignment(state, &assignment.name, value.len(), &context.cancel, work)
+            .await?;
         names.push(assignment.name.clone());
         if let Err(name) = frame.set(assignment.name, value) {
             work.admit_storage(name.len().saturating_add(160))?;
@@ -2001,7 +2210,7 @@ async fn assignments(
     for name in names {
         budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
         let state = state.borrow();
-        let value = state.variables.get(&name).ok_or(2)?;
+        let value = state.scalar_parameter(&name).ok_or(2)?;
         *bytes = bytes
             .saturating_add(name.len())
             .saturating_add(1)
@@ -2010,7 +2219,7 @@ async fn assignments(
             return Err(2.into());
         }
         if !commit {
-            assigned.push((name, value.clone()));
+            assigned.push((name, value.to_owned()));
         }
     }
     if commit {

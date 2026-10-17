@@ -683,6 +683,7 @@ impl Expansion<'_> {
             let state = state.borrow();
             match name {
                 "0" | "?" | "#" | "@" | "*" | "PWD" | "PIPESTATUS" => false,
+                "!" => state.last_async.is_none(),
                 _ if operand::scalar_name(name) => state.scalar_parameter(name).is_none(),
                 _ if !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_digit()) => name
                     .parse::<usize>()
@@ -872,6 +873,11 @@ impl Expansion<'_> {
                 colon_variant,
             } = part
             {
+                // The parser represents the special `${!}` with an empty
+                // indirect name. Resolve that typed node as an ordinary read.
+                if name.is_empty() && operator.is_none() {
+                    return self.variable("!", state, quoted, scalar).await;
+                }
                 return self
                     .indirect(
                         name,
@@ -901,7 +907,9 @@ impl Expansion<'_> {
                     .await?
                     .shared();
                 self.work.admit_storage(16)?;
-                let fd = runner.process(commands.clone(), *is_input, child)?;
+                let fd = runner
+                    .process(commands.clone(), *is_input, child, state, self.work)
+                    .await?;
                 return self
                     .segment(&format!("/dev/fd/{fd}"), Protection::All, false)
                     .await;
@@ -970,7 +978,7 @@ impl Expansion<'_> {
                 return self.length(name, state, scalar || quoted, depth).await;
             }
             if let WordPart::Variable(name) = part {
-                self.require_bound(name, state).await?;
+                return self.variable(name, state, quoted, scalar).await;
             }
             let max = self.snapshot_max();
             let value = scalar_value(
@@ -988,6 +996,32 @@ impl Expansion<'_> {
             .await
         }
         .boxed_local()
+    }
+
+    async fn variable(
+        &mut self,
+        name: &str,
+        state: &SharedState,
+        quoted: bool,
+        scalar: bool,
+    ) -> Result<(), Error> {
+        self.require_bound(name, state).await?;
+        let max = self.snapshot_max();
+        let value = {
+            let state = state.borrow();
+            let value = state.parameter(name);
+            if self.pattern_snapshots {
+                self.work.admit_storage(value.len())?;
+            }
+            bounded(value, max)?
+        };
+        self.admit_pattern_snapshot(&value).await?;
+        self.segment(
+            &value,
+            Protection::expansion(scalar || quoted, state),
+            scalar || quoted,
+        )
+        .await
     }
     /// Brace extraction parses process-substitution lookalikes before lazy
     /// selection. Nested command/arithmetic substitutions stay opaque here.
@@ -1848,7 +1882,6 @@ fn scalar_value(
     let s = state.borrow();
     let value = match part {
         WordPart::Literal(text) => Cow::Borrowed(text.as_str()),
-        WordPart::Variable(name) => s.parameter(name),
         WordPart::ArrayAccess { name, index } if name == "PIPESTATUS" => Cow::Owned(
             index
                 .parse::<usize>()

@@ -124,6 +124,93 @@ fn local_reference_frames_restore_both_values_and_reference_metadata() {
 }
 
 #[test]
+fn isolated_execution_snapshots_keep_live_references_and_local_restoration() {
+    check(
+        r#"target=parent; other=kept; declare -n ref=target; (ref=subshell; args "$ref"); args "$ref"; ref=pipeline | args; args "$ref"; ref=background & wait %1; args "$ref"; f() { local -n ref=other; ref=child & wait %1; args "$ref"; }; f; args "$ref" "$other""#,
+        &[
+            &["subshell"],
+            &["parent"],
+            &[],
+            &["parent"],
+            &["parent"],
+            &["kept"],
+            &["parent", "kept"],
+        ],
+    );
+}
+
+#[test]
+fn pipeline_snapshots_share_admission_before_any_stage_is_launched() {
+    let rig = Rig::new(Limits {
+        expansion_bytes: 128 * 1024,
+        ..Limits::default()
+    });
+    rig.variable("target_name", &"t".repeat(32 * 1024));
+    assert_eq!(rig.run("declare -n ref=$target_name"), 0);
+    assert_eq!(rig.run("args forbidden | args also_forbidden"), 2);
+    assert!(
+        rig.calls.borrow().is_empty(),
+        "an admitted earlier stage must not launch before later snapshots finish"
+    );
+    assert_eq!(rig.host.active_count(), 0);
+    assert_eq!(rig.host.retained_count(), 0);
+    assert_eq!(rig.ex.drive(64).pending, 0);
+    assert_eq!(rig.run(r#"args "${ref+set}" recovered"#), 0);
+    assert_eq!(*rig.calls.borrow(), [vec!["", "recovered"]]);
+}
+
+#[test]
+fn rejected_isolated_state_copies_keep_the_last_async_identity_and_caller_state() {
+    for source in [
+        "args forbidden & exit $?",
+        "(args forbidden)",
+        "args forbidden | args also_forbidden",
+    ] {
+        let rig = Rig::new(Limits {
+            expansion_bytes: 32 * 1024,
+            ..Limits::default()
+        });
+        assert_eq!(rig.run(r#"true & saved=$!; wait "$saved""#), 0);
+        let saved = rig.shell.state().borrow().variables["saved"].clone();
+        rig.variable("large", &"x".repeat(64 * 1024));
+        assert_eq!(rig.run(source), 2, "{source}");
+        assert!(rig.calls.borrow().is_empty(), "{source}");
+        assert_eq!(rig.host.active_count(), 0, "{source}");
+        assert_eq!(rig.ex.drive(64).pending, 0, "{source}");
+        assert_eq!(rig.run(r#"args "$!" recovered"#), 0);
+        assert_eq!(*rig.calls.borrow(), [vec![saved, "recovered".to_owned()]]);
+    }
+}
+
+#[test]
+fn cancelling_isolated_state_admission_launches_no_child_and_restores_the_caller() {
+    for source in [
+        "args forbidden & exit $?",
+        "(args forbidden)",
+        "args forbidden | args also_forbidden",
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(rig.run(r#"true & saved=$!; wait "$saved""#), 0);
+        let saved = rig.shell.state().borrow().variables["saved"].clone();
+        rig.variable("large", &"x".repeat(300_000));
+        let job = rig.shell.start(source).unwrap();
+        for _ in 0..32 {
+            rig.ex.drive(1);
+        }
+        assert!(!job.is_finished(), "{source}");
+        assert!(rig.calls.borrow().is_empty(), "{source}");
+        assert_eq!(rig.host.active_count(), 0, "{source}");
+        rig.shell.interrupt();
+        assert_eq!(rig.finish(job), 130, "{source}");
+        assert!(rig.calls.borrow().is_empty(), "{source}");
+        assert_eq!(rig.host.retained_count(), 0, "{source}");
+        assert_eq!(rig.ex.drive(64).pending, 0, "{source}");
+        assert_eq!(rig.run(r#"args "$!" recovered"#), 0);
+        assert_eq!(*rig.calls.borrow(), [vec![saved, "recovered".to_owned()]]);
+    }
+}
+
+#[test]
 fn reference_cycles_are_bounded_and_unset_under_nounset() {
     check(
         r#"declare -n a=b; declare -n b=a; args "$a" "${a+set}" "${a-fallback}"; a=blocked; args "$?" "${a+set}"; plain=kept; args "$plain""#,
