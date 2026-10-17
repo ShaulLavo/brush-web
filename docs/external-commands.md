@@ -1,6 +1,6 @@
 # External commands in the browser
 
-Brush can run `bun` as an external WASI program in a separate browser worker. The shell keeps its variables and current directory. Commands never run on the server or host OS.
+The default Brush engine can run `bun` as an external WASI program in a separate browser worker. The shell keeps its variables and current directory. Commands never run on the server or host OS. The examples and historical host limits below describe Brush; the separate `own-shell` integration and its current runtime limitations are called out explicitly.
 
 ```sh
 printf 'console.log("first"); await Bun.sleep(1000); console.log("last");' > x.ts
@@ -32,7 +32,7 @@ The guest, runtime sources, and historical Brush host have distinct pins. A runt
 
 ### Browser host adaptations
 
-The following source adapters use the same immutable runtime revision above. Every adapted file carries its original path/revision in its header; none is presented as an unchanged copy.
+The following source adapters originate at the distinct immutable browser-source revision `8d3d416aa9cb23718ed3487a33d0b06e8e373672`. Repinning the unchanged runtime package does not silently repin these adapted sources. Every adapted file carries its original path/revision in its header; none is presented as an unchanged copy.
 
 | Classification | Upstream path → local path | Local changes and reason |
 | --- | --- | --- |
@@ -49,7 +49,9 @@ The following source adapters use the same immutable runtime revision above. Eve
 
 Brush remains the default. Select `?engine=own-shell` to run the Rust `shell-runtime` guest (published as `programs/shell-engine.wasm`). The new path owns a persistent filesystem worker and shell worker, plus a worker per external guest. Browser cleanup assertions compare against this startup baseline, not the historical assumption that a session always has exactly one worker.
 
-`tests/pipelines.acceptance.spec.ts` retains the sixteen pipeline cases and explicitly asserts the selected engine. `tests/runtime-shell.spec.ts` adds foreground CPU interruption/background survival, descendant confirmation, arbitrary fd inheritance, handled EPIPE, continuing background output, and bounded shell/transport memory. Chromium and Firefox run these cases in CI. Safari remains an owner-Mac verification gate; no Linux browser result is presented as Safari evidence. Child programs can deliberately accumulate input in their own heaps; per-program memory policy is a separate runtime concern, not evidence of shell buffering.
+`tests/pipelines.acceptance.spec.ts` retains the sixteen pipeline cases and explicitly asserts the selected engine. `tests/runtime-shell.spec.ts` adds foreground CPU interruption/background survival, arbitrary fd inheritance, handled EPIPE, continuing background output, and bounded shell/transport memory. The descendant-confirmation case is retained as an explicit known failure (`fixme`) pending runtime step 7b; it is not passing cancellation evidence. Chromium and Firefox run the enabled cases in CI. Safari remains an owner-Mac verification gate; no Linux browser result is presented as Safari evidence. Child programs can deliberately accumulate input in their own heaps; per-program memory policy is a separate runtime concern, not evidence of shell buffering.
+
+The full replacement gate remains open. Current runtime limitations also include a 1,024-slot lifetime process-directory limit (including the root), synchronous Preview1 filesystem opens that can block shell cancellation on a stalled filesystem service, and raw inherited terminal input without per-child canonical editing/EOF. [Plan 004](../plans/004-own-shell.md#steps) records the pending runtime work, retained limitation reproducer and filesystem test specifications. This integration does not claim that `poll` is already the sole blocking operation.
 
 ## Build the Bun asset
 
@@ -68,7 +70,7 @@ The source revision and artifact hashes are pinned in `sources.lock.json`. The s
 
 The committed artifact is pinned by hash, not reproducible byte for byte. Rebuilding the pinned revision gives a working binary with a different hash, because the build embeds absolute QuickJS and Bun dependency source paths. To build a comparable binary, make a worktree of bun-wasm at the pinned revision, source `env.sh`, prepare its Bun dependencies with `scripts/sync-bun.sh`, and run `JOBS=4 BINARYEN_CORES=2 scripts/build.sh`; supply it with `BUN_WASM` only after updating the pins. No local runtime patch is needed.
 
-`BUN_WASM` supplies a local uncompressed artifact and must pass the same hash check. Changing the runtime requires updating the source pin and compressed artifact together.
+`BUN_WASM` supplies a local uncompressed artifact and must pass the same hash check. A changed guest requires a traced build revision and updated compressed/uncompressed hashes. A runtime-source-only repin updates the independent runtime revision and tree hash; it does not require rebuilding unchanged guest bytes.
 The unmodified Bun filesystem and WASI host files live in `third-party/bun-wasm/`. Their original paths and source revision are recorded in the lock file. Bun, QuickJS, libc, and Temporal dependency licenses ship in `THIRD_PARTY_NOTICES.txt`.
 
 ## Register another WASI program
