@@ -3933,8 +3933,7 @@ impl<'a> Parser<'a> {
             Some(tokens::Token::DoubleLeftParen)
                 if parts.words.len() > 1
                     || !parts.assignments.is_empty()
-                    || self.strict_command_separators
-                    || self.strict_substitution_bodies =>
+                    || self.strict_command_separators =>
             {
                 return Err(self.error("unexpected token"));
             }
