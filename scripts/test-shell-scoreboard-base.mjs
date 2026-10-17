@@ -7,12 +7,9 @@ import { baseBranchBaseline } from "./shell-scoreboard-base.mjs";
 import { compareScores } from "./shell-scoreboard.mjs";
 
 test("lowering the candidate baseline cannot bypass the target branch", () => {
-  const scratch = mkdtempSync(
-    resolve(
-      process.env.BASH_COMPAT_SCRATCH ?? process.env.RUNNER_TEMP ?? "/work/tmp",
-      "brush-web-baseline-test-",
-    ),
-  );
+  const scratchRoot = process.env.RUNNER_TEMP ?? "/work/tmp/brush-web-climb-subst";
+  mkdirSync(scratchRoot, { recursive: true });
+  const scratch = mkdtempSync(resolve(scratchRoot, "audit-baseline-test-"));
   try {
     const git = (args) =>
       execFileSync("git", args, {

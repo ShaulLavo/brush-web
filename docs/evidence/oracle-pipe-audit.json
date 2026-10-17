@@ -1,0 +1,908 @@
+{
+  "schema": 1,
+  "auditSha256": "870876163a1ee97d605fc88a4b3b7f16c0d9942268a90b9833eff29dd927e7f4",
+  "originalOracleSha256": "cb17fa836a504cf12c49c85c01026900ae3b317f0d054f34429bc65ae1c7fe75",
+  "correctedOracleSha256": "901bc8c971dc53e50350896ff235c006efd1a2d819841b2975f5ed3b77dac1be",
+  "originalOracle": {
+    "version": "GNU bash, version 5.3.15(1)-release (x86_64-pc-linux-gnu)",
+    "executableSha256": "9fac81fba388b23979503502730357710b307e16a64a136d4124af6e6792ba4c",
+    "capturePlatform": "linux",
+    "captureArch": "x64",
+    "sandbox": "bubblewrap unshare-all; /usr read-only; private case home/tmp; no network or owner files",
+    "classification": "Published docs/evidence/bash-compatibility.json builtins-only membership, fresh observations; external and excluded cases retained as skips",
+    "classificationSha256": "65da50f1c7ce548fb0ca72ce1c10f3dd67a4d608f565f1bb30d5af374c45266f",
+    "helpersSha256": "c38a78adcaec1ca6b85085dfe3b665efca4559d80cfa6264e739305aad557dce"
+  },
+  "currentOracle": {
+    "version": "GNU bash, version 5.3.15(1)-release (x86_64-pc-linux-gnu)",
+    "executableSha256": "575e03ac834b739349a4484de481abcd06a6f7193cefc795260a32a1943f20a5",
+    "executableMatchesFrozen": false,
+    "captureNode": "v26.7.0",
+    "capturePlatform": "linux",
+    "captureArch": "x64",
+    "stdoutTransport": "Python3 subprocess stdout=PIPE forwarded byte-for-byte; explicit fd3 exit status",
+    "stderrTransport": "Independent Python3 subprocess stderr=PIPE forwarded byte-for-byte",
+    "sandbox": "bubblewrap unshare-all; /usr read-only; private case home/tmp; no network or owner files",
+    "helpersSha256": "c38a78adcaec1ca6b85085dfe3b665efca4559d80cfa6264e739305aad557dce"
+  },
+  "originalIdentity": {
+    "schema": 1,
+    "caseSet": "3c38e4fb351a85ad936d1d324fcd80d75321d20089535b947d23c406ab2b7c5a",
+    "oracle": "2400cabaca2767307b326d625106d327d159cad9b6bf84279de5feebc9e4ba22",
+    "environment": "507eb1db0221423576b1a0daba7d79a7b2bc3fbbac1a5d86af3a00bc65b29e6a",
+    "sources": "6da342fee1380a0932f51e9cbcd306595dee8b77ffda024c591486365372345d"
+  },
+  "correctedIdentity": {
+    "schema": 1,
+    "caseSet": "3c38e4fb351a85ad936d1d324fcd80d75321d20089535b947d23c406ab2b7c5a",
+    "oracle": "ebc3234245249f0e0292f9362c0ad63a71de36c7e1279886a038e747159ddc5d",
+    "environment": "507eb1db0221423576b1a0daba7d79a7b2bc3fbbac1a5d86af3a00bc65b29e6a",
+    "sources": "6da342fee1380a0932f51e9cbcd306595dee8b77ffda024c591486365372345d"
+  },
+  "eligible": 5792,
+  "skipped": 3429,
+  "allObservedChanges": [
+    "oils:redirect:521",
+    "oils:redirect:543",
+    "oils:shell-bugs:17",
+    "brush-suite:builtins/ulimit:1",
+    "brush-suite:builtins/ulimit:6",
+    "brush-suite:prompt:4",
+    "brush-suite:prompt:9",
+    "brush-suite:well_known_vars:3",
+    "bashkit-suite:awk-aliases:4",
+    "bashkit-suite:bc:1",
+    "bashkit-suite:bc:8",
+    "bashkit-suite:bc:15",
+    "bashkit-suite:bc:22",
+    "bashkit-suite:bc:29",
+    "bashkit-suite:bc:36",
+    "bashkit-suite:bc:43",
+    "bashkit-suite:bc:50",
+    "bashkit-suite:bc:58",
+    "bashkit-suite:bc:67",
+    "bashkit-suite:bc:74",
+    "bashkit-suite:bc:81",
+    "bashkit-suite:bc:88",
+    "bashkit-suite:bc:95",
+    "bashkit-suite:bc:102",
+    "bashkit-suite:cmd-suggestions:9",
+    "bashkit-suite:dev-fd-paths:10",
+    "bashkit-suite:dev-fd-paths:16",
+    "bashkit-suite:dev-fd-paths:23",
+    "bashkit-suite:dev-fd-paths:29",
+    "bashkit-suite:dev-fd-paths:45",
+    "bashkit-suite:hextools:1",
+    "bashkit-suite:hextools:9",
+    "bashkit-suite:system-commands:6",
+    "bashkit-suite:tree:1"
+  ],
+  "transportChanged": [
+    "oils:redirect:521",
+    "oils:redirect:543",
+    "bashkit-suite:dev-fd-paths:10",
+    "bashkit-suite:dev-fd-paths:16",
+    "bashkit-suite:dev-fd-paths:23",
+    "bashkit-suite:dev-fd-paths:29",
+    "bashkit-suite:dev-fd-paths:45"
+  ],
+  "socketDiffersFromFrozen": [
+    "oils:shell-bugs:17",
+    "brush-suite:builtins/ulimit:1",
+    "brush-suite:builtins/ulimit:6",
+    "brush-suite:prompt:4",
+    "brush-suite:prompt:9",
+    "brush-suite:well_known_vars:3",
+    "bashkit-suite:awk-aliases:4",
+    "bashkit-suite:bc:1",
+    "bashkit-suite:bc:8",
+    "bashkit-suite:bc:15",
+    "bashkit-suite:bc:22",
+    "bashkit-suite:bc:29",
+    "bashkit-suite:bc:36",
+    "bashkit-suite:bc:43",
+    "bashkit-suite:bc:50",
+    "bashkit-suite:bc:58",
+    "bashkit-suite:bc:67",
+    "bashkit-suite:bc:74",
+    "bashkit-suite:bc:81",
+    "bashkit-suite:bc:88",
+    "bashkit-suite:bc:95",
+    "bashkit-suite:bc:102",
+    "bashkit-suite:cmd-suggestions:9",
+    "bashkit-suite:hextools:1",
+    "bashkit-suite:hextools:9",
+    "bashkit-suite:system-commands:6",
+    "bashkit-suite:tree:1"
+  ],
+  "nondeterministic": [],
+  "stderrNondeterministic": [],
+  "incomplete": [],
+  "retainedScoredDifferences": [
+    {
+      "id": "oils:shell-bugs:17",
+      "frozen": {
+        "status": 0,
+        "stdout": "c3VwcG9ydHMgLWYKZW52Cg==",
+        "stderr": "MC4wMCAxMjYwCjAuMDAgMTI2MAowLjAwIDEyNjAKMC4wMCAxMjYwCg=="
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAzOiB0aW1lOiBjb21tYW5kIG5vdCBmb3VuZAplbnY6IOKAmHRpbWXigJk6IE5vIHN1Y2ggZmlsZSBvciBkaXJlY3RvcnkK"
+      },
+      "socket": {
+        "status": 0,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAzOiB0aW1lOiBjb21tYW5kIG5vdCBmb3VuZAplbnY6IOKAmHRpbWXigJk6IE5vIHN1Y2ggZmlsZSBvciBkaXJlY3RvcnkK"
+      }
+    },
+    {
+      "id": "brush-suite:builtins/ulimit:1",
+      "frozen": {
+        "status": 0,
+        "stdout": "MAo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "dW5saW1pdGVkCg==",
+        "stderr": ""
+      },
+      "socket": {
+        "status": 0,
+        "stdout": "dW5saW1pdGVkCg==",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "brush-suite:builtins/ulimit:6",
+      "frozen": {
+        "status": 0,
+        "stdout": "NjU1MzYK",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "NTI0Mjg4Cg==",
+        "stderr": ""
+      },
+      "socket": {
+        "status": 0,
+        "stdout": "NTI0Mjg4Cg==",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "brush-suite:prompt:4",
+      "frozen": {
+        "status": 0,
+        "stdout": "UHJvbXB0OiAncnVubmVydm04azNiNiAnClByb21wdDogJ3J1bm5lcnZtOGszYjYgJwo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "UHJvbXB0OiAnb21hcmNoeSAnClByb21wdDogJ29tYXJjaHkgJwo=",
+        "stderr": ""
+      },
+      "socket": {
+        "status": 0,
+        "stdout": "UHJvbXB0OiAnb21hcmNoeSAnClByb21wdDogJ29tYXJjaHkgJwo=",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "brush-suite:prompt:9",
+      "frozen": {
+        "status": 0,
+        "stdout": "RGF0ZSBmb3JtYXQgd2l0aCB5ZWFyOiAnRnJpIE9jdCAxNnslWX0nCg==",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "RGF0ZSBmb3JtYXQgd2l0aCB5ZWFyOiAnU2F0IE9jdCAxN3slWX0nCg==",
+        "stderr": ""
+      },
+      "socket": {
+        "status": 0,
+        "stdout": "RGF0ZSBmb3JtYXQgd2l0aCB5ZWFyOiAnU2F0IE9jdCAxN3slWX0nCg==",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "brush-suite:well_known_vars:3",
+      "frozen": {
+        "status": 0,
+        "stdout": "RVVJRDogMTAwMQpVSUQ6IDEwMDEKQkFTSFBJRCA9PSBcJCQ6ICAwCkJBU0hfQVJHVjAgPT0gJDA6ICAwCk1BQ0hUWVBFID09ICR7QkFTSF9WRVJTSU5GT1s1XTogIDAK",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "RVVJRDogMTAwMApVSUQ6IDEwMDAKQkFTSFBJRCA9PSBcJCQ6ICAwCkJBU0hfQVJHVjAgPT0gJDA6ICAwCk1BQ0hUWVBFID09ICR7QkFTSF9WRVJTSU5GT1s1XTogIDAK",
+        "stderr": ""
+      },
+      "socket": {
+        "status": 0,
+        "stdout": "RVVJRDogMTAwMApVSUQ6IDEwMDAKQkFTSFBJRCA9PSBcJCQ6ICAwCkJBU0hfQVJHVjAgPT0gJDA6ICAwCk1BQ0hUWVBFID09ICR7QkFTSF9WRVJTSU5GT1s1XTogIDAK",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "bashkit-suite:awk-aliases:4",
+      "frozen": {
+        "status": 0,
+        "stdout": "Ygo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBtYXdrOiBjb21tYW5kIG5vdCBmb3VuZAo="
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBtYXdrOiBjb21tYW5kIG5vdCBmb3VuZAo="
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:1",
+      "frozen": {
+        "status": 0,
+        "stdout": "Mwo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:8",
+      "frozen": {
+        "status": 0,
+        "stdout": "Nwo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:15",
+      "frozen": {
+        "status": 0,
+        "stdout": "NDIK",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:22",
+      "frozen": {
+        "status": 0,
+        "stdout": "Mwo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:29",
+      "frozen": {
+        "status": 0,
+        "stdout": "My4zMwo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:36",
+      "frozen": {
+        "status": 0,
+        "stdout": "MTAyNAo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:43",
+      "frozen": {
+        "status": 0,
+        "stdout": "MjAK",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:50",
+      "frozen": {
+        "status": 0,
+        "stdout": "MTA4Ljc5MTIK",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:58",
+      "frozen": {
+        "status": 0,
+        "stdout": "Mgo0CjYK",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:67",
+      "frozen": {
+        "status": 0,
+        "stdout": "LTIK",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:74",
+      "frozen": {
+        "status": 0,
+        "stdout": "MQo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:81",
+      "frozen": {
+        "status": 0,
+        "stdout": "MTAK",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:88",
+      "frozen": {
+        "status": 0,
+        "stdout": "MQo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:95",
+      "frozen": {
+        "status": 0,
+        "stdout": "MS40MTQyCg==",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:bc:102",
+      "frozen": {
+        "status": 0,
+        "stdout": "",
+        "stderr": "UnVudGltZSBlcnJvciAoZnVuYz0obWFpbiksIGFkcj0zKTogRGl2aWRlIGJ5IHplcm8K"
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBiYzogY29tbWFuZCBub3QgZm91bmQK"
+      }
+    },
+    {
+      "id": "bashkit-suite:cmd-suggestions:9",
+      "frozen": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "ZXJyb3I6IGV4dGVybmFsbHktbWFuYWdlZC1lbnZpcm9ubWVudAoKw5cgVGhpcyBlbnZpcm9ubWVudCBpcyBleHRlcm5hbGx5IG1hbmFnZWQK4pWw4pSAPiBUbyBpbnN0YWxsIFB5dGhvbiBwYWNrYWdlcyBzeXN0ZW0td2lkZSwgdHJ5IGFwdCBpbnN0YWxsCiAgICBweXRob24zLXh5eiwgd2hlcmUgeHl6IGlzIHRoZSBwYWNrYWdlIHlvdSBhcmUgdHJ5aW5nIHRvCiAgICBpbnN0YWxsLgogICAgCiAgICBJZiB5b3Ugd2lzaCB0byBpbnN0YWxsIGEgbm9uLURlYmlhbi1wYWNrYWdlZCBQeXRob24gcGFja2FnZSwKICAgIGNyZWF0ZSBhIHZpcnR1YWwgZW52aXJvbm1lbnQgdXNpbmcgcHl0aG9uMyAtbSB2ZW52IHBhdGgvdG8vdmVudi4KICAgIFRoZW4gdXNlIHBhdGgvdG8vdmVudi9iaW4vcHl0aG9uIGFuZCBwYXRoL3RvL3ZlbnYvYmluL3BpcC4gTWFrZQogICAgc3VyZSB5b3UgaGF2ZSBweXRob24zLWZ1bGwgaW5zdGFsbGVkLgogICAgCiAgICBJZiB5b3Ugd2lzaCB0byBpbnN0YWxsIGEgbm9uLURlYmlhbiBwYWNrYWdlZCBQeXRob24gYXBwbGljYXRpb24sCiAgICBpdCBtYXkgYmUgZWFzaWVzdCB0byB1c2UgcGlweCBpbnN0YWxsIHh5eiwgd2hpY2ggd2lsbCBtYW5hZ2UgYQogICAgdmlydHVhbCBlbnZpcm9ubWVudCBmb3IgeW91LiBNYWtlIHN1cmUgeW91IGhhdmUgcGlweCBpbnN0YWxsZWQuCiAgICAKICAgIFNlZSAvdXNyL3NoYXJlL2RvYy9weXRob24zLjEyL1JFQURNRS52ZW52IGZvciBtb3JlIGluZm9ybWF0aW9uLgoKbm90ZTogSWYgeW91IGJlbGlldmUgdGhpcyBpcyBhIG1pc3Rha2UsIHBsZWFzZSBjb250YWN0IHlvdXIgUHl0aG9uIGluc3RhbGxhdGlvbiBvciBPUyBkaXN0cmlidXRpb24gcHJvdmlkZXIuIFlvdSBjYW4gb3ZlcnJpZGUgdGhpcywgYXQgdGhlIHJpc2sgb2YgYnJlYWtpbmcgeW91ciBQeXRob24gaW5zdGFsbGF0aW9uIG9yIE9TLCBieSBwYXNzaW5nIC0tYnJlYWstc3lzdGVtLXBhY2thZ2VzLgpoaW50OiBTZWUgUEVQIDY2OCBmb3IgdGhlIGRldGFpbGVkIHNwZWNpZmljYXRpb24uCg=="
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBwaXA6IGNvbW1hbmQgbm90IGZvdW5kCg=="
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBwaXA6IGNvbW1hbmQgbm90IGZvdW5kCg=="
+      }
+    },
+    {
+      "id": "bashkit-suite:hextools:1",
+      "frozen": {
+        "status": 0,
+        "stdout": "NDg2OQo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiB4eGQ6IGNvbW1hbmQgbm90IGZvdW5kCg=="
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiB4eGQ6IGNvbW1hbmQgbm90IGZvdW5kCg=="
+      }
+    },
+    {
+      "id": "bashkit-suite:hextools:9",
+      "frozen": {
+        "status": 0,
+        "stdout": "MDAwMDAwMDA6IDQxNDIgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgQUIK",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiB4eGQ6IGNvbW1hbmQgbm90IGZvdW5kCg=="
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiB4eGQ6IGNvbW1hbmQgbm90IGZvdW5kCg=="
+      }
+    },
+    {
+      "id": "bashkit-suite:system-commands:6",
+      "frozen": {
+        "status": 0,
+        "stdout": "eDg2XzY0Cg==",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBhcmNoOiBjb21tYW5kIG5vdCBmb3VuZAo="
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiBhcmNoOiBjb21tYW5kIG5vdCBmb3VuZAo="
+      }
+    },
+    {
+      "id": "bashkit-suite:tree:1",
+      "frozen": {
+        "status": 0,
+        "stdout": "L3RtcC90cmVlX25yCuKUlOKUgOKUgCBhCiAgICDilJTilIDilIAgZi50eHQK",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAzOiB0cmVlOiBjb21tYW5kIG5vdCBmb3VuZAo="
+      },
+      "socket": {
+        "status": 127,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAzOiB0cmVlOiBjb21tYW5kIG5vdCBmb3VuZAo="
+      }
+    }
+  ],
+  "retainedIncidentalStderrDifferences": [
+    {
+      "id": "bashkit-suite:time:78",
+      "reason": "No output-reopen operation; ordinary timing diagnostic variance, not a socket artifact.",
+      "pipe": {
+        "status": 0,
+        "stdout": "MQo=",
+        "stderr": "CnJlYWwJMG0wLjAwMHMKdXNlcgkwbTAuMDAwcwpzeXMJMG0wLjAwMHMK"
+      },
+      "socket": {
+        "status": 0,
+        "stdout": "MQo=",
+        "stderr": "CnJlYWwJMG0wLjAwMXMKdXNlcgkwbTAuMDAwcwpzeXMJMG0wLjAwMHMK"
+      }
+    }
+  ],
+  "proof": {
+    "baseRef": "9b371d4dd098bca90590d9102dff3dd74ef95178",
+    "engineSha256": "9daf918de220e13981795f0c0356efc980c77a043e9d44ad38a6f0e9a3f59228",
+    "scorer": "Unmodified target-commit scripts/bash-compat.mjs for both replays",
+    "oldMembershipProven": true,
+    "engineSourceUnchanged": true,
+    "oldCounts": {
+      "oils": {
+        "total": 2492,
+        "passed": 525,
+        "skipped": 810
+      },
+      "brush-suite": {
+        "total": 2894,
+        "passed": 394,
+        "skipped": 1006
+      },
+      "bashkit-suite": {
+        "total": 3835,
+        "passed": 785,
+        "skipped": 1613
+      }
+    },
+    "correctedBaseCounts": {
+      "oils": {
+        "total": 2492,
+        "passed": 524,
+        "skipped": 810
+      },
+      "brush-suite": {
+        "total": 2894,
+        "passed": 394,
+        "skipped": 1006
+      },
+      "bashkit-suite": {
+        "total": 3835,
+        "passed": 785,
+        "skipped": 1613
+      }
+    },
+    "correctedCandidateCounts": {
+      "oils": {
+        "total": 2492,
+        "passed": 524,
+        "skipped": 810
+      },
+      "brush-suite": {
+        "total": 2894,
+        "passed": 394,
+        "skipped": 1006
+      },
+      "bashkit-suite": {
+        "total": 3835,
+        "passed": 785,
+        "skipped": 1613
+      }
+    },
+    "scoreChanges": [
+      {
+        "id": "oils:redirect:543",
+        "before": "pass",
+        "after": "fail"
+      }
+    ]
+  },
+  "changes": [
+    {
+      "id": "oils:redirect:521",
+      "reason": "Every /dev/stdout reopen fails ENXIO only with the socket transport.",
+      "scored": true,
+      "stderr": true,
+      "original": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiAvZGV2L3N0ZG91dDogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwovdXNyL2Jpbi9iYXNoOiBsaW5lIDI6IC9kZXYvc3Rkb3V0OiBObyBzdWNoIGRldmljZSBvciBhZGRyZXNzCi91c3IvYmluL2Jhc2g6IGxpbmUgMzogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MKL3Vzci9iaW4vYmFzaDogbGluZSA1OiAvZGV2L3N0ZG91dDogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwovdXNyL2Jpbi9iYXNoOiBsaW5lIDY6IC9kZXYvc3Rkb3V0OiBObyBzdWNoIGRldmljZSBvciBhZGRyZXNzCi91c3IvYmluL2Jhc2g6IGxpbmUgNzogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MKL3Vzci9iaW4vYmFzaDogbGluZSA5OiAvZGV2L3N0ZG91dDogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwo="
+      },
+      "corrected": {
+        "status": 0,
+        "stdout": "eD0xCng9MQp4PQorMQorMQorCmExCg==",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "eD0xCng9MQp4PQorMQorMQorCmExCg==",
+        "stderr": ""
+      },
+      "socket": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiAvZGV2L3N0ZG91dDogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwovdXNyL2Jpbi9iYXNoOiBsaW5lIDI6IC9kZXYvc3Rkb3V0OiBObyBzdWNoIGRldmljZSBvciBhZGRyZXNzCi91c3IvYmluL2Jhc2g6IGxpbmUgMzogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MKL3Vzci9iaW4vYmFzaDogbGluZSA1OiAvZGV2L3N0ZG91dDogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwovdXNyL2Jpbi9iYXNoOiBsaW5lIDY6IC9kZXYvc3Rkb3V0OiBObyBzdWNoIGRldmljZSBvciBhZGRyZXNzCi91c3IvYmluL2Jhc2g6IGxpbmUgNzogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MKL3Vzci9iaW4vYmFzaDogbGluZSA5OiAvZGV2L3N0ZG91dDogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwo="
+      },
+      "repeatSha256": "10bd75f7195d8378fa4b50043170b2bd9b238b6f7b21fd0081579ec0759b0175"
+    },
+    {
+      "id": "oils:redirect:543",
+      "reason": "ENXIO suppresses output and allocated descriptor updates only with sockets.",
+      "scored": true,
+      "stderr": true,
+      "original": {
+        "status": 0,
+        "stdout": "MAowCjAKMAowCjAK",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAzOiAvZGV2L3N0ZG91dDogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwovdXNyL2Jpbi9iYXNoOiBsaW5lIDY6IC9kZXYvc3Rkb3V0OiBObyBzdWNoIGRldmljZSBvciBhZGRyZXNzCi91c3IvYmluL2Jhc2g6IGxpbmUgODogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MKL3Vzci9iaW4vYmFzaDogbGluZSAxMDogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MKL3Vzci9iaW4vYmFzaDogbGluZSAxMzogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MKL3Vzci9iaW4vYmFzaDogbGluZSAxNTogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MKL3Vzci9iaW4vYmFzaDogbGluZSAxNzogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MK"
+      },
+      "corrected": {
+        "status": 0,
+        "stdout": "Cng9e215dmFyfQowCng9e215dmFyfQowCng9CjEKK3tteXZhcn0KMQore215dmFyfQoxCisKMgo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "Cng9e215dmFyfQowCng9e215dmFyfQowCng9CjEKK3tteXZhcn0KMQore215dmFyfQoxCisKMgo=",
+        "stderr": ""
+      },
+      "socket": {
+        "status": 0,
+        "stdout": "MAowCjAKMAowCjAK",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAzOiAvZGV2L3N0ZG91dDogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwovdXNyL2Jpbi9iYXNoOiBsaW5lIDY6IC9kZXYvc3Rkb3V0OiBObyBzdWNoIGRldmljZSBvciBhZGRyZXNzCi91c3IvYmluL2Jhc2g6IGxpbmUgODogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MKL3Vzci9iaW4vYmFzaDogbGluZSAxMDogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MKL3Vzci9iaW4vYmFzaDogbGluZSAxMzogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MKL3Vzci9iaW4vYmFzaDogbGluZSAxNTogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MKL3Vzci9iaW4vYmFzaDogbGluZSAxNzogL2Rldi9zdGRvdXQ6IE5vIHN1Y2ggZGV2aWNlIG9yIGFkZHJlc3MK"
+      },
+      "repeatSha256": "cf7e3981671d09fb5739d109fdef1860ccd609bc1dc5b38c4e92d70ecf44d210"
+    },
+    {
+      "id": "bashkit-suite:bashbox-interpreter-builtins:274",
+      "reason": "Reopening /dev/stderr emits x with a pipe; socket ENXIO changes stderr only.",
+      "scored": false,
+      "stderr": true,
+      "original": {
+        "status": 0,
+        "stdout": "eQo=",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiAvZGV2L3N0ZGVycjogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwo="
+      },
+      "corrected": {
+        "status": 0,
+        "stdout": "eQo=",
+        "stderr": "eAo="
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "eQo=",
+        "stderr": "eAo="
+      },
+      "socket": {
+        "status": 0,
+        "stdout": "eQo=",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiAvZGV2L3N0ZGVycjogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwo="
+      },
+      "repeatSha256": "aaf3b10559fe233ac5901a0a31c4f4d11c2887d8e10ed96f10fe1c72a3398370"
+    },
+    {
+      "id": "bashkit-suite:dev-fd-paths:10",
+      "reason": "Reopening merged /dev/stderr fails ENXIO only with sockets.",
+      "scored": true,
+      "stderr": false,
+      "original": {
+        "status": 1,
+        "stdout": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiAvZGV2L3N0ZGVycjogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwo=",
+        "stderr": ""
+      },
+      "corrected": {
+        "status": 0,
+        "stdout": "ZXJyCg==",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "ZXJyCg==",
+        "stderr": ""
+      },
+      "socket": {
+        "status": 1,
+        "stdout": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiAvZGV2L3N0ZGVycjogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwo=",
+        "stderr": ""
+      },
+      "repeatSha256": "ae2da4bee1d6ae7a89ac22a442708bdf61dc2ae1bb525127f93de88499fb6a22"
+    },
+    {
+      "id": "bashkit-suite:dev-fd-paths:16",
+      "reason": "Appending to merged /dev/stderr fails ENXIO only with sockets.",
+      "scored": true,
+      "stderr": false,
+      "original": {
+        "status": 1,
+        "stdout": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiAvZGV2L3N0ZGVycjogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwovdXNyL2Jpbi9iYXNoOiBsaW5lIDE6IC9kZXYvc3RkZXJyOiBObyBzdWNoIGRldmljZSBvciBhZGRyZXNzCg==",
+        "stderr": ""
+      },
+      "corrected": {
+        "status": 0,
+        "stdout": "YQpiCg==",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "YQpiCg==",
+        "stderr": ""
+      },
+      "socket": {
+        "status": 1,
+        "stdout": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiAvZGV2L3N0ZGVycjogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwovdXNyL2Jpbi9iYXNoOiBsaW5lIDE6IC9kZXYvc3RkZXJyOiBObyBzdWNoIGRldmljZSBvciBhZGRyZXNzCg==",
+        "stderr": ""
+      },
+      "repeatSha256": "533be1dacf29b23fc9c8c6f1d4a436638629fd21e5770c50c217eacfc69676c4"
+    },
+    {
+      "id": "bashkit-suite:dev-fd-paths:23",
+      "reason": "Reopening /dev/stdout for stderr fails ENXIO only with sockets.",
+      "scored": true,
+      "stderr": true,
+      "original": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiAvZGV2L3N0ZG91dDogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwo="
+      },
+      "corrected": {
+        "status": 0,
+        "stdout": "ZQo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "ZQo=",
+        "stderr": ""
+      },
+      "socket": {
+        "status": 1,
+        "stdout": "",
+        "stderr": "L3Vzci9iaW4vYmFzaDogbGluZSAxOiAvZGV2L3N0ZG91dDogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwo="
+      },
+      "repeatSha256": "dffcc6bb605928611e4955ec4873d947593e85dc1d80bbe775a18275013e7247"
+    },
+    {
+      "id": "bashkit-suite:dev-fd-paths:29",
+      "reason": "The /dev/fd/1 reopen fails only with sockets; fd2 targets /dev/null.",
+      "scored": true,
+      "stderr": false,
+      "original": {
+        "status": 1,
+        "stdout": "",
+        "stderr": ""
+      },
+      "corrected": {
+        "status": 0,
+        "stdout": "dHdvCg==",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "dHdvCg==",
+        "stderr": ""
+      },
+      "socket": {
+        "status": 1,
+        "stdout": "",
+        "stderr": ""
+      },
+      "repeatSha256": "909dba5adcba68f58033e86055e8e6a715071f15798d11554f5a13d897d7dd32"
+    },
+    {
+      "id": "bashkit-suite:dev-fd-paths:45",
+      "reason": "A variable naming merged /dev/stderr fails ENXIO only with sockets.",
+      "scored": true,
+      "stderr": false,
+      "original": {
+        "status": 1,
+        "stdout": "L3Vzci9iaW4vYmFzaDogbGluZSAyOiAvZGV2L3N0ZGVycjogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwo=",
+        "stderr": ""
+      },
+      "corrected": {
+        "status": 0,
+        "stdout": "d2Fybgo=",
+        "stderr": ""
+      },
+      "pipe": {
+        "status": 0,
+        "stdout": "d2Fybgo=",
+        "stderr": ""
+      },
+      "socket": {
+        "status": 1,
+        "stdout": "L3Vzci9iaW4vYmFzaDogbGluZSAyOiAvZGV2L3N0ZGVycjogTm8gc3VjaCBkZXZpY2Ugb3IgYWRkcmVzcwo=",
+        "stderr": ""
+      },
+      "repeatSha256": "fd81dc9215428d2e0527ec96975658569de0e03f049de51d1a57f0668b17f9ef"
+    }
+  ]
+}

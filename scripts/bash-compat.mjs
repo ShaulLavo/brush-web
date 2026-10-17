@@ -1,14 +1,20 @@
 // Runs the pinned Oils shell spec corpus through real GNU bash and each browser engine.
 // Bash is the oracle: a case passes when stdout and exit status match bash exactly.
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { availableParallelism, constants } from "node:os";
+import { availableParallelism } from "node:os";
 import { basename, resolve } from "node:path";
 import { Worker } from "node:worker_threads";
 import { pythonHelpers } from "./bash-compat-helpers.mjs";
-import { baseBranchBaseline } from "./shell-scoreboard-base.mjs";
+import {
+  bashStderrTransport,
+  bashStdoutTransport,
+  createShellRunner,
+  normalize,
+} from "./bash-compat-runner.mjs";
+import { cancelTargetMigrations, targetBranchBaseline } from "./shell-scoreboard-base.mjs";
 import {
   bytesDigest,
   compactResult,
@@ -352,17 +358,29 @@ await mkdir(scratchRoot, { recursive: true });
 const scratch = await mkdtemp(resolve(scratchRoot, "brush-web-compat-"));
 const pools = [];
 const activeChildren = new Map();
-let finished = false;
-process.on("SIGINT", () => process.exit(130));
-process.on("SIGTERM", () => process.exit(143));
-process.on("exit", () => {
+const runShell = createShellRunner({ scratch, timeoutMs, activeChildren });
+let cancelled = false;
+let shutdown = Promise.resolve();
+const killAll = () => {
   for (const kill of activeChildren.keys()) kill();
-  if (!finished) execFileSync("rm", ["-rf", scratch]);
-});
+};
+const closePools = () => Promise.allSettled(pools.map((pool) => pool.close()));
+const stop = (status) => {
+  cancelled = true;
+  process.exitCode = status;
+  killAll();
+  cancelTargetMigrations();
+  shutdown = shutdown.then(closePools);
+};
+process.on("SIGINT", () => stop(130));
+process.on("SIGTERM", () => stop(143));
+process.on("exit", killAll);
 
 async function main() {
+  if (cancelled) return;
   if (mode === "frozen") return runFrozen();
   const corpus = corpusNames.includes("oils") ? await prepareCorpus() : undefined;
+  if (cancelled) return;
   if (mode === "live") prepareEngines();
   const helperDirectory = resolve(scratch, "helpers");
   await mkdir(helperDirectory);
@@ -375,16 +393,20 @@ async function main() {
     await loadBrushCases(),
     await loadBashkitCases(),
   );
+  if (cancelled) return;
   if (mode === "capture") return captureOracle(cases, helperDirectory, bashVersion);
   for (const name of corpusNames)
     log(`${name}: ${cases.filter((item) => item.corpus === name).length} cases`);
 
   const fullPath = `${helperDirectory}:/usr/local/bin:/usr/bin:/bin`;
   await mapLimit(cases, jobs * 2, async (item) => {
-    if (item.excluded) return;
+    if (cancelled || item.excluded) return;
     const first = await runShell(bashPath, item.code, fullPath);
+    if (cancelled) return;
     const second = await runShell(bashPath, item.code, fullPath);
+    if (cancelled) return;
     const builtinsOnly = await runShell(bashPath, item.code, helperDirectory);
+    if (cancelled) return;
     item.bash = first;
     if (first.timeout) item.excluded = "bash timed out";
     else if (!same(first, second)) item.excluded = "bash output is not deterministic";
@@ -400,12 +422,15 @@ async function main() {
       ).sort();
     } else item.kind = "builtins-only";
   });
+  if (cancelled) return;
   log("bash oracle done");
 
   const spots = spotChecks.map(([name, code]) => ({ name, code: spotSetup + code }));
   await mapLimit(spots, jobs, async (spot) => {
+    if (cancelled) return;
     spot.bash = await runShell(bashPath, spot.code, fullPath);
   });
+  if (cancelled) return;
 
   const inventoryNames = Array.from(
     new Set(commonCommands.concat(cases.flatMap((item) => item.needs ?? []))),
@@ -414,24 +439,29 @@ async function main() {
 
   const inventories = {};
   for (const engine of engineNames) {
+    if (cancelled) return;
     const native = engines[engine].binary;
     const pool = native
       ? { run: (code) => runShell(native, code, fullPath), close: async () => {} }
       : new Pool(engine, jobs);
     pools.push(pool);
     const inventory = await pool.run(inventoryScript);
+    if (cancelled) return;
     inventories[engine] = inventory.stdout.toString("utf8").split("\n").filter(Boolean);
     const available = new Set(inventories[engine]);
     let done = 0;
     await mapLimit(cases, jobs, async (item) => {
-      if (item.excluded) return;
+      if (cancelled || item.excluded) return;
       const actual = await pool.run(item.code);
+      if (cancelled) return;
       item.results ??= {};
       item.results[engine] = judge(item, actual, available);
       if (++done % 250 === 0) log(`${engine}: ${done}`);
     });
     await mapLimit(spots, jobs, async (spot) => {
+      if (cancelled) return;
       const actual = await pool.run(spot.code);
+      if (cancelled) return;
       spot.results ??= {};
       spot.results[engine] = same(spot.bash, normalizeResult(actual))
         ? "pass"
@@ -440,11 +470,13 @@ async function main() {
           : "fail";
     });
     await pool.close();
+    if (cancelled) return;
     log(`${engine} done`);
   }
 
   const evidence = buildEvidence({ bashVersion, cases, spots, inventories, inventoryNames });
   evidence.mapfile = await probeMapfile(fullPath);
+  if (cancelled) return;
   // One line per case keeps the evidence file reviewable in diffs.
   const rows = evidence.cases.map((item) => JSON.stringify(item)).join(",\n");
   await writeFile(
@@ -747,123 +779,6 @@ function parseSpecFile(text) {
   return cases.filter((item) => item.code);
 }
 
-async function runShell(shell, code, path, sandbox = false) {
-  const directory = await mkdtemp(resolve(scratch, "bash-"));
-  const tmp = resolve(directory, "tmp");
-  const home = resolve(directory, "home");
-  let kill = () => {};
-  try {
-    await mkdir(tmp);
-    await mkdir(home);
-    const sandboxArgs = [
-      "--unshare-all",
-      "--die-with-parent",
-      "--new-session",
-      "--ro-bind",
-      "/usr",
-      "/usr",
-      "--symlink",
-      "usr/lib",
-      "/lib",
-      "--symlink",
-      "usr/lib64",
-      "/lib64",
-      "--proc",
-      "/proc",
-      "--dev",
-      "/dev",
-      "--tmpfs",
-      "/tmp",
-      "--bind",
-      directory,
-      directory,
-      "--ro-bind",
-      resolve(scratch, "helpers"),
-      resolve(scratch, "helpers"),
-      "--ro-bind",
-      shell,
-      shell,
-      "--chdir",
-      tmp,
-      "--",
-      shell,
-      "-c",
-      code,
-    ];
-    const child = spawn(sandbox ? "bwrap" : shell, sandbox ? sandboxArgs : ["-c", code], {
-      cwd: tmp,
-      env: { PATH: path, HOME: home, TMP: tmp, SH: "bash", LC_ALL: "C.UTF-8" },
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
-    });
-    kill = () => {
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch {}
-    };
-    const running = collectShell(child, kill, tmp, home);
-    activeChildren.set(kill, running);
-    return await running;
-  } finally {
-    kill();
-    activeChildren.delete(kill);
-    await rm(directory, { recursive: true, force: true });
-  }
-}
-function collectShell(child, kill, tmp, home) {
-  return new Promise((done, fail) => {
-    const stdout = [];
-    const stderr = [];
-    let timeout = false;
-    let outputLimit = false;
-    let bytes = 0;
-    const timer = setTimeout(() => {
-      timeout = true;
-      kill();
-    }, timeoutMs);
-    const collect = (chunks, chunk) => {
-      bytes += chunk.length;
-      if (bytes <= 4 * 1024 * 1024) return chunks.push(chunk);
-      outputLimit = true;
-      kill();
-    };
-    child.stdout.on("data", (chunk) => collect(stdout, chunk));
-    child.stderr.on("data", (chunk) => collect(stderr, chunk));
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      fail(error);
-    });
-    child.once("exit", kill);
-    child.once("close", (status, signal) => {
-      clearTimeout(timer);
-      done(
-        normalize(
-          {
-            stdout: Buffer.concat(stdout),
-            stderr: Buffer.concat(stderr),
-            status: status ?? 128 + (constants.signals[signal] ?? 0),
-            timeout,
-            outputLimit,
-          },
-          [
-            [tmp, "$TMP"],
-            [home, "$HOME"],
-          ],
-        ),
-      );
-    });
-  });
-}
-
-function normalize(result, paths) {
-  const replace = (bytes) => {
-    let text = bytes.toString("latin1");
-    for (const [from, to] of paths) text = text.split(from).join(to);
-    return Buffer.from(text, "latin1");
-  };
-  return { ...result, stdout: replace(result.stdout), stderr: replace(result.stderr) };
-}
-
 function normalizeResult(actual) {
   return normalize(actual, [
     [virtualTmp, "$TMP"],
@@ -917,9 +832,12 @@ class Pool {
     this.workers = new Set();
     this.size = size;
     this.sequence = 0;
+    this.closed = cancelled;
+    this.closing = Promise.resolve();
   }
 
   async spawn() {
+    if (this.closed) return null;
     const worker = new Worker(resolve(import.meta.dirname, "bash-compat-worker.mjs"), {
       workerData: {
         engine: this.engine.startsWith("bashkit") ? "bashkit" : this.engine,
@@ -937,19 +855,35 @@ class Pool {
     worker.stderr.resume();
     this.workers.add(worker);
     await new Promise((ready, fail) => {
-      worker.once("message", ready);
+      const onReady = () => {
+        worker.off("error", fail);
+        worker.off("exit", onExit);
+        ready();
+      };
+      const onExit = (code) => fail(new Error(`worker exited before ready: ${code}`));
+      worker.once("message", onReady);
       worker.once("error", fail);
+      worker.once("exit", onExit);
     });
+    if (this.closed) {
+      await worker.terminate();
+      return null;
+    }
     return worker;
   }
 
   async acquire() {
+    if (this.closed) return null;
     if (this.idle.length) return this.idle.pop();
     if (this.workers.size < this.size) return this.spawn();
-    return new Promise((resume) => this.waiting.push(resume));
+    return new Promise((resume) => {
+      if (this.closed) resume(null);
+      else this.waiting.push(resume);
+    });
   }
 
   release(worker) {
+    if (this.closed) return;
     const next = this.waiting.shift();
     if (next) next(worker);
     else this.idle.push(worker);
@@ -958,12 +892,15 @@ class Pool {
   async replace(worker) {
     this.workers.delete(worker);
     await worker.terminate();
+    if (this.closed) return;
     const next = this.waiting.shift();
     if (next) next(await this.spawn());
   }
 
   async run(code) {
     const worker = await this.acquire();
+    if (!worker)
+      return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), cancelled: true, dead: true };
     const id = ++this.sequence;
     const result = await new Promise((done) => {
       const finish = (value) => {
@@ -996,22 +933,35 @@ class Pool {
   }
 
   async close() {
+    if (this.closed) return this.closing;
+    this.closed = true;
+    for (const resume of this.waiting.splice(0)) resume(null);
     const workers = Array.from(this.workers);
     this.workers.clear();
     this.idle = [];
-    await Promise.all(workers.map((worker) => worker.terminate()));
+    this.closing = Promise.all(workers.map((worker) => worker.terminate())).then(() => undefined);
+    return this.closing;
   }
 }
 
 async function mapLimit(items, limit, task) {
   let next = 0;
+  let stopped = false;
   const lanes = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
+    while (!stopped && !cancelled && next < items.length) {
       const index = next++;
-      await task(items[index], index);
+      try {
+        await task(items[index], index);
+      } catch (error) {
+        stopped = true;
+        throw error;
+      }
     }
   });
-  await Promise.all(lanes);
+  const results = await Promise.allSettled(lanes);
+  if (cancelled) return;
+  const failure = results.find((result) => result.status === "rejected");
+  if (failure) throw failure.reason;
 }
 
 function rate(passed, total) {
@@ -1254,13 +1204,17 @@ async function captureOracle(cases, helperDirectory, bashVersion) {
     }),
   );
   const path = `${helperDirectory}:/usr/local/bin:/usr/bin:/bin`;
+  if (cancelled) return;
   const preflight = await runShell(bashPath, "printf compat-oracle-ready", path, true);
+  if (cancelled) return;
   if (preflight.status !== 0 || preflight.stdout.toString() !== "compat-oracle-ready")
     throw new Error(`Oracle sandbox preflight failed: ${preflight.stderr.toString()}`);
   await mapLimit(records, jobs, async (item) => {
-    if (item.excluded || item.kind !== "builtins-only") return;
+    if (cancelled || item.excluded || item.kind !== "builtins-only") return;
     const first = await runShell(bashPath, item.code, path, true);
+    if (cancelled) return;
     const second = await runShell(bashPath, item.code, path, true);
+    if (cancelled) return;
     item.bash = packResult(first);
     if (first.outputLimit || second.outputLimit)
       item.excluded = "fresh bash oracle exceeded 4 MiB output limit";
@@ -1268,12 +1222,15 @@ async function captureOracle(cases, helperDirectory, bashVersion) {
     else if (!same(first, second)) item.excluded = "fresh bash oracle output is not deterministic";
     if (++done % 250 === 0) log(`fresh bash oracle: ${done}`);
   });
+  if (cancelled) return;
   const oracle = sealOracle({
     schema: 1,
     oracle: {
       version: bashVersion,
       executableSha256: bytesDigest(await readFile(bashPath)),
       captureNode: process.version,
+      stdoutTransport: bashStdoutTransport,
+      stderrTransport: bashStderrTransport,
       capturePlatform: process.platform,
       captureArch: process.arch,
       sandbox:
@@ -1342,10 +1299,19 @@ async function runFrozen() {
   if (process.env.BASH_COMPAT_RECORD !== "1") {
     const committed = JSON.parse(await readFile(baselineFile, "utf8"));
     baselines.push({ label: "committed baseline", score: committed, requireMembership: true });
-    const target = baseBranchBaseline(root, process.env.BASH_COMPAT_BASE_REF);
+    if (cancelled) return;
+    let target;
+    try {
+      target = await targetBranchBaseline(root, process.env.BASH_COMPAT_BASE_REF, oracle);
+    } catch (error) {
+      if (cancelled) return;
+      throw error;
+    }
+    if (cancelled) return;
     if (target) baselines.push({ label: "target branch baseline", score: target });
     for (const baseline of baselines) validateScore(oracle, baseline.score);
   }
+  if (cancelled) return;
   prepareEngines();
   const pool = new Pool("own-shell", jobs);
   pools.push(pool);
@@ -1359,8 +1325,9 @@ async function runFrozen() {
   }));
   let done = 0;
   await mapLimit(oracle.cases, jobs, async (item, index) => {
-    if (item.excluded || item.kind !== "builtins-only") return;
+    if (cancelled || item.excluded || item.kind !== "builtins-only") return;
     const actual = normalizeResult(await pool.run(item.code));
+    if (cancelled) return;
     const expected = { status: item.bash.status, stdout: Buffer.from(item.bash.stdout, "base64") };
     const outcome = actual.timeout
       ? "timeout"
@@ -1377,6 +1344,7 @@ async function runFrozen() {
     if (++done % 250 === 0) log(`own-shell: ${done}`);
   });
   await pool.close();
+  if (cancelled) return;
   const score = {
     identity: oracle.identity,
     engine: "own-shell",
@@ -1401,9 +1369,12 @@ async function runFrozen() {
 try {
   await main();
 } finally {
-  for (const kill of activeChildren.keys()) kill();
+  cancelled = true;
+  killAll();
+  await shutdown;
   await Promise.allSettled(activeChildren.values());
   for (const pool of pools) await pool.close();
+  if (activeChildren.size)
+    throw new Error(`compatibility consumers remain; scratch retained at ${scratch}`);
   await rm(scratch, { recursive: true, force: true });
-  finished = true;
 }
