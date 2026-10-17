@@ -4108,7 +4108,7 @@ mod case;
 mod command;
 #[path = "words/indirect.rs"]
 mod indirect;
-
+#[path = "words/nounset.rs"]
 mod nounset;
 
 #[path = "words/readonly.rs"]
