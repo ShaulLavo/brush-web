@@ -280,10 +280,7 @@
         "reason": "Malformed case bodies nested in command or process substitutions must report the child syntax status (127) rather than a resource-limit status (2), while preserving the explicit parser budget for genuinely large input."
       },
       {
-        "paths": [
-          "shell/parser/src/parser/subst_scan.rs",
-          "shell/parser/tests/api.rs"
-        ],
+        "paths": ["shell/parser/src/parser/subst_scan.rs", "shell/parser/tests/api.rs"],
         "classification": "Original quoted-heredoc delimiter correction and regression tests in the owned substitution scanner; observed against GNU Bash 5.3.15, with no upstream implementation copied. Parser base remains everruns/bashkit crates/bashkit/src/parser at 491c3281f668b76d64b15210b8f5d7bf97244be0.",
         "change": "Track a pending backslash inside a double-quoted here-document delimiter without closing the quote. Drop backslash-newline continuations and quote-remove backslashes before double quotes, backslashes, dollars and backticks, while preserving non-special backslashes and every single-quoted character. Add scanner and strict parser API controls for command and process substitutions, including unselected parameter defaults and following-word boundaries.",
         "reason": "The raw delimiter helper already removed double-quoted continuations, but the substitution boundary scanner retained them or ended a quote at an escaped double quote. Valid Bash substitutions therefore appeared unterminated before the parser could consume their delimiter. Preserve the existing shared scanner, resource accounting and syntax-status classification rather than allowing a special-case failure."
@@ -311,6 +308,16 @@
         "classification": "Original boundary corrections in the owned parser. GNU Bash 5.3 subst.c was read to confirm arithmetic classification semantics and all controls use Bash 5.3.15; no upstream implementation copied.",
         "change": "Apply raw arithmetic parenthesis checks after filtering comments with the existing structural command scanner, retaining backtick and case-pattern parentheses. Reject arithmetic-command openers after words that aliases cannot remove, while preserving unresolved unquoted alias chains. Recognize locale-quoted segments when a word continues after a closing quote. Add engine controls for arithmetic containing command comments and selected operands with protected dollars.",
         "reason": "The brace generator exposed comment parentheses changing arithmetic classification, quoted dollar boundaries changing selected operand meaning, and protected arithmetic lookalikes being accepted as a later command. The fixes preserve the full generator matrices and strict Bash failure-status comparison."
+      },
+      {
+        "paths": [
+          "shell/parser/src/parser/mod.rs",
+          "shell/parser/src/parser/print_cmd.rs",
+          "shell/parser/tests/api.rs"
+        ],
+        "classification": "Original changes to the owned Bashkit-derived parser; no upstream implementation copied. Semantics follow GNU Bash 5.3.15.",
+        "change": "Share parser fuel and request work with process-substitution operand printing, including nested reconstructed commands, and bound printed bytes before growth. Print flat elif vectors iteratively rather than recursing through sibling branches. Parse unquoted heredoc backticks through the typed backtick path: literal parenthesized bodies remain commands, and malformed bodies defer failure until expansion. Add parenthesized/malformed heredoc backtick and flat-elif printing-budget regressions.",
+        "reason": "Independent source review found process-substitution operand reconstruction could allocate or recurse outside parser limits, including for unselected parameter defaults. Rewriting heredoc backticks as dollar-parenthesis text could instead select arithmetic syntax or fail too early. The repairs preserve typed semantics and use shared bounded parse/print admission without changing upstream assertions."
       }
     ],
     "removedUpstreamTests": [
