@@ -3931,7 +3931,7 @@ impl<'a> Parser<'a> {
                 return Err(self.error("unexpected token"));
             }
             Some(tokens::Token::DoubleLeftParen)
-                if parts.words.len() > 1
+                if parts.words.iter().any(|word| !alias_candidate(word))
                     || !parts.assignments.is_empty()
                     || self.strict_command_separators =>
             {
@@ -6188,6 +6188,13 @@ struct SimpleWordToken {
     is_literal: bool,
     is_quoted: bool,
     is_glob_quoted: bool,
+}
+
+/// An unquoted literal word may name an alias read later.
+fn alias_candidate(word: &Word) -> bool {
+    !word.quoted
+        && !word.part_quoted.iter().any(|quoted| *quoted)
+        && matches!(word.parts.as_slice(), [WordPart::Literal(_)])
 }
 
 /// A declaration builtin, `let` or `eval` named directly as the command.
