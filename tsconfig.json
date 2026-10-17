@@ -7,10 +7,12 @@
     "types": ["vite/client", "node", "@webgpu/types"],
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "jsx": "react-jsx",
     "jsxImportSource": "remix/component",
     "paths": {
+      "@bun-wasm/runtime/*": ["./third-party/bun-wasm/runtime/*"],
       "ghostty-webgpu": ["./.sources/ghostty-webgpu/src/index.ts"],
       "bashkit-terminal-source": ["./.sources/bashkit/pkg/bashkit_wasm.d.ts"]
     }

@@ -115,6 +115,23 @@ const unterminatedTokens = [
 
 export const boundaryBodies = heredocBodies.concat(caseBodies, closedBodies, unterminatedTokens);
 
+const signalControls = [
+  ["default-term", "kill %1", "wait"],
+  ["named-term", "kill -s TERM %1", "wait"],
+  ["numeric-term", "kill -15 %1", "wait"],
+  ["named-int", "kill -s INT %1", "kill"],
+  ["numeric-int", "kill -2 %1", "kill"],
+  ["invalid-signal", "kill -s INVALID %1", "kill"],
+];
+
+const finiteSignalJob = "i=0; while ((i < 1000000)); do ((i += 1)); done &";
+
+function signalSource(kill, observation) {
+  const value = observation === "kill" ? "kill_status" : "wait_status";
+  const print = observation === "kill" ? "kill" : "wait";
+  return `${finiteSignalJob}; ${kill}; ${value}=$?; wait %1; printf '${print}=%s\\n' \"$${value}\"`;
+}
+
 const fixedSources = [
   ["fixed-command-valid", "$(printf '%s' ok)"],
   ["fixed-command-nested", "$(printf '%s' $(printf '%s' ok))"],
@@ -282,7 +299,13 @@ function makeCase(id, node, context, tags = []) {
 }
 
 export function fixedCases() {
-  return fixedSources.map(([id, text]) => ({
+  const sources = fixedSources.concat(
+    signalControls.map(([id, kill, observation]) => [
+      "fixed-job-signal-" + id,
+      signalSource(kill, observation),
+    ]),
+  );
+  return sources.map(([id, text]) => ({
     id,
     context: "fixed",
     opener: "fixed",

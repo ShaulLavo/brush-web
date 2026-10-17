@@ -12,7 +12,7 @@ use futures::future::join_all;
 use shell_parser::parser::*;
 use std::{
     cell::{Cell, RefCell},
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     rc::Rc,
 };
 
@@ -49,6 +49,7 @@ impl Default for Limits {
 pub(crate) enum Flow {
     Normal,
     Exit,
+    Abort,
     Return,
     DiscardReadUnit,
 }
@@ -185,7 +186,9 @@ enum JobKind {
 struct Job {
     owner: Scope,
     kind: JobKind,
+    group: GroupId,
     cancel: Cancel,
+    signal: Rc<Cell<Option<i32>>>,
     join: JoinHandle<i32>,
 }
 struct Core {
@@ -197,6 +200,7 @@ struct Core {
     jobs: RefCell<BTreeMap<JobId, Job>>,
     next: Cell<u64>,
     foreground: RefCell<Option<Job>>,
+    exit_requested: Cell<bool>,
 }
 #[derive(Clone)]
 pub(crate) struct Context {
@@ -335,17 +339,59 @@ impl Context {
             })
             .map(|(id, job)| (*id, job.join.clone()))
     }
-    pub(crate) fn kill_job(&self, selector: JobSelector) -> Result<(), i32> {
+    pub(crate) fn check_job(&self, selector: JobSelector) -> Result<(), i32> {
+        self.core
+            .jobs
+            .borrow()
+            .iter()
+            .find(|(id, job)| selector.matches(**id, job) && job.owner == self.scope)
+            .map(|_| ())
+            .ok_or(1)
+    }
+    pub(crate) fn kill_job(&self, selector: JobSelector, signal: i32) -> Result<(), i32> {
         let jobs = self.core.jobs.borrow();
         let job = jobs
             .iter()
             .find(|(id, job)| selector.matches(**id, job) && job.owner == self.scope)
             .map(|(_, job)| job)
             .ok_or(1)?;
+        if job.join.is_finished() {
+            return Err(1);
+        }
+        self.core
+            .host
+            .kill_group(job.group, signal)
+            .map_err(|_| 1)?;
+        job.signal.set(Some(signal));
         job.cancel.cancel();
         Ok(())
     }
 }
+/// Failure before a foreground job starts. Embeddings must preserve interrupt
+/// status rather than reporting parser cancellation as a syntax error.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StartError {
+    Interrupted,
+    Invalid(String),
+}
+impl StartError {
+    pub fn status(&self) -> i32 {
+        match self {
+            Self::Interrupted => 130,
+            Self::Invalid(_) => 2,
+        }
+    }
+}
+impl std::fmt::Display for StartError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Interrupted => f.write_str("request cancelled"),
+            Self::Invalid(message) => f.write_str(message),
+        }
+    }
+}
+impl std::error::Error for StartError {}
+
 /// A persistent shell session. The embedding drives `Executor`, delivers
 /// interrupts without a message-loop round trip, and drains terminal endpoints.
 pub struct Session {
@@ -369,12 +415,16 @@ impl Session {
                 jobs: RefCell::new(BTreeMap::new()),
                 next: Cell::new(1),
                 foreground: RefCell::new(None),
+                exit_requested: Cell::new(false),
             }),
             state: State::default().shared(),
         }
     }
     pub fn state(&self) -> SharedState {
         self.state.clone()
+    }
+    pub fn exit_requested(&self) -> bool {
+        self.core.exit_requested.get()
     }
     pub fn background_jobs(&self) -> usize {
         self.core
@@ -398,18 +448,33 @@ impl Session {
         *self.core.descriptors.borrow_mut() = fds;
         Ok(())
     }
-    pub fn start(&self, source: &str) -> Result<JoinHandle<i32>, String> {
+    pub fn start(&self, source: &str) -> Result<JoinHandle<i32>, StartError> {
         if self.core.foreground.borrow().is_some() {
-            return Err("foreground job is already running".into());
+            return Err(StartError::Invalid(
+                "foreground job is already running".into(),
+            ));
         }
         if source.len() > self.core.limits.source_bytes {
-            return Err("shell source limit exceeded".into());
+            return Err(StartError::Invalid("shell source limit exceeded".into()));
         }
-        let evaluation = eval::Scope::new(&self.core.limits);
+        let parser_host = self.core.host.clone();
+        let evaluation = eval::Scope::new(
+            &self.core.limits,
+            Some(Rc::new(move || parser_host.interrupted())),
+        );
         let (commands, failure) =
-            parse_shell(source, &self.core.limits, evaluation.parser_budget())?;
+            parse_shell(source, &self.core.limits, evaluation.parser_budget()).map_err(
+                |error| {
+                    if error == "request cancelled" {
+                        StartError::Interrupted
+                    } else {
+                        StartError::Invalid(error)
+                    }
+                },
+            )?;
         let group = self.core.host.allocate_group();
-        let cancel = Cancel::new();
+        let host = self.core.host.clone();
+        let cancel = Cancel::with_probe(Rc::new(move || host.interrupted()));
         let foreground_cancel = cancel.clone();
         let context = Context {
             core: self.core.clone(),
@@ -437,6 +502,9 @@ impl Session {
             {
                 result = parse_failure(failure, "-c", &context.core.descriptors, &context).await;
             }
+            if result.flow == Flow::Exit {
+                context.core.exit_requested.set(true);
+            }
             let code = context.finish_group(&mut processes, result.code).await;
             state.borrow_mut().status = code;
             code
@@ -444,7 +512,9 @@ impl Session {
         *self.core.foreground.borrow_mut() = Some(Job {
             owner: Scope::new(0),
             kind: JobKind::Internal,
+            group,
             cancel: foreground_cancel,
+            signal: Rc::new(Cell::new(None)),
             join: join.clone(),
         });
         Ok(join)
@@ -619,7 +689,7 @@ async fn script_sequence(
         if context.cancel.is_cancelled() {
             return Outcome::status(130);
         }
-        if matches!(result.flow, Flow::Exit | Flow::Return) {
+        if matches!(result.flow, Flow::Exit | Flow::Abort | Flow::Return) {
             break;
         }
     }
@@ -759,6 +829,14 @@ async fn pipeline_command(
         }
     };
     let mut children = children.into_iter();
+    let mut pipes = VecDeque::new();
+    for _ in 1..count {
+        let pipe = match context.fs().pipe() {
+            Ok(pipe) => pipe,
+            Err(error) => return Outcome::status(error.status()),
+        };
+        pipes.push_back(pipe);
+    }
     let mut previous = None;
     let mut tasks = Vec::new();
     // All stage task/queue metadata is admitted before the first launch.
@@ -774,7 +852,7 @@ async fn pipeline_command(
             stage_fds.insert(0, input);
         }
         if index + 1 < count {
-            let (reader, writer) = io::pipe();
+            let (reader, writer) = pipes.pop_front().expect("reserved pipeline pipe");
             stage_fds.insert(1, writer);
             previous = Some(reader);
         }
@@ -1171,7 +1249,9 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
     ) {
         Flow::DiscardReadUnit
     } else {
-        Flow::Exit
+        // Abort this submitted script, not the persistent interactive session.
+        // Only the explicit exit builtin requests session shutdown.
+        Flow::Abort
     };
     let (name, message, line, status) = match error {
         expand::Error::Status(code) => return Outcome::status(code),
@@ -1408,8 +1488,10 @@ async fn launch_background(
         Ok(number) => number,
         Err(code) => return Outcome::status(code),
     };
-    let group = context.core.host.allocate_group();
+    let group = context.core.host.allocate_background_group();
     let cancel = Cancel::new();
+    let signal = Rc::new(Cell::new(None));
+    let child_signal = signal.clone();
     let child_context = Context {
         core: context.core.clone(),
         source: context.source.clone(),
@@ -1426,16 +1508,19 @@ async fn launch_background(
         let mut processes = ProcessGroup::new(child_context.core.host.clone(), group);
         let result = execute(command, child, fds, child_context.clone()).await;
         child_context.finish_scope(parent_scope).await;
-        child_context
+        let code = child_context
             .finish_group(&mut processes, result.code)
-            .await
+            .await;
+        child_signal.get().map_or(code, |signal| 128 + signal)
     });
     context.core.jobs.borrow_mut().insert(
         job,
         Job {
             owner: context.scope.clone(),
             kind: JobKind::Background(number),
+            group,
             cancel,
+            signal,
             join,
         },
     );
@@ -1548,9 +1633,13 @@ impl Substitutions {
         table.insert(1, writer);
         let fds = Rc::new(RefCell::new(table));
         let cancel = Cancel::new();
+        let group = self.context.core.host.allocate_background_group();
+        let signal = Rc::new(Cell::new(None));
+        let child_signal = signal.clone();
         let parent = self.context.cancel.clone();
         let context = Context {
             cancel: cancel.clone(),
+            group,
             parameter_error_status: 1,
             compound_child: false,
             ..self.context.isolated()
@@ -1585,8 +1674,13 @@ impl Substitutions {
             };
             futures::pin_mut!(body, forward);
             match futures::future::select(body, forward).await {
-                futures::future::Either::Left((code, _)) => code,
-                futures::future::Either::Right(((), body)) => body.await,
+                futures::future::Either::Left((code, _)) => {
+                    child_signal.get().map_or(code, |signal| 128 + signal)
+                }
+                futures::future::Either::Right(((), body)) => {
+                    let code = body.await;
+                    child_signal.get().map_or(code, |signal| 128 + signal)
+                }
             }
         });
         let core = &self.context.core;
@@ -1596,7 +1690,9 @@ impl Substitutions {
             Job {
                 owner: self.context.scope.clone(),
                 kind: JobKind::Internal,
+                group,
                 cancel: cancel.clone(),
+                signal,
                 join: join.clone(),
             },
         );
@@ -1668,8 +1764,12 @@ impl Substitutions {
         let fds = Rc::new(RefCell::new(table));
         let child = state;
         let cancel = Cancel::new();
+        let group = core.allocate_background_group();
+        let signal = Rc::new(Cell::new(None));
+        let child_signal = signal.clone();
         let context = Context {
             cancel: cancel.clone(),
+            group,
             parameter_error_status: 1,
             compound_child: false,
             ..self.context.isolated()
@@ -1690,8 +1790,13 @@ impl Substitutions {
             };
             futures::pin_mut!(body, forward);
             match futures::future::select(body, forward).await {
-                futures::future::Either::Left((code, _)) => code,
-                futures::future::Either::Right(((), body)) => body.await,
+                futures::future::Either::Left((code, _)) => {
+                    child_signal.get().map_or(code, |signal| 128 + signal)
+                }
+                futures::future::Either::Right(((), body)) => {
+                    let code = body.await;
+                    child_signal.get().map_or(code, |signal| 128 + signal)
+                }
             }
         });
         core.jobs.borrow_mut().insert(
@@ -1699,7 +1804,9 @@ impl Substitutions {
             Job {
                 owner: self.context.scope.clone(),
                 kind: JobKind::ProcessSubstitution,
+                group,
                 cancel,
+                signal,
                 join,
             },
         );
@@ -1799,6 +1906,55 @@ struct PreparedCommand {
     assigned: Vec<(String, String)>,
     fds: Descriptors,
     work: expand::Work,
+}
+
+/// Prefix assignments for a builtin live for the builtin call and restore on
+/// every exit path. Admission and alias resolution finish before mutation.
+struct BuiltinPrefixFrame {
+    state: SharedState,
+    saved: BTreeMap<String, Option<String>>,
+}
+impl BuiltinPrefixFrame {
+    async fn enter(
+        state: SharedState,
+        assigned: &[(String, String)],
+        context: &Context,
+        work: &mut expand::Work,
+    ) -> Result<Self, expand::Error> {
+        for (name, value) in assigned {
+            State::admit_assignment(&state, name, value.len(), &context.cancel, work).await?;
+        }
+        let mut saved = BTreeMap::new();
+        {
+            let mut state_ref = state.borrow_mut();
+            for (name, value) in assigned {
+                let target = state_ref.assignment_name(name.clone()).map_err(|_| 2)?;
+                work.admit_storage(
+                    std::mem::size_of::<(String, Option<String>)>()
+                        .saturating_add(target.len())
+                        .saturating_add(value.len()),
+                )?;
+                let previous = state_ref.variables.insert(target.clone(), value.clone());
+                saved.entry(target).or_insert(previous);
+            }
+        }
+        Ok(Self { state, saved })
+    }
+}
+impl Drop for BuiltinPrefixFrame {
+    fn drop(&mut self) {
+        let mut state = self.state.borrow_mut();
+        for (name, value) in std::mem::take(&mut self.saved) {
+            match value {
+                Some(value) => {
+                    state.variables.insert(name, value);
+                }
+                None => {
+                    state.variables.remove(&name);
+                }
+            }
+        }
+    }
 }
 
 async fn simple_command(
@@ -1990,7 +2146,7 @@ async fn dispatch_simple_command_body(
     };
     let args: Vec<_> = fields.collect();
     // Prefix assignments for external commands belong only to their environment.
-    // Prefix assignments on functions/builtins are deferred until full Bash rules.
+    // Function prefix assignments remain deferred until full Bash rules.
     let function = state.borrow().functions.get(&name).cloned();
     if let Some(body) = function {
         if !assigned.is_empty() {
@@ -2025,10 +2181,11 @@ async fn dispatch_simple_command_body(
         return Ok(eval::run(args, state, fds, context).await);
     }
     if builtins::is_builtin(&name) {
-        if !assigned.is_empty() {
-            return Err(2);
-        }
-        return builtin_command(name, args, state, fds, context, work).await;
+        let _frame = BuiltinPrefixFrame::enter(state.clone(), &assigned, &context, &mut work)
+            .await
+            .map_err(admission_status)?;
+        let bindings = fds.borrow().clone();
+        return builtins::run(&name, args, state, bindings, context, &mut work).await;
     }
     // A pipe named by an open descriptor exists but cannot be executed.
     if name.starts_with("/dev/fd/")

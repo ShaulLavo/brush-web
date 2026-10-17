@@ -432,3 +432,14 @@ it is not a snapshot-value substitute for a reference. Arrays, indexed
 references and general declaration options remain excluded. The detailed
 classification and destinations are recorded under `shellScalarState`;
 the retained MIT license is `shell/parser/LICENSE`.
+not included. No whole-output buffering is added.
+
+The acceptance-only streaming `grep` subset in
+`shell/engine/src/builtins/grep.rs` adapts Bashkit's
+`crates/bashkit/src/builtins/grep.rs` at
+`491c3281f668b76d64b15210b8f5d7bf97244be0` (MIT, Copyright 2024–2026 Everruns).
+The upstream license remains at `shell/parser/LICENSE` and is included in the
+distribution notices. `sources.lock.json:shellAcceptanceUtilities` records the
+exact source hash, adapted behaviors and original bounded descriptor/regex
+adapters. The accompanying `mkdir` implementation and filesystem ABI bindings
+are original, not a copied upstream utility.

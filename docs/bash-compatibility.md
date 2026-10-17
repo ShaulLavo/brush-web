@@ -480,3 +480,13 @@ npm run fuzz:shell-substitutions -- --shell /path/to/native/shell-engine --seed 
 npm run fuzz:shell-substitutions -- --shell /path/to/native/shell-engine --seed 42
 npm run fuzz:shell-substitutions:ci -- --shell /path/to/native/shell-engine
 ```
+### Runtime integration utility and prefix slice
+
+The [CI replay at `7d1f730`](https://github.com/ShaulLavo/brush-web/actions/runs/39027801280)
+measured **527 Oils, 394 Brush-suite, and 792 Bashkit-suite passes** against the
+corrected pipe oracle. Ordinary builtin prefix assignments and bounded `grep` /
+filesystem `mkdir` support gain three Oils and seven Bashkit cases, with no lost
+passes compared with the corrected target baseline (**524 / 394 / 785**). The
+committed baseline records this exact pass membership; the same replay failed
+only because that membership had not yet been refreshed. This score is separate
+from the browser, native-test, and Safari gates.

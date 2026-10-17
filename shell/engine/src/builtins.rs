@@ -1,5 +1,7 @@
 //! Small streaming builtins needed by the engine acceptance gate. Utilities here
-//! are original adapters; the full utility/compatibility work is still deferred.
+//! are original adapters except the explicitly attributed grep subset. The full
+//! utility/compatibility work is still deferred.
+mod grep;
 use crate::{
     executor::Budget,
     expand::{Error, Work},
@@ -74,6 +76,8 @@ pub(crate) fn is_builtin(name: &str) -> bool {
             | "echo"
             | "printf"
             | "cat"
+            | "grep"
+            | "mkdir"
             | "seq"
             | "read"
             | "export"
@@ -228,6 +232,52 @@ pub(crate) async fn run(
                 }
             }
         }
+        "grep" => return grep::run(args, &state, &fds, &context).await,
+        "mkdir" => {
+            let mut parents = false;
+            let mut operands = Vec::new();
+            let mut options = true;
+            for arg in args {
+                match arg.as_str() {
+                    "--" if options => options = false,
+                    "-p" if options => parents = true,
+                    s if options && s.starts_with('-') && s != "-" => return Err(2),
+                    _ => operands.push(arg),
+                }
+            }
+            if operands.is_empty() {
+                return Err(2);
+            }
+            let mut status = 0;
+            let mut budget = Budget::default();
+            for operand in operands {
+                budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
+                // Empty operands must not turn into the current directory under -p.
+                let path = if operand.is_empty() {
+                    String::new()
+                } else {
+                    absolute(&state.borrow().cwd, &operand)
+                };
+                if let Err(error) = context
+                    .cancel
+                    .run(context.fs().mkdir(&path, parents))
+                    .await
+                    .map_err(|_| 130)?
+                {
+                    status = 1;
+                    if let Some(stderr) = fds.get(2) {
+                        stderr
+                            .write_all(
+                                format!("mkdir: {operand}: {error}\n").as_bytes(),
+                                &context.cancel,
+                            )
+                            .await
+                            .map_err(|error| error.status())?;
+                    }
+                }
+            }
+            return Ok(Outcome::status(status));
+        }
         "seq" => {
             let (start, end) = match args.as_slice() {
                 [end] => (1, end.parse::<i64>().map_err(|_| 2)?),
@@ -320,14 +370,121 @@ pub(crate) async fn run(
             return Ok(Outcome::status(context.wait_job(id).await?));
         }
         "kill" => {
-            if args.len() != 1 {
-                return Err(2);
+            let (action, selector) = match kill_arguments(&args) {
+                Ok(value) => value,
+                Err(error) => {
+                    if let Some(stderr) = fds.get(2) {
+                        stderr
+                            .write_all(b"kill: ", &context.cancel)
+                            .await
+                            .map_err(|error| error.status())?;
+                        stderr
+                            .write_all(error.as_bytes(), &context.cancel)
+                            .await
+                            .map_err(|error| error.status())?;
+                        stderr
+                            .write_all(b"\n", &context.cancel)
+                            .await
+                            .map_err(|error| error.status())?;
+                    }
+                    return Err(2);
+                }
+            };
+            let selector = JobSelector::parse(selector)?;
+            match action {
+                SignalAction::Exists => context.check_job(selector)?,
+                SignalAction::Terminate(signal) => context.kill_job(selector, signal)?,
             }
-            context.kill_job(JobSelector::parse(&args[0])?)?;
         }
         _ => return Err(127),
     }
     Ok(Outcome::status(0))
+}
+
+#[derive(Clone, Copy)]
+enum SignalAction {
+    Exists,
+    Terminate(i32),
+}
+
+#[derive(Clone, Copy)]
+enum SignalError {
+    Invalid,
+    Unsupported,
+}
+impl SignalError {
+    fn message(self) -> &'static str {
+        match self {
+            Self::Invalid => "invalid signal",
+            Self::Unsupported => "unsupported signal action",
+        }
+    }
+}
+
+fn kill_arguments(args: &[String]) -> Result<(SignalAction, &str), &'static str> {
+    match args {
+        [selector] => Ok((SignalAction::Terminate(15), selector)),
+        [flag, selector] if flag.starts_with("-s") => {
+            let name = flag
+                .strip_prefix("-s")
+                .filter(|name| !name.is_empty())
+                .ok_or(SignalError::Invalid.message())?;
+            Ok((parse_signal(name)?, selector))
+        }
+        [flag, signal, selector] if flag == "-s" => Ok((parse_signal(signal)?, selector)),
+        [flag, selector] if flag.starts_with('-') => {
+            Ok((parse_signal(flag.trim_start_matches('-'))?, selector))
+        }
+        _ => Err(SignalError::Invalid.message()),
+    }
+}
+
+fn parse_signal(value: &str) -> Result<SignalAction, &'static str> {
+    if let Ok(signal) = value.parse::<i32>() {
+        return classify_signal(signal).map_err(SignalError::message);
+    }
+    let name = value
+        .get(..3)
+        .filter(|prefix| ascii_eq_ignore_case(prefix, "SIG"))
+        .and_then(|_| value.get(3..))
+        .unwrap_or(value);
+    for (candidate, signal) in [
+        ("HUP", 1),
+        ("INT", 2),
+        ("QUIT", 3),
+        ("KILL", 9),
+        ("TERM", 15),
+    ] {
+        if ascii_eq_ignore_case(name, candidate) {
+            return Ok(SignalAction::Terminate(signal));
+        }
+    }
+    if [
+        "CHLD", "CONT", "STOP", "TSTP", "TTIN", "TTOU", "USR1", "USR2", "ALRM", "PIPE",
+    ]
+    .iter()
+    .any(|candidate| ascii_eq_ignore_case(name, candidate))
+    {
+        return Err(SignalError::Unsupported.message());
+    }
+    Err(SignalError::Invalid.message())
+}
+
+fn classify_signal(signal: i32) -> Result<SignalAction, SignalError> {
+    match signal {
+        0 => Ok(SignalAction::Exists),
+        1 | 2 | 3 | 9 | 15 => Ok(SignalAction::Terminate(signal)),
+        4..=127 => Err(SignalError::Unsupported),
+        _ => Err(SignalError::Invalid),
+    }
+}
+
+fn ascii_eq_ignore_case(value: &str, expected: &str) -> bool {
+    value.len() == expected.len()
+        && value
+            .bytes()
+            .zip(expected.bytes())
+            .all(|(value, expected)| value.to_ascii_uppercase() == expected)
 }
 
 fn error_status(error: Error) -> i32 {

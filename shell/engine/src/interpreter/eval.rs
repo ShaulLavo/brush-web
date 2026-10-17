@@ -40,7 +40,7 @@ pub(super) struct Scope {
 }
 
 impl Scope {
-    pub(super) fn new(limits: &Limits) -> Self {
+    pub(super) fn new(limits: &Limits, probe: Option<Rc<dyn Fn() -> bool>>) -> Self {
         let parser = ExecutionBudget::new(
             &ExecutionLimits {
                 max_input_bytes: limits.source_bytes,
@@ -49,6 +49,10 @@ impl Scope {
             },
             Arc::new(AtomicBool::new(false)),
         );
+        let parser = match probe {
+            Some(probe) => parser.with_cancellation_probe(probe),
+            None => parser,
+        };
         Self {
             shared: Rc::new(Shared {
                 storage: Cell::new(limits.expansion_bytes),

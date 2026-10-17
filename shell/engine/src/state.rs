@@ -288,7 +288,7 @@ impl State {
         self.variables.insert(name, value);
         Ok(())
     }
-    fn assignment_name(&self, name: String) -> Result<String, i32> {
+    pub(crate) fn assignment_name(&self, name: String) -> Result<String, i32> {
         let target = self.scalar_target(&name)?.ok_or(1)?;
         if target == name {
             return Ok(name);

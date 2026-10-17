@@ -297,10 +297,17 @@ impl std::error::Error for Cancelled {}
 pub struct Cancel {
     flag: Rc<Cell<bool>>,
     event: Event,
+    probe: Option<Rc<dyn Fn() -> bool>>,
 }
 impl Cancel {
     pub fn new() -> Self {
         Self::default()
+    }
+    pub fn with_probe(probe: Rc<dyn Fn() -> bool>) -> Self {
+        Self {
+            probe: Some(probe),
+            ..Self::default()
+        }
     }
     pub fn cancel(&self) {
         if !self.flag.replace(true) {
@@ -308,6 +315,9 @@ impl Cancel {
         }
     }
     pub fn is_cancelled(&self) -> bool {
+        if !self.flag.get() && self.probe.as_ref().is_some_and(|probe| probe()) {
+            self.cancel();
+        }
         self.flag.get()
     }
     pub async fn cancelled(&self) {

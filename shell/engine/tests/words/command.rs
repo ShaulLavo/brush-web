@@ -567,11 +567,82 @@ fn numeric_kill_uses_only_an_async_handle_owned_by_the_current_scope() {
     assert_eq!(rig.run(r#"(kill "$pid")"#), 1);
     assert_eq!(rig.host.active_count(), 1);
     assert_eq!(rig.run(r#"kill "$pid"; wait "$pid"; args $?"#), 0);
-    assert_eq!(*rig.calls.borrow(), [vec!["130"]]);
+    assert_eq!(*rig.calls.borrow(), [vec!["143"]]);
     assert_eq!(rig.shell.background_jobs(), 0);
     assert_eq!(rig.host.active_count(), 0);
     assert_eq!(rig.host.retained_count(), 0);
     assert_eq!(rig.ex.drive(64).pending, 0);
+}
+
+#[test]
+fn job_signal_forms_preserve_term_int_and_invalid_statuses() {
+    for (kill, expected) in [
+        ("kill %1", "143"),
+        ("kill -s TERM %1", "143"),
+        ("kill -15 %1", "143"),
+        ("kill -s INT %1", "130"),
+        ("kill -2 %1", "130"),
+    ] {
+        let rig = Rig::new(Limits::default());
+        let _release = register_status_gate(&rig, "status_gate", 0);
+        assert_eq!(
+            rig.run(&format!("status_gate &; {kill}; wait %1; args $?")),
+            0,
+            "{kill}"
+        );
+        assert_eq!(*rig.calls.borrow(), [vec![expected.to_owned()]], "{kill}");
+        assert_eq!(rig.host.active_count(), 0, "{kill}");
+        assert_eq!(rig.host.retained_count(), 0, "{kill}");
+    }
+    let rig = Rig::new(Limits::default());
+    let _release = register_status_gate(&rig, "status_gate", 0);
+    assert_eq!(
+        rig.run("status_gate &; kill -s INVALID %1; args $?; kill -TERM %1; wait %1; args $?"),
+        0
+    );
+    assert_eq!(*rig.calls.borrow(), [vec!["2"], vec!["143"]]);
+    assert_eq!(rig.errors.bytes(), b"kill: invalid signal\n");
+    assert_eq!(rig.host.active_count(), 0);
+    assert_eq!(rig.host.retained_count(), 0);
+}
+
+#[test]
+fn unsupported_signals_and_signal_zero_do_not_cancel_owned_pending_jobs() {
+    for (signal, diagnostic) in [
+        ("CONT", "unsupported signal action"),
+        ("STOP", "unsupported signal action"),
+        ("CHLD", "unsupported signal action"),
+        ("64", "unsupported signal action"),
+        ("128", "invalid signal"),
+        ("SIGCONT", "unsupported signal action"),
+    ] {
+        let rig = Rig::new(Limits::default());
+        let _release = register_status_gate(&rig, "status_gate", 0);
+        assert_eq!(
+            rig.run(&format!(
+                "status_gate &; kill -s {signal} %1; args $?; kill -TERM %1; wait %1; args $?"
+            )),
+            0,
+            "{signal}"
+        );
+        assert_eq!(*rig.calls.borrow(), [vec!["2"], vec!["143"]], "{signal}");
+        assert_eq!(
+            rig.errors.bytes(),
+            format!("kill: {diagnostic}\n").as_bytes(),
+            "{signal}"
+        );
+        assert_eq!(rig.host.active_count(), 0, "{signal}");
+        assert_eq!(rig.host.retained_count(), 0, "{signal}");
+    }
+    let rig = Rig::new(Limits::default());
+    let _release = register_status_gate(&rig, "status_gate", 0);
+    assert_eq!(
+        rig.run("status_gate &; kill -0 %1; args $?; kill -TERM %1; wait %1; args $?"),
+        0
+    );
+    assert_eq!(*rig.calls.borrow(), [vec!["0"], vec!["143"]]);
+    assert_eq!(rig.host.active_count(), 0);
+    assert_eq!(rig.host.retained_count(), 0);
 }
 
 #[test]
