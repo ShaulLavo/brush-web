@@ -12,6 +12,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -750,9 +751,9 @@ function main() {
   if (options.record && realpathSync(shell) === realpathSync(bashBin))
     throw new Error("cannot record against Bash itself");
   // Own only this per-run directory. Never touch other lanes' binaries/scratch.
-  const parent = process.env.FUZZ_BRACES_SCRATCH ?? "/work/tmp/brush-web-climb-braces";
+  const parent = process.env.FUZZ_BRACES_SCRATCH ?? process.env.RUNNER_TEMP ?? tmpdir();
   mkdirSync(parent, { recursive: true });
-  const scratch = mkdtempSync(resolve(parent, "run-"));
+  const scratch = mkdtempSync(resolve(parent, "brush-web-braces-run-"));
   options.cwd = scratch;
   const cleanup = () => rmSync(scratch, { recursive: true, force: true });
   const interrupted = () => {

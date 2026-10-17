@@ -357,8 +357,8 @@ arithmetic controls exercise supported execution. Syntax failures are scored,
 not excluded. Shrinking retains boundary kind, protection, context and guards.
 
 The fuzzer never builds. It self-queues through this host's light queue and cleans
-its private run directory (parent: `FUZZ_BRACES_SCRATCH`, default
-`/work/tmp/brush-web-climb-braces`). `--output PATH` keeps exact byte diagnostics.
+its private run directory (parent: `FUZZ_BRACES_SCRATCH`, else `RUNNER_TEMP`,
+else the OS temporary directory). `--output PATH` keeps exact byte diagnostics.
 `--record PATH` refuses dirty candidate runs and Bash self-controls. Seeds 1/42
 are frozen only after a zero-mismatch native comparison.
 `npm run fuzz:shell-braces:ci -- --shell PATH` replays both fixtures without Bash,
