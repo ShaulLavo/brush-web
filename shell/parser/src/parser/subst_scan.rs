@@ -978,7 +978,7 @@ impl Iterator for ArithmeticText<'_> {
         for c in self.source.by_ref() {
             let comment = matches!(self.scanner.mode, Mode::Comment);
             self.scanner.feed(c);
-            if !comment {
+            if !comment || c == '\n' {
                 return Some(c);
             }
         }
