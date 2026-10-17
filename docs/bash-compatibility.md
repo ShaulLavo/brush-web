@@ -448,3 +448,14 @@ byte, raw-output and work limits. Resource exhaustion fails before dispatch,
 never as a literal fallback or a partially expanded command. Native and WASI
 regressions cover deep nesting, cancellation, source words above 4 KiB, and
 independent storage and output budgets.
+
+### Runtime integration utility and prefix slice
+
+The [CI replay at `7d1f730`](https://github.com/ShaulLavo/brush-web/actions/runs/39027801280)
+measured **527 Oils, 394 Brush-suite, and 792 Bashkit-suite passes** against the
+corrected pipe oracle. Ordinary builtin prefix assignments and bounded `grep` /
+filesystem `mkdir` support gain three Oils and seven Bashkit cases, with no lost
+passes compared with the corrected target baseline (**524 / 394 / 785**). The
+committed baseline records this exact pass membership; the same replay failed
+only because that membership had not yet been refreshed. This score is separate
+from the browser, native-test, and Safari gates.
