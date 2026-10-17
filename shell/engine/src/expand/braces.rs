@@ -304,7 +304,7 @@ async fn command_end(
         };
         match step {
             CommandBoundaryStep::Close => return Ok(after_open + scanner.offset()),
-            CommandBoundaryStep::Limit => return Err(2),
+            CommandBoundaryStep::Limit => return Err(Error::Status(2)),
             CommandBoundaryStep::Body => {}
         }
     }
