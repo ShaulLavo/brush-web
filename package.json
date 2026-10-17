@@ -1,6 +1,6 @@
 {
   "name": "brush-web",
-  "version": "0.0.29",
+  "version": "0.0.30",
   "private": true,
   "type": "module",
   "scripts": {
@@ -34,7 +34,7 @@
     "test:process": "node scripts/test-process-host.mjs",
     "build:shell": "CARGO_TARGET_DIR=.build/shell cargo build --locked --release --target wasm32-wasip1 --manifest-path shell/Cargo.toml --workspace",
     "test:shell:wasi": "node scripts/test-shell-wasi.mjs",
-    "test:shell:scoreboard": "node --test scripts/test-shell-scoreboard*.mjs scripts/test-compat-selection.mjs scripts/test-own-shell-runner.mjs",
+    "test:shell:scoreboard": "node --test scripts/test-shell-scoreboard*.mjs scripts/test-compat-selection.mjs scripts/test-own-shell-runner.mjs scripts/test-bash-compat*.mjs",
     "compat:shell": "BASH_COMPAT_MODE=frozen BASH_COMPAT_ENGINES=own-shell node scripts/bash-compat.mjs",
     "fuzz:shell-braces": "node scripts/fuzz-shell-braces.mjs",
     "test:fuzz-shell-braces": "node --test scripts/test-fuzz-shell-braces.mjs",

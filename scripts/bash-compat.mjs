@@ -1,14 +1,20 @@
 // Runs the pinned Oils shell spec corpus through real GNU bash and each browser engine.
 // Bash is the oracle: a case passes when stdout and exit status match bash exactly.
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { availableParallelism, constants } from "node:os";
+import { availableParallelism } from "node:os";
 import { basename, resolve } from "node:path";
 import { Worker } from "node:worker_threads";
 import { pythonHelpers } from "./bash-compat-helpers.mjs";
-import { baseBranchBaseline } from "./shell-scoreboard-base.mjs";
+import {
+  bashStderrTransport,
+  bashStdoutTransport,
+  createShellRunner,
+  normalize,
+} from "./bash-compat-runner.mjs";
+import { targetBranchBaseline } from "./shell-scoreboard-base.mjs";
 import {
   bytesDigest,
   compactResult,
@@ -352,6 +358,7 @@ await mkdir(scratchRoot, { recursive: true });
 const scratch = await mkdtemp(resolve(scratchRoot, "brush-web-compat-"));
 const pools = [];
 const activeChildren = new Map();
+const runShell = createShellRunner({ scratch, timeoutMs, activeChildren });
 let finished = false;
 process.on("SIGINT", () => process.exit(130));
 process.on("SIGTERM", () => process.exit(143));
@@ -745,123 +752,6 @@ function parseSpecFile(text) {
     current.code += line.endsWith("\n") ? line : line + "\n";
   }
   return cases.filter((item) => item.code);
-}
-
-async function runShell(shell, code, path, sandbox = false) {
-  const directory = await mkdtemp(resolve(scratch, "bash-"));
-  const tmp = resolve(directory, "tmp");
-  const home = resolve(directory, "home");
-  let kill = () => {};
-  try {
-    await mkdir(tmp);
-    await mkdir(home);
-    const sandboxArgs = [
-      "--unshare-all",
-      "--die-with-parent",
-      "--new-session",
-      "--ro-bind",
-      "/usr",
-      "/usr",
-      "--symlink",
-      "usr/lib",
-      "/lib",
-      "--symlink",
-      "usr/lib64",
-      "/lib64",
-      "--proc",
-      "/proc",
-      "--dev",
-      "/dev",
-      "--tmpfs",
-      "/tmp",
-      "--bind",
-      directory,
-      directory,
-      "--ro-bind",
-      resolve(scratch, "helpers"),
-      resolve(scratch, "helpers"),
-      "--ro-bind",
-      shell,
-      shell,
-      "--chdir",
-      tmp,
-      "--",
-      shell,
-      "-c",
-      code,
-    ];
-    const child = spawn(sandbox ? "bwrap" : shell, sandbox ? sandboxArgs : ["-c", code], {
-      cwd: tmp,
-      env: { PATH: path, HOME: home, TMP: tmp, SH: "bash", LC_ALL: "C.UTF-8" },
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
-    });
-    kill = () => {
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch {}
-    };
-    const running = collectShell(child, kill, tmp, home);
-    activeChildren.set(kill, running);
-    return await running;
-  } finally {
-    kill();
-    activeChildren.delete(kill);
-    await rm(directory, { recursive: true, force: true });
-  }
-}
-function collectShell(child, kill, tmp, home) {
-  return new Promise((done, fail) => {
-    const stdout = [];
-    const stderr = [];
-    let timeout = false;
-    let outputLimit = false;
-    let bytes = 0;
-    const timer = setTimeout(() => {
-      timeout = true;
-      kill();
-    }, timeoutMs);
-    const collect = (chunks, chunk) => {
-      bytes += chunk.length;
-      if (bytes <= 4 * 1024 * 1024) return chunks.push(chunk);
-      outputLimit = true;
-      kill();
-    };
-    child.stdout.on("data", (chunk) => collect(stdout, chunk));
-    child.stderr.on("data", (chunk) => collect(stderr, chunk));
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      fail(error);
-    });
-    child.once("exit", kill);
-    child.once("close", (status, signal) => {
-      clearTimeout(timer);
-      done(
-        normalize(
-          {
-            stdout: Buffer.concat(stdout),
-            stderr: Buffer.concat(stderr),
-            status: status ?? 128 + (constants.signals[signal] ?? 0),
-            timeout,
-            outputLimit,
-          },
-          [
-            [tmp, "$TMP"],
-            [home, "$HOME"],
-          ],
-        ),
-      );
-    });
-  });
-}
-
-function normalize(result, paths) {
-  const replace = (bytes) => {
-    let text = bytes.toString("latin1");
-    for (const [from, to] of paths) text = text.split(from).join(to);
-    return Buffer.from(text, "latin1");
-  };
-  return { ...result, stdout: replace(result.stdout), stderr: replace(result.stderr) };
 }
 
 function normalizeResult(actual) {
@@ -1274,6 +1164,8 @@ async function captureOracle(cases, helperDirectory, bashVersion) {
       version: bashVersion,
       executableSha256: bytesDigest(await readFile(bashPath)),
       captureNode: process.version,
+      stdoutTransport: bashStdoutTransport,
+      stderrTransport: bashStderrTransport,
       capturePlatform: process.platform,
       captureArch: process.arch,
       sandbox:
@@ -1342,7 +1234,7 @@ async function runFrozen() {
   if (process.env.BASH_COMPAT_RECORD !== "1") {
     const committed = JSON.parse(await readFile(baselineFile, "utf8"));
     baselines.push({ label: "committed baseline", score: committed, requireMembership: true });
-    const target = baseBranchBaseline(root, process.env.BASH_COMPAT_BASE_REF);
+    const target = await targetBranchBaseline(root, process.env.BASH_COMPAT_BASE_REF, oracle);
     if (target) baselines.push({ label: "target branch baseline", score: target });
     for (const baseline of baselines) validateScore(oracle, baseline.score);
   }
