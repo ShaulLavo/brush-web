@@ -675,15 +675,14 @@ fn unsupported_case_targets_transformations_and_selected_patterns_fail_closed() 
         assert_eq!(rig.run("args ${v,,}"), 2, "{ch}");
         assert!(rig.calls.borrow().is_empty());
     }
-    for source in [
-        "f() { args forbidden; }; X=${v^^} f",
-        "X=${v^^} echo forbidden",
-    ] {
-        let rig = Rig::new(Limits::default());
-        assert_eq!(rig.run(source), 2);
-        assert!(rig.calls.borrow().is_empty());
-        assert!(rig.output.bytes().is_empty());
-    }
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("f() { args forbidden; }; X=${v^^} f"), 2);
+    assert!(rig.calls.borrow().is_empty());
+    assert!(rig.output.bytes().is_empty());
+    // Ordinary builtin prefixes are supported; function prefixes remain deferred.
+    assert_eq!(rig.run("X=${v^^} echo allowed"), 0);
+    assert_eq!(rig.output.bytes(), b"allowed\n");
+    assert!(!rig.shell.state().borrow().variables.contains_key("X"));
     let rig = Rig::new(Limits::default());
     rig.variable("v", "abc");
     rig.variable("p", "[[:alpha:]]");
@@ -1121,15 +1120,14 @@ fn unsupported_trim_targets_and_selected_patterns_fail_without_dispatch() {
         assert_eq!(rig.run(r#"args "${v#"$p"}""#), 0);
         assert_eq!(*rig.calls.borrow(), &[vec!["tail"]]);
     }
-    for source in [
-        "f() { args forbidden; }; X=${v#a} f",
-        "X=${v#a} echo forbidden",
-    ] {
-        let rig = Rig::new(Limits::default());
-        assert_eq!(rig.run(source), 2);
-        assert!(rig.calls.borrow().is_empty());
-        assert!(rig.output.bytes().is_empty());
-    }
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("f() { args forbidden; }; X=${v#a} f"), 2);
+    assert!(rig.calls.borrow().is_empty());
+    assert!(rig.output.bytes().is_empty());
+    // Ordinary builtin prefixes are supported; function prefixes remain deferred.
+    assert_eq!(rig.run("X=${v#a} echo allowed"), 0);
+    assert_eq!(rig.output.bytes(), b"allowed\n");
+    assert!(!rig.shell.state().borrow().variables.contains_key("X"));
 }
 
 #[test]
@@ -4019,3 +4017,7 @@ mod indirect;
 
 #[path = "words/readonly.rs"]
 mod readonly;
+#[path = "words/scoped_prefix.rs"]
+mod scoped_prefix;
+#[path = "words/session.rs"]
+mod session;

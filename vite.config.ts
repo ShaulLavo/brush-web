@@ -10,6 +10,10 @@ export default defineConfig({
   resolve: {
     alias: [
       {
+        find: /^@bun-wasm\/runtime\/(.+)$/,
+        replacement: fileURLToPath(new URL("./third-party/bun-wasm/runtime/$1", import.meta.url)),
+      },
+      {
         find: /^bashkit-terminal-source\/(.+)$/,
         replacement: fileURLToPath(new URL("./.sources/bashkit/pkg/$1", import.meta.url)),
       },

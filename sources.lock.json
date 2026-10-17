@@ -68,24 +68,29 @@
   },
   "bunWasm": {
     "repository": "https://github.com/ShaulLavo/bun-wasm",
-    "revision": "c81bcce890c5b121d7fee0a3eeaf3c8fef34e5cc",
+    "revision": "4af3c580a580270df82d1b051c12571a141ad883",
+    "legacyHostRevision": "c81bcce890c5b121d7fee0a3eeaf3c8fef34e5cc",
     "engine": "quickjs",
-    "wasmSha256": "0ad375ace9c032730745655fe32056d2163b640fa882c1683c3635d54b79287d",
-    "wasmBytes": 10860006,
+    "wasmSha256": "5f1f7eff76d83121b294f971ce5a88e2051167aa4c05e710d77d8391e0e0bd24",
+    "wasmBytes": 14958925,
     "hostFiles": [
       "web/src/fs.ts",
       "web/src/wasi.ts",
       "web/src/subprocess-fs.ts",
       "web/src/net/trampoline.ts"
     ],
-    "strategy": "Vendored unmodified host files and compressed WASI binary rebuilt from the revision; build verifies artifact checksums.",
-    "artifactOrigin": "Local QuickJS rebuild with scripts/build.sh from the unmodified pinned revision.",
+    "strategy": "Bun guest binary built from revision; runtime package separately pinned by runtimeRevision. Old Brush host files retain legacyHostRevision. Build verifies artifact and runtime source checksums.",
+    "artifactOrigin": "QuickJS deployment guest built from Bun source revision 4af3c580a580270df82d1b051c12571a141ad883. The matching runtime package and job-wait ABI were merged in bun-wasm revision 1d251a99d3d22a4c33c78d4eb7425e5e69299e82; guest files were copied from the coordinator-provided immutable guest bundle.",
     "sourceArtifact": "third-party/bun-wasm/bun.wasm.gz",
-    "sourceArtifactSha256": "87d85b1b9183fd49261ad23640591bc559135c55b4f177e2aa50298e415e3998",
+    "sourceArtifactSha256": "70c013a90064fd0ef6c6855d7b5a68c8a1800cc8034fdb1a3789e22915288781",
     "buildToolchain": {
       "rust": "nightly-2026-09-15",
       "binaryen": "133"
-    }
+    },
+    "runtimeRevision": "1d251a99d3d22a4c33c78d4eb7425e5e69299e82",
+    "runtimeDirectory": "third-party/bun-wasm/runtime",
+    "runtimeTreeSha256": "dae0eaac5ebb526f329aedfbdd3308657f67c0acf77aa3d225d83e19d42a5bcd",
+    "runtimeStrategy": "Vendored unmodified runtime package files from runtimeRevision 1d251a99d3d22a4c33c78d4eb7425e5e69299e82, including the wait_job/job-empty ABI and supervisor quiescence hook. Legacy host files retain legacyHostRevision and the Bun artifact has its separate traced guest revision; the new shell uses runtime/core and runtime/proc, never the legacy host."
   },
   "shellParser": {
     "repository": "https://github.com/everruns/bashkit",
@@ -97,6 +102,11 @@
     "strategy": "Owned parser starting from the pinned Bashkit revision, with freely maintained local changes and upstream parser tests retained unless a deliberate behavior change is recorded.",
     "licenseSha256": "b3e3b2f3fd15c45106e08434a52c5ad9ca97f15a1cc9894ab5b01078124cf613",
     "changeLog": [
+      {
+        "paths": ["shell/parser/src/limits.rs"],
+        "change": "Extend the original limits adapter with a synchronous cancellation probe at parser work-budget checkpoints. No copied parser implementation or upstream assertions changed.",
+        "reason": "Browser SIGINT must be observed while WASM is CPU-running, without waiting for the JavaScript worker event loop. The shell checks runtime_proc.interrupted through its foreground cancellation probe."
+      },
       {
         "paths": [
           "shell/parser/src/lib.rs",
@@ -790,5 +800,40 @@
       "scripts/fixtures/shell-braces-seed-42.json"
     ],
     "strategy": "Run brace lists and signed, padded numeric/ASCII-letter ranges before parameter-name parsing and field splitting. Unlike the upstream AST placeholder/cloning implementation, borrow raw source spans, preserve quoted/escaped syntax structurally, reparse admitted generated words, and use iterative cooperative expansion. Invalid enclosing groups stay literal while children expand. Every growing vector/string and parser temporary is storage-admitted; raw output is charged only when emitted and shared across variants. Limits fail explicitly, never return literal or partial results. Original GNU Bash 5.3.15 differential generators and engine resource/deep-nesting tests verify behavior. Removed lexical line continuations join range fragments and dollar-opened opaque constructs without normalizing protected quote bodies. Use the original shared substitution scanner for all opaque dollar-parenthesis bodies, distinguishing arithmetic from command grammar and incrementally replaying ambiguous fallback syntax. Checkpoint and storage-admit every source, replay and EOF step so inactive comments, heredocs and case patterns cannot expose brace punctuation or hide uncancellable work. Preserve the initial parser nesting ceiling when reparsing generated words; iterative opaque scanning adds no smaller lexical cap."
+  },
+  "shellAcceptanceUtilities": {
+    "repository": "https://github.com/everruns/bashkit",
+    "revision": "491c3281f668b76d64b15210b8f5d7bf97244be0",
+    "license": "MIT",
+    "classification": "Adapted grep acceptance subset with original streaming descriptor, regex and filesystem adapters; mkdir is original, not copied from an upstream utility.",
+    "implementationSources": [
+      {
+        "path": "crates/bashkit/src/builtins/grep.rs",
+        "sha256": "b59bdf6df23f3043692fb6363653555e50c9249fd781de83535db693c5395a9a",
+        "items": [
+          "GrepOptions short flags and mixed option/operand parsing, restricted to -v -c -q -n -i -F -E and --",
+          "FileScan per-line selection, counts, line numbers and quiet early completion",
+          "scan_input newline records, final unterminated record and streaming output",
+          "Grep::execute per-file results and GNU 0/1/2 status, including quiet success over earlier input errors"
+        ]
+      }
+    ],
+    "implementationDestinations": [
+      "shell/engine/src/builtins/grep.rs",
+      "shell/engine/src/builtins.rs",
+      "shell/engine/src/io.rs",
+      "shell/engine/src/runtime.rs",
+      "shell/engine/src/runtime/wasi.rs"
+    ],
+    "testDestinations": [
+      "shell/engine/tests/streaming.rs",
+      "shell/engine/src/runtime/tests.rs"
+    ],
+    "strategy": "Port only the grep behaviors needed by step 1 acceptance. Read descriptors in 8 KiB chunks, retain at most min(Limits.line_bytes, 64 KiB) per record, write selected records immediately with descriptor backpressure, and checkpoint cancellation while reading/scanning. Pattern input is at most 4096 bytes; the linear-time regex crate has 256 KiB compiled-program and DFA-cache limits and nesting limit 64. An original small BRE translator supplies unescaped literal versus escaped operator rules and preserves caret/dollar anchors only at BRE branch boundaries, including escaped groups and alternation (GNU grep oracle regressions); do not import Bashkit grep_pattern, backtracking engines, whole-file reads, output buffers or the bug25 buffering architecture. Preserve record bytes including CR, NUL and invalid UTF-8 instead of binary-file suppression. Multiple operands get filename prefixes; count is per input; -q stops at the first selected record. Original mkdir and -p resolve against shell cwd and use FileSystem plus preview1 path_create_directory/path_filestat_get, validating an existing directory rather than accepting files. The memory filesystem tracks bounded directory metadata. Runtime metadata calls share the explicitly deferred synchronous-filesystem stall/cancellation limitation; there is no compatibility fallback. General utilities remain plan 004 step 4.",
+    "excluded": [
+      "grep long options, -e/-f, recursive traversal, context and binary-file classification",
+      "full GNU BRE/ERE syntax and locale/collation parity, backreferences and PCRE",
+      "mkdir modes, permission changes and all utilities beyond this acceptance subset"
+    ]
   }
 }

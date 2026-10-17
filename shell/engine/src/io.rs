@@ -3,7 +3,7 @@ use crate::executor::{Cancel, Event, yield_now};
 use futures::future::LocalBoxFuture;
 use std::{
     cell::{Cell, RefCell},
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     rc::Rc,
 };
 
@@ -11,12 +11,24 @@ use std::{
 /// Neither operation may block the executor; dropped futures must unregister
 /// readiness waits. The host endpoint's last Rc drop closes its runtime handle.
 pub trait HostEndpoint {
+    /// Descriptor in the shared preview1/runtime_proc namespace, when spawnable.
+    fn runtime_fd(&self) -> Option<u32> {
+        None
+    }
     fn read<'a>(&'a self, output: &'a mut [u8]) -> LocalBoxFuture<'a, Result<usize, IoError>>;
     fn write<'a>(&'a self, input: &'a [u8]) -> LocalBoxFuture<'a, Result<usize, IoError>>;
 }
 /// Live runtime filesystems may await service readiness but must never block an
 /// executor task. Callers race opens with their job's cancellation token.
 pub trait FileSystem {
+    /// Pipeline endpoints must belong to the same host as spawned processes.
+    fn pipe(&self) -> Result<(Endpoint, Endpoint), IoError> {
+        Ok(pipe())
+    }
+    /// Create one directory, or missing parents when requested. Runtime-backed
+    /// preview1 metadata calls currently share open's documented blocking limit.
+    fn mkdir<'a>(&'a self, path: &'a str, parents: bool)
+    -> LocalBoxFuture<'a, Result<(), IoError>>;
     fn open<'a>(
         &'a self,
         path: &'a str,
@@ -34,8 +46,11 @@ pub enum IoError {
     Cancelled,
     LimitExceeded,
     NotFound,
+    AlreadyExists,
+    NotDirectory,
     InvalidPath,
     WriteZero,
+    Runtime(i32),
 }
 impl IoError {
     pub fn status(&self) -> i32 {
@@ -48,14 +63,20 @@ impl IoError {
 }
 impl std::fmt::Display for IoError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Self::Runtime(errno) = self {
+            return write!(f, "runtime I/O error: errno {errno}");
+        }
         f.write_str(match self {
             Self::BadDescriptor => "bad descriptor",
             Self::BrokenPipe => "broken pipe",
             Self::Cancelled => "cancelled",
             Self::LimitExceeded => "I/O memory limit exceeded",
             Self::NotFound => "file not found",
+            Self::AlreadyExists => "file exists",
+            Self::NotDirectory => "not a directory",
             Self::InvalidPath => "invalid path",
             Self::WriteZero => "write made no progress",
+            Self::Runtime(_) => unreachable!(),
         })
     }
 }
@@ -74,6 +95,7 @@ struct File {
     data: RefCell<Vec<u8>>,
 }
 struct FsState {
+    directories: BTreeSet<String>,
     files: BTreeMap<String, Rc<File>>,
     used: usize,
     limit: usize,
@@ -127,6 +149,12 @@ pub fn pipe() -> (Endpoint, Endpoint) {
     )
 }
 impl Endpoint {
+    pub fn runtime_fd(&self) -> Option<u32> {
+        match self.0.as_ref() {
+            Open::Host(host) => host.runtime_fd(),
+            _ => None,
+        }
+    }
     pub fn null() -> Self {
         Self(Rc::new(Open::Null))
     }
@@ -346,7 +374,7 @@ impl Default for OpenOptions {
     }
 }
 /// A shared, byte-limited filesystem for simple redirects. File payload bytes are
-/// limited by `total_limit`; metadata is additionally capped at MAX_MEMORY_FILES
+/// limited by `total_limit`; file and directory metadata are each capped at MAX_MEMORY_FILES
 /// names of MAX_PATH_BYTES each. Paths must already be resolved against the shell's
 /// cwd; directory policy belongs to the interpreter.
 #[derive(Clone)]
@@ -354,6 +382,10 @@ pub struct MemoryFs(Rc<RefCell<FsState>>);
 impl MemoryFs {
     pub fn new(total_limit: usize) -> Self {
         Self(Rc::new(RefCell::new(FsState {
+            directories: ["/", "/home", "/home/guest", "/tmp"]
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
             files: BTreeMap::new(),
             used: 0,
             limit: total_limit,
@@ -372,6 +404,9 @@ impl MemoryFs {
             return Err(IoError::BadDescriptor);
         }
         let mut fs = self.0.borrow_mut();
+        if fs.directories.contains(path) {
+            return Err(IoError::AlreadyExists);
+        }
         let file = match fs.files.get(path) {
             Some(file) => file.clone(),
             None if options.create => {
@@ -398,6 +433,47 @@ impl MemoryFs {
             options: *options,
         }))))
     }
+    pub fn mkdir(&self, path: &str, parents: bool) -> Result<(), IoError> {
+        if !path.starts_with('/') || path.len() > MAX_PATH_BYTES || path.contains('\0') {
+            return Err(IoError::InvalidPath);
+        }
+        let path = path.trim_end_matches('/');
+        let path = if path.is_empty() { "/" } else { path };
+        let mut fs = self.0.borrow_mut();
+        let mut create = |directory: &str, allow_existing: bool| {
+            if fs.files.contains_key(directory) {
+                return Err(IoError::AlreadyExists);
+            }
+            if fs.directories.contains(directory) {
+                return if allow_existing {
+                    Ok(())
+                } else {
+                    Err(IoError::AlreadyExists)
+                };
+            }
+            let parent = directory
+                .rsplit_once('/')
+                .map(|(p, _)| if p.is_empty() { "/" } else { p })
+                .unwrap();
+            if fs.files.contains_key(parent) {
+                return Err(IoError::NotDirectory);
+            }
+            if !fs.directories.contains(parent) {
+                return Err(IoError::NotFound);
+            }
+            if fs.directories.len() >= MAX_MEMORY_FILES {
+                return Err(IoError::LimitExceeded);
+            }
+            fs.directories.insert(directory.to_owned());
+            Ok(())
+        };
+        if parents {
+            for (index, _) in path.match_indices('/').filter(|(index, _)| *index > 0) {
+                create(&path[..index], true)?;
+            }
+        }
+        create(path, parents)
+    }
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>, IoError> {
         let fs = self.0.borrow();
         let file = fs.files.get(path).ok_or(IoError::NotFound)?;
@@ -409,6 +485,9 @@ impl MemoryFs {
             return Err(IoError::InvalidPath);
         }
         let mut fs = self.0.borrow_mut();
+        if fs.directories.contains(path) {
+            return Err(IoError::AlreadyExists);
+        }
         let old = fs
             .files
             .get(path)
@@ -440,6 +519,13 @@ impl MemoryFs {
 }
 
 impl FileSystem for MemoryFs {
+    fn mkdir<'a>(
+        &'a self,
+        path: &'a str,
+        parents: bool,
+    ) -> LocalBoxFuture<'a, Result<(), IoError>> {
+        Box::pin(async move { MemoryFs::mkdir(self, path, parents) })
+    }
     fn open<'a>(
         &'a self,
         path: &'a str,

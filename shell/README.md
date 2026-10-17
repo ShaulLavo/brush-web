@@ -2,8 +2,8 @@
 
 Plan [004](../plans/004-own-shell.md) now has a parser library and an original
 async engine with a runnable native/WASI CLI. Brush remains the workbench's
-default. The engine and its fixture process host have no browser runtime wiring;
-step 1's real browser gate remains mandatory before replacing Brush.
+default. The native fixture process host stays separate from the runtime-backed
+WASI executable; step 1's real browser gate remains mandatory before replacing Brush.
 
 ## Parser and provenance
 
@@ -88,7 +88,8 @@ dependency licenses in the existing distribution notices flow.
 
 The original async [engine core](engine/README.md) is now tested natively and under
 wasmtime against an explicitly in-process `ProcessHost`. This is not the browser
-worker gate: Brush remains the default, and no browser runtime wiring is included.
+worker gate: Brush remains the default. The runtime adapter below is the browser
+embedding, separate from this native test host.
 
 ## CLI and fixed compatibility scoreboard
 
@@ -123,3 +124,41 @@ Bashkit-suite. Two freshly nondeterministic oracle cases explain the smaller
 secondary denominators. Candidate baselines must include every current passing
 case; CI separately rejects any corpus count below the target branch. Browser cold-start measurement is deferred until browser
 integration; this CLI establishes no cold-start or browser acceptance result.
+
+
+## Runtime-backed interactive guest
+
+`cargo build --manifest-path shell/Cargo.toml --release --target wasm32-wasip1
+-p shell-engine --bin shell-runtime` builds the persistent guest. The browser
+publishes it as `/programs/shell-engine.wasm`; the existing `shell-engine -c`
+fixture executable and its in-process compatibility registry are unchanged.
+
+Start the runtime guest with argv `['shell-engine', '-i']` (or `-c SCRIPT`).
+It imports the environment, uses `PWD` for its cwd, and defaults `PS1` to `$ `.
+Provide a preview1 `/` preopen and runtime_proc using **the same descriptor
+table**. Opens use preview1 `path_open` for immediate metadata; reads, writes,
+pipes, child waits and job waits use runtime_proc. The guest requires
+`wait_job(job, 1, status_ptr)` and job-completion poll kind 4 in addition to the
+base process ABI. Shell-local group numbers are not runtime job IDs: the first
+spawn creates a job and `job_of(pid)` supplies the ID later stages join.
+Background lists create independent background jobs and survive later commands.
+
+Only the embedding's reactor calls blocking `runtime_proc.poll`, between executor
+turns. Endpoint futures register removable read/write/exit/job subscriptions and
+retry EAGAIN without blocking. Subscription and event records are each 16-byte
+little-endian records. Endpoint clones share one owned runtime fd binding; its
+last drop calls preview1 `fd_close`. Spawn synchronously retains all inherited
+bindings, including nonstandard descriptors. Job completion waits for runtime
+confirmation of descendant teardown before releasing the group.
+
+The guest owns basic terminal echo, history, UTF-8-aware backspace, cursor arrows,
+Home/End, Delete and common control-key editing. Forward raw terminal input
+without browser local echo. Send SIGINT to the shell PID: foreground cancellation
+forwards it to the mapped job, while unrelated background jobs persist. At the
+prompt SIGINT clears the edited line. Ctrl-D on an empty line or `exit` shuts down
+all shell-owned jobs. Parser and execution budget checkpoints dequeue signals
+even while the guest has not returned to the worker message loop.
+
+The guest also imports `shell_terminal.phase(i32)` for embedding/test state:
+1 means prompt painted and editor ready, 2 means a command is running, and 0
+means shutdown. This is UI metadata only, not a command or descriptor channel.

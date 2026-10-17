@@ -1,5 +1,7 @@
 //! Small streaming builtins needed by the engine acceptance gate. Utilities here
-//! are original adapters; the full utility/compatibility work is still deferred.
+//! are original adapters except the explicitly attributed grep subset. The full
+//! utility/compatibility work is still deferred.
+mod grep;
 use crate::{
     executor::Budget,
     interpreter::{Context, Flow, Outcome},
@@ -71,6 +73,8 @@ pub(crate) fn is_builtin(name: &str) -> bool {
             | "echo"
             | "printf"
             | "cat"
+            | "grep"
+            | "mkdir"
             | "seq"
             | "read"
             | "export"
@@ -216,6 +220,52 @@ pub(crate) async fn run(
                     copy(input, &fds, &context).await?;
                 }
             }
+        }
+        "grep" => return grep::run(args, &state, &fds, &context).await,
+        "mkdir" => {
+            let mut parents = false;
+            let mut operands = Vec::new();
+            let mut options = true;
+            for arg in args {
+                match arg.as_str() {
+                    "--" if options => options = false,
+                    "-p" if options => parents = true,
+                    s if options && s.starts_with('-') && s != "-" => return Err(2),
+                    _ => operands.push(arg),
+                }
+            }
+            if operands.is_empty() {
+                return Err(2);
+            }
+            let mut status = 0;
+            let mut budget = Budget::default();
+            for operand in operands {
+                budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
+                // Empty operands must not turn into the current directory under -p.
+                let path = if operand.is_empty() {
+                    String::new()
+                } else {
+                    absolute(&state.borrow().cwd, &operand)
+                };
+                if let Err(error) = context
+                    .cancel
+                    .run(context.fs().mkdir(&path, parents))
+                    .await
+                    .map_err(|_| 130)?
+                {
+                    status = 1;
+                    if let Some(stderr) = fds.get(2) {
+                        stderr
+                            .write_all(
+                                format!("mkdir: {operand}: {error}\n").as_bytes(),
+                                &context.cancel,
+                            )
+                            .await
+                            .map_err(|error| error.status())?;
+                    }
+                }
+            }
+            return Ok(Outcome::status(status));
         }
         "seq" => {
             let (start, end) = match args.as_slice() {

@@ -30,6 +30,7 @@ pub enum ProcessError {
     InvalidParent(ProcessId),
     InvalidSignal,
     ProcessLimit,
+    Runtime(i32),
 }
 impl std::fmt::Display for ProcessError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -39,6 +40,7 @@ impl std::fmt::Display for ProcessError {
             Self::GroupClosed(group) => write!(f, "process group is closing: {group}"),
             Self::InvalidParent(pid) => write!(f, "invalid process parent: {pid}"),
             Self::InvalidSignal => f.write_str("invalid signal"),
+            Self::Runtime(errno) => write!(f, "runtime process error: errno {errno}"),
             Self::ProcessLimit => f.write_str("unreaped process limit exceeded"),
         }
     }
@@ -55,6 +57,13 @@ pub trait ProcessHost {
     /// allocator. Explicit numeric IDs remain supported, but their caller owns
     /// avoiding aliases with other clients, including allocated IDs.
     fn allocate_group(&self) -> GroupId;
+    fn allocate_background_group(&self) -> GroupId {
+        self.allocate_group()
+    }
+    /// Nonblocking signal checkpoint. Only foreground cancellation consumes it.
+    fn interrupted(&self) -> bool {
+        false
+    }
     fn spawn(&self, request: SpawnRequest) -> Result<ProcessId, ProcessError>;
     fn wait(&self, pid: ProcessId) -> LocalBoxFuture<'static, Result<i32, ProcessError>>;
     fn kill(&self, pid: ProcessId, signal: i32) -> Result<(), ProcessError>;

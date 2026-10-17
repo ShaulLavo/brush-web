@@ -10,6 +10,7 @@ import terminalWasmUrl from "ghostty-webgpu/ghostty-vt.wasm?url";
 import terminalBridgeUrl from "ghostty-webgpu/bridge.wasm?url";
 import { BrowserSession } from "./session";
 import type { Engine } from "./session";
+import { TerminalNewlines } from "./shell-terminal-output";
 import "./style.css";
 
 interface BrowserTestAccess {
@@ -29,6 +30,7 @@ interface BrowserTestAccess {
   };
   metrics(): BrowserSession["metrics"] | undefined;
   outputTimings(): readonly TerminalOutputTiming[];
+  runtimeSnapshot(): ReturnType<BrowserSession["runtimeSnapshot"]>;
   restart(engine?: Engine): Promise<void>;
   crash(): void;
 }
@@ -115,6 +117,7 @@ async function openTerminal(host: HTMLElement): Promise<Terminal> {
 function Workbench(handle: Handle) {
   const requestedEngine = query.get("engine");
   let engine: Engine =
+    requestedEngine === "own-shell" ||
     requestedEngine === "bashkit" ||
     requestedEngine === "bashkit-terminal" ||
     requestedEngine === "just-bash"
@@ -262,6 +265,10 @@ function Workbench(handle: Handle) {
 
   async function createSession(current: Terminal, expectedGeneration: number) {
     const grid = current.appearance.grid;
+    // Brush and the comparison editors already own their terminal discipline.
+    // The runtime-backed shell shares raw descriptors with children instead, so
+    // apply ONLCR only at this display sink, after file/pipe/descriptor handling.
+    const newlines = engine === "own-shell" ? new TerminalNewlines() : undefined;
     performance.mark("brush:session-start");
     const created = await BrowserSession.create({
       engine,
@@ -280,7 +287,8 @@ function Workbench(handle: Handle) {
         if (generation !== expectedGeneration || handle.signal.aborted) return;
         try {
           hasOutput = true;
-          current.write(bytes);
+          if (newlines) newlines.write(bytes, (chunk) => current.write(chunk));
+          else current.write(bytes);
         } catch (cause) {
           fail(cause, expectedGeneration);
         }
@@ -344,6 +352,7 @@ function Workbench(handle: Handle) {
         firstFrameMs,
       }),
       metrics: () => session?.metrics,
+      runtimeSnapshot: () => session?.runtimeSnapshot(),
       outputTimings: () => outputTimings,
       restart: start,
       crash: () => session?.crash(),
@@ -397,6 +406,14 @@ function Workbench(handle: Handle) {
               mix={on("click", () => selectEngine("brush"))}
             >
               Brush <span class="engine-detail">Rust · WASM</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={engine === "own-shell"}
+              disabled={busy}
+              mix={on("click", () => selectEngine("own-shell"))}
+            >
+              Own shell <span class="engine-detail">runtime peer</span>
             </button>
             <button
               type="button"
@@ -499,7 +516,14 @@ function Workbench(handle: Handle) {
             <div class="loading-overlay" role="status">
               <span class="loading-dot" />
               Starting{" "}
-              {engine === "brush" ? "Brush" : engine === "just-bash" ? "just-bash" : "Bashkit"}…
+              {engine === "brush"
+                ? "Brush"
+                : engine === "own-shell"
+                  ? "Own shell"
+                  : engine === "just-bash"
+                    ? "just-bash"
+                    : "Bashkit"}
+              …
             </div>
           )}
         </div>

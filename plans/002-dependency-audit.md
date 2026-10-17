@@ -25,3 +25,39 @@ The corresponding entries start at `package-lock.json:3714`, `:3881`, `:4008`, `
 ## Execute
 
 Check current upstream patch releases and the advisory ranges. Trace whether the browser bundle includes the affected networking implementation. Prefer supported patch releases. If an override is necessary, exercise the just-bash adapter and Remix/Vite build against that graph before keeping it. Preserve exact dependency pins and rerun `npm run verify`. Record any remaining audit finding with its actual runtime reachability and an explicit resolution condition.
+
+
+## 2026-10-17 runtime integration refresh
+
+`npm install --package-lock-only --ignore-scripts` and `npm audit --json` still
+report the same five entries (one high, three moderate, one low). Raw public
+package/advisory evidence is retained at
+`/work/reports/brush-web/runtime-gates/npm-audit.json`; regenerate with the
+commands above rather than relying on the report path on another machine.
+
+- `esbuild@0.27.7` is a direct development/build dependency, also pulled in by
+  Vite/Remix tooling. Its low-severity advisory concerns the Windows development
+  server; esbuild's server is not deployed in the static browser app. The offered
+  0.28.2 exceeds the permitted patch-only update; check an upstream patch first.
+- `just-bash@3.6.0 → guarded-fetch@0.1.3 → undici@7.29.0` accounts for the high
+  Undici advisories and moderate transitive package entries. npm reports no
+  automatic upstream fix on this chain. The deployed comparison adapter imports
+  `just-bash/browser`, whose published browser bundle contains neither an
+  Undici implementation/import nor a guarded-fetch import (only diagnostic text
+  mentioning guarded-fetch). The adapter configures no networking capability.
+  This vulnerable Node networking implementation is an installed dependency,
+  not part of the selected browser engine's network path. Recheck the emitted
+  production chunks after any upstream package or export change.
+- `just-bash@3.6.0 → sprintf-js@1.1.3` has the moderate unbounded-precision
+  formatting denial-of-service advisory. The browser comparison bundle imports
+  `sprintf-js` for its printf command, so this implementation ships in the
+  optional comparison-engine chunk; it is not dev/bench-only. Runtime work does
+  not fix or remove it. Isolate or remove that engine, or validate a supported
+  upstream patch, rather than assuming worker execution prevents memory denial
+  of service.
+
+The new Rust/runtime-backed shell does not depend on just-bash. Just-bash is a
+comparison engine and will not move into `bash-web`; the likely resolution is
+to drop or isolate it when this repository becomes the Brush comparison bench.
+No broad `npm audit fix --force`, dependency override or minor/major version
+upgrade was applied in the runtime integration PR.

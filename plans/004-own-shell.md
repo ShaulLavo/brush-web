@@ -62,6 +62,123 @@ Step 1 includes the minimum production semantics, fixture commands and session i
 - a non-standard descriptor (`3>&1`, `exec 4<file`) is inherited by a child;
 - `bun dev &` returns to the prompt, keeps streaming, and the next command can `kill %1` or `wait` for it.
 
+**Acceptance-only utilities (2026-10-17, Approved).** Provide `grep` and
+`mkdir` as in-process descriptor tasks solely for this gate. The grep subset is
+adapted from the pinned Bashkit `builtins/grep.rs`; it accepts `-v -c -q -n -i
+-F -E`, streams records without the bug25 output-buffering path, bounds records
+and regex resources, and retains GNU 0/1/2 statuses. `mkdir` and `-p` use the
+runtime filesystem. Provenance, exact bounds and deliberately unsupported syntax
+are in `sources.lock.json:shellAcceptanceUtilities` and
+`docs/external-commands.md#acceptance-only-in-process-utilities`.
+
+These commands unblock exactly these existing, unchanged cases in
+`tests/pipelines.acceptance.spec.ts` (not a claim that the entire browser gate
+has passed):
+
+- `pipeline forwards ticker lines while the producer is running` —
+  `bun run ticker.ts | grep tick`;
+- `pipeline Ctrl+C stops every stage and its children` —
+  `export KEEP=kept; bun run endless.ts | bun run read.ts | grep unmatched; echo BAD_AFTER_INTERRUPT`;
+- `pipeline stages inherit functions, unexported variables, cwd and redirections`
+  — `mkdir nested; cd nested; secret=retained; f() { printf '%s\n' "$secret:$PWD:$1"; }; f value | cat > result; cat result`.
+
+Native descriptor regressions additionally pin quiet early exit, no-match
+cancellation, byte preservation, regex/record admission, >1 MiB streaming,
+broken pipes, counts/statuses, and existing directory/file handling. No new
+utilities beyond these commands are approved here; the general set remains
+step 4. Directory metadata uses the same synchronous Preview1 filesystem
+boundary as opens, so the filesystem stall/cancellation gate below also applies
+to `mkdir`; it is not closed by racing the outer future with cancellation.
+
+**Terminal dependency (2026-10-17).** Step 1's raw shared endpoint carries
+byte-exact pipes and gives the shell guest its own prompt editor. Per-child
+canonical terminal input (echo/editing and one-shot Ctrl+D EOF for a foreground
+child) depends on the shared runtime's step 5, **Terminal**: terminal descriptor
+foreground ownership, cooked mode ported from Brush, and raw mode that passes
+Ctrl+C through. This is approved later work, not a reason to close the whole
+shared terminal to fake child EOF. When that runtime feature lands, the shell
+hands foreground terminal ownership to the child job and takes it back on exit.
+The current integration does not claim a child PTY/canonical-input implementation.
+
+**Remaining runtime gates (2026-10-17).** The integration may land while these
+runtime-owned limitations remain explicit; step 1 is not fully satisfied until
+they are removed, and they remain mandatory before step 6 replaces Brush:
+
+- **Lifetime process limit.** The shared directory currently has 1,024 slots,
+  including the shell root; completed/reaped processes do not release them.
+  `runtime/proc/worker-client.ts:reserveRecord` monotonically consumes the count.
+  `scripts/fixtures/runtime-process-limit.test.ts` uses the real client, broker,
+  supervisor, wait and reap to pin the known failure after 1,023 sequential
+  controlled commands; it launches no guest. Its TODO preserves the 2,000-command
+  target. Run through admission: `bun test scripts/fixtures/runtime-process-limit.test.ts`;
+  `--todo` additionally attempts that currently failing target. Remove the
+  known-failure assertion and execute the target after runtime slot recycling
+  with PID/generation validation lands. Recheck real browser sessions afterwards.
+- **Bun-created descendants.** Runtime step **7b** will replace the historical Bun
+  subprocess bridge with the shared process service. Today a shell-launched Bun
+  parent is in the directory, but its `Bun.spawn` descendants are not, so shell
+  whole-job interruption cannot reach them. Nested `Bun.spawn({stdin:"inherit"})`
+  now retains a generic runtime pipe reader, but still gets EOF for a generic
+  parent's regular-file or terminal fd 0 across that legacy bridge. Direct
+  `runtime_proc` child inheritance is not affected. The full foreground-descendant
+  and independent-background browser test remains unchanged but explicitly
+  `fixme` pending 7b; this is a known failure, not passing cancellation evidence.
+- **Bun guest libc preopen discovery.** The pinned Bun guest's wasi-libc scans
+  descriptors from 3 until BADF and exits 71 on any other error. A truthful NOTSUP
+  for an inherited terminal at fd 3 therefore aborts startup before the real
+  relocated root preopen is found. The Bun fd3/fd4 offset and root-preopen browser
+  cases remain explicitly `fixme` pending a guest libc fix that skips occupied
+  non-preopen descriptors. Do not invent successful directory metadata or invalid
+  prestat tags. Builtins and direct `runtime_proc` shell children retain active
+  arbitrary-fd/root-preopen browser coverage; those do not use Bun's libc scan.
+- **Shared-filesystem devices.** The runtime has no device nodes yet. Do not
+  create a regular `/dev/null`: it retains writes instead of discarding them.
+  Waffle will provide real `/dev/null` (discard writes, EOF reads), `/dev/zero`,
+  `/dev/urandom`, `/dev/stdin`, `/dev/stdout`, `/dev/stderr` and `/dev/fd/N`
+  aliases resolved against the opening process's descriptors. `/dev/tty` follows
+  the terminal step. Missing devices are a known limitation, not shell-only
+  implementations; child programs must observe the same semantics.
+- **Filesystem stall/cancellation.** Rust `Runtime::open` currently calls Preview1
+  `path_open`; directory creation/stat likewise use synchronous Preview1 calls.
+  `FilesystemClient.call` can enter an indefinite `Atomics.wait`.
+  A stalled filesystem service therefore blocks shell task progress and SIGINT
+  handling: `poll` is not yet the sole blocking operation. The runtime will add
+  copied-input open submission, nonblocking take/cancel and kind-3 completion
+  readiness; Rust must use a cancelling RAII request owner with no blocking
+  fallback. `scripts/fixtures/runtime-filesystem-pending.test.ts` records the
+  pending deterministic gate: hold an open indefinitely, advance ready background
+  work, interrupt the foreground to status 130 without releasing the gate, then
+  deliver the late result and prove no fd leak. Success, ENOENT,
+  completion-before-registration, completion/cancel ownership and invalid output
+  memory are separate pending cases. These TODOs are not execution evidence.
+
+**Approved job-lifetime transition (2026-10-17).** The current runtime seals a
+job when its pending membership reaches zero, before it is reaped. A shell job
+can launch another command later in a loop or after a pipeline; joining that
+sealed runtime job fails with ECHILD and shell status 127. Until creator-owned
+job handles land, the small Rust `Runtime` group adapter starts one runtime job
+per direct child and retains every job ID under the logical shell group. Group
+kill closes admission before signaling every job; group wait confirms and reaps
+all jobs, including descendants and members admitted while an earlier wait was
+pending. Background groups remain separate from each other and the foreground.
+The browser acceptance uses a supported background brace sequence: a short Bun
+exits, a later persistent Bun starts, then `kill %1; wait %1` confirms cleanup
+without executing the following command. The original fixture used unsupported
+`for`/`if` syntax from the parked control-flow climb; restore that additional
+loop-form acceptance there,
+without treating this sequential-members gate as loop-compatibility evidence.
+This fanout is not the final runtime job model. After slot recycling, add an
+explicit creator hold that keeps a job open across temporarily empty membership:
+job-empty/wait-job becomes true only after release and no remaining members,
+and kill-job covers all current members. Then replace the contained adapter
+fanout with one shell job to one runtime job handle, retaining the same dynamic
+membership, cancellation, isolation and descendant-confirmation regressions.
+
+Runtime delivery order after its package split is slot recycling and creator-held
+job handles, then 7b, then asynchronous filesystem requests. The current PR does
+not implement substitute cross-transport job fencing or a blocking filesystem
+fallback.
+
 2. **Scoreboard.** Add the new shell as an engine in `scripts/bash-compat.mjs`, run all three corpora, commit the fixed GNU bash observations and baseline, and wire the exact-count comparison into CI. Target-branch baseline comparison must prevent lowering the candidate baseline from concealing a regression. Expect a low first score; the point is the number. This step can use tested native/WASI process-host stand-ins. The first fixed baseline is 288/1,682 Oils, 295/1,888 Brush-suite and 445/2,222 Bashkit-suite; two fresh GNU bash nondeterminism exclusions reduce the secondary denominators. Exact category counts and case outcomes are committed in `docs/evidence/own-shell-baseline.json`. The historical Brush targets above use their earlier case sets and must be rescored under the same fixed identity before comparison. Candidate baselines must match current per-case pass membership, including gains, while target-branch comparison enforces corpus nonregression.
 
 3. **Climb the bash rules,** in roughly this order, because later areas build on earlier ones. Each area is one or more PRs, each with its score delta:

@@ -1,19 +1,23 @@
 {
   "name": "brush-web",
-  "version": "0.0.30",
+  "version": "0.0.31",
   "private": true,
   "type": "module",
+  "exports": {
+    "./shell": "./src/shell.ts",
+    "./standalone": "./src/standalone.ts"
+  },
   "scripts": {
     "sources": "node scripts/sources.mjs",
     "build:wasm": "node scripts/build-wasm.mjs",
     "dev": "vite --host 0.0.0.0",
-    "build": "npm run sources && npm run build:wasm && npm run build:programs && npm run build:bashkit && node scripts/notices.mjs && vite build && node scripts/finish-build.mjs",
+    "build": "npm run sources && npm run build:wasm && npm run build:programs && npm run build:shell:browser && npm run build:bashkit && node scripts/notices.mjs && vite build && node scripts/finish-build.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc --noEmit",
     "format": "oxfmt --write src scripts tests vite.config.ts playwright.config.ts tsconfig.json package.json '!scripts/fixtures/**/*.json'",
     "format:check": "oxfmt --check src scripts tests vite.config.ts playwright.config.ts tsconfig.json package.json '!scripts/fixtures/**/*.json'",
     "test": "playwright test",
-    "verify": "npm run build && npm run typecheck && npm run format:check && npm run test:host && npm run test:process && npm run test:bashkit && npm test",
+    "verify": "npm run build && npm run typecheck && npm run format:check && npm run test:host && npm run test:process && npm run test:runtime:terminal && npm run test:bashkit && npm test",
     "measure": "node scripts/measure.mjs",
     "test:rust": "node scripts/check-shell-parser.mjs && cargo test --locked --manifest-path shell/Cargo.toml --workspace && cargo test --locked --manifest-path vendor/brush/Cargo.toml -p brush-interactive --features vt --lib vt:: && cargo test --locked --manifest-path vendor/brush/Cargo.toml -p brush-builtins --lib && cargo test --locked --manifest-path rust/brush-browser/Cargo.toml",
     "serve": "node dist/serve.mjs",
@@ -29,9 +33,12 @@
     "build:bashkit": "node scripts/build-bashkit.mjs",
     "test:bashkit": "node --test .sources/bashkit/__test__/terminal.test.mjs .sources/bashkit/__test__/bashkit-wasm.test.mjs",
     "compat": "node scripts/bash-compat.mjs",
-    "build:programs": "node scripts/build-programs.mjs",
+    "build:programs": "node scripts/check-runtime-source.mjs && node scripts/build-programs.mjs",
+    "build:shell:browser": "node scripts/build-shell-browser.mjs",
+    "test:shell:browser": "playwright test tests/pipelines.acceptance.spec.ts tests/runtime-shell.spec.ts --project=chromium --project=firefox",
     "measure:external": "node scripts/measure-external.mjs",
     "test:process": "node scripts/test-process-host.mjs",
+    "test:runtime:terminal": "node scripts/test-runtime-terminal.mjs",
     "build:shell": "CARGO_TARGET_DIR=.build/shell cargo build --locked --release --target wasm32-wasip1 --manifest-path shell/Cargo.toml --workspace",
     "test:shell:wasi": "node scripts/test-shell-wasi.mjs",
     "test:shell:scoreboard": "node --test scripts/test-shell-scoreboard*.mjs scripts/test-compat-selection.mjs scripts/test-own-shell-runner.mjs scripts/test-bash-compat*.mjs",
@@ -55,6 +62,7 @@
     "remix": "3.0.0"
   },
   "devDependencies": {
+    "@bun-wasm/runtime": "file:third-party/bun-wasm/runtime",
     "@playwright/test": "1.64.0",
     "@types/node": "26.6.3",
     "@webgpu/types": "0.1.74",
@@ -63,5 +71,8 @@
     "typescript": "7.0.2",
     "vite": "8.3.1",
     "yaml": "2.9.1"
+  },
+  "peerDependencies": {
+    "@bun-wasm/runtime": "0.0.16"
   }
 }

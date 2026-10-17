@@ -50,6 +50,7 @@ impl Default for Limits {
 pub(crate) enum Flow {
     Normal,
     Exit,
+    Abort,
     Return,
     DiscardReadUnit,
 }
@@ -118,6 +119,7 @@ struct Core {
     next: Cell<u64>,
     next_job: Cell<u64>,
     foreground: RefCell<Option<Job>>,
+    exit_requested: Cell<bool>,
 }
 #[derive(Clone)]
 pub(crate) struct Context {
@@ -223,6 +225,31 @@ impl Context {
         Ok(())
     }
 }
+/// Failure before a foreground job starts. Embeddings must preserve interrupt
+/// status rather than reporting parser cancellation as a syntax error.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StartError {
+    Interrupted,
+    Invalid(String),
+}
+impl StartError {
+    pub fn status(&self) -> i32 {
+        match self {
+            Self::Interrupted => 130,
+            Self::Invalid(_) => 2,
+        }
+    }
+}
+impl std::fmt::Display for StartError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Interrupted => f.write_str("request cancelled"),
+            Self::Invalid(message) => f.write_str(message),
+        }
+    }
+}
+impl std::error::Error for StartError {}
+
 /// A persistent shell session. The embedding drives `Executor`, delivers
 /// interrupts without a message-loop round trip, and drains terminal endpoints.
 pub struct Session {
@@ -247,12 +274,16 @@ impl Session {
                 next: Cell::new(1),
                 next_job: Cell::new(1),
                 foreground: RefCell::new(None),
+                exit_requested: Cell::new(false),
             }),
             state: State::default().shared(),
         }
     }
     pub fn state(&self) -> SharedState {
         self.state.clone()
+    }
+    pub fn exit_requested(&self) -> bool {
+        self.core.exit_requested.get()
     }
     pub fn background_jobs(&self) -> usize {
         self.core.jobs.borrow().len()
@@ -269,21 +300,25 @@ impl Session {
         *self.core.descriptors.borrow_mut() = fds;
         Ok(())
     }
-    pub fn start(&self, source: &str) -> Result<JoinHandle<i32>, String> {
+    pub fn start(&self, source: &str) -> Result<JoinHandle<i32>, StartError> {
         if self.core.foreground.borrow().is_some() {
-            return Err("foreground job is already running".into());
+            return Err(StartError::Invalid(
+                "foreground job is already running".into(),
+            ));
         }
         if source.len() > self.core.limits.source_bytes {
-            return Err("shell source limit exceeded".into());
+            return Err(StartError::Invalid("shell source limit exceeded".into()));
         }
         let parser_limits = shell_parser::limits::ExecutionLimits {
             max_input_bytes: self.core.limits.source_bytes,
             ..Default::default()
         };
+        let host = self.core.host.clone();
         let budget = shell_parser::limits::ExecutionBudget::new(
             &parser_limits,
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        );
+        )
+        .with_cancellation_probe(Rc::new(move || host.interrupted()));
         let (script, error) = Parser::with_limits_and_timeout(
             source,
             parser_limits.max_ast_depth,
@@ -295,17 +330,21 @@ impl Session {
         // top level stays lenient; substitution bodies get bash's grammar.
         .with_strict_substitution_bodies()
         .parse_recovering();
-        budget.check().map_err(|error| error.to_string())?;
+        budget.check().map_err(|error| match error {
+            shell_parser::limits::LimitExceeded::Cancelled => StartError::Interrupted,
+            error => StartError::Invalid(error.to_string()),
+        })?;
         let word_error = match error {
             None => None,
             Some(shell_parser::Error::ShellWord { line }) => Some(expand::Error::ShellBoundary {
                 stage: expand::ShellBoundaryStage::Word,
                 line: Some(line),
             }),
-            Some(error) => return Err(error.to_string()),
+            Some(error) => return Err(StartError::Invalid(error.to_string())),
         };
         let group = self.core.host.allocate_group();
-        let cancel = Cancel::new();
+        let host = self.core.host.clone();
+        let cancel = Cancel::with_probe(Rc::new(move || host.interrupted()));
         let foreground_cancel = cancel.clone();
         let context = Context {
             core: self.core.clone(),
@@ -333,6 +372,9 @@ impl Session {
                 let mut work = expansion_work(context.limits());
                 let error = work.admit_storage(256).err().unwrap_or(error);
                 result = expansion_failure(error.into(), &context.core.descriptors, &context).await;
+            }
+            if result.flow == Flow::Exit {
+                context.core.exit_requested.set(true);
             }
             let code = context.finish_group(&mut processes, result.code).await;
             state.borrow_mut().status = code;
@@ -405,7 +447,7 @@ async fn script_sequence(
         if context.cancel.is_cancelled() {
             return Outcome::status(130);
         }
-        if matches!(result.flow, Flow::Exit | Flow::Return) {
+        if matches!(result.flow, Flow::Exit | Flow::Abort | Flow::Return) {
             break;
         }
     }
@@ -464,6 +506,15 @@ fn execute(
                     state.borrow_mut().pipestatus = vec![2];
                     return Outcome::status(2);
                 }
+                // Reserve all endpoints before starting any stage: a pipe error
+                // cannot leave an already-running producer without a consumer.
+                let mut pipes = std::collections::VecDeque::new();
+                for _ in 1..count {
+                    match context.fs().pipe() {
+                        Ok(pipe) => pipes.push_back(pipe),
+                        Err(error) => return Outcome::status(error.status()),
+                    }
+                }
                 let mut previous = None;
                 let mut tasks = Vec::new();
                 for (index, command) in pipeline.commands.into_iter().enumerate() {
@@ -472,7 +523,7 @@ fn execute(
                         stage_fds.insert(0, input);
                     }
                     if index + 1 < count {
-                        let (reader, writer) = io::pipe();
+                        let (reader, writer) = pipes.pop_front().expect("reserved pipeline pipe");
                         stage_fds.insert(1, writer);
                         previous = Some(reader);
                     }
@@ -660,7 +711,9 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
     ) {
         Flow::DiscardReadUnit
     } else {
-        Flow::Exit
+        // Abort this submitted script, not the persistent interactive session.
+        // Only the explicit exit builtin requests session shutdown.
+        Flow::Abort
     };
     let (name, message, line, status) = match error {
         expand::Error::Status(code) => return Outcome::status(code),
@@ -828,7 +881,7 @@ fn background(
         state.borrow_mut().pipestatus = vec![2];
         return Outcome::status(2);
     }
-    let group = context.core.host.allocate_group();
+    let group = context.core.host.allocate_background_group();
     let cancel = Cancel::new();
     let child_context = Context {
         core: context.core.clone(),
@@ -1059,6 +1112,40 @@ async fn prepare_simple_command(
     })
 }
 
+/// Unlike RHS expansion's PrefixFrame, builtin writes to a prefixed name must
+/// not change the saved caller value. Only prefixed keys are restored, leaving
+/// unrelated effects (for example `read line`) and variable attributes intact.
+struct BuiltinPrefixFrame {
+    state: SharedState,
+    saved: BTreeMap<String, Option<String>>,
+}
+impl BuiltinPrefixFrame {
+    fn enter(state: SharedState, assigned: Vec<(String, String)>) -> Self {
+        let mut saved = BTreeMap::new();
+        {
+            let mut state = state.borrow_mut();
+            // prepare_simple_command already checked readonly and expanded RHSs.
+            for (name, value) in assigned {
+                let previous = state.variables.insert(name.clone(), value);
+                saved.entry(name).or_insert(previous);
+            }
+        }
+        Self { state, saved }
+    }
+}
+impl Drop for BuiltinPrefixFrame {
+    fn drop(&mut self) {
+        let mut state = self.state.borrow_mut();
+        for (name, value) in std::mem::take(&mut self.saved) {
+            if let Some(value) = value {
+                state.variables.insert(name, value);
+            } else {
+                state.variables.remove(&name);
+            }
+        }
+    }
+}
+
 async fn dispatch_simple_command(
     prepared: PreparedCommand,
     state: SharedState,
@@ -1076,7 +1163,7 @@ async fn dispatch_simple_command(
     };
     let args: Vec<_> = fields.collect();
     // Prefix assignments for external commands belong only to their environment.
-    // Prefix assignments on functions/builtins are deferred until full Bash rules.
+    // Function prefix assignments remain deferred until full Bash rules.
     let function = state.borrow().functions.get(&name).cloned();
     if let Some(body) = function {
         if !assigned.is_empty() {
@@ -1130,9 +1217,12 @@ async fn dispatch_simple_command(
         return Ok(result);
     }
     if builtins::is_builtin(&name) {
-        if !assigned.is_empty() {
+        // Declaration builtins can promote temporary bindings into caller/local
+        // scope. Keep those unsupported rather than applying ordinary rollback.
+        if !assigned.is_empty() && matches!(name.as_str(), "export" | "local" | "readonly") {
             return Err(2);
         }
+        let _frame = BuiltinPrefixFrame::enter(state.clone(), assigned);
         let bindings = fds.borrow().clone();
         return builtins::run(&name, args, state, bindings, context).await;
     }
