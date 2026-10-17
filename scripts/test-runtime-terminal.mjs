@@ -8,6 +8,8 @@ const compiled = await build({
   format: "esm",
   platform: "node",
   write: false,
+  // Keep assertion stacks readable without dumping the whole base64 module URL.
+  footer: { js: "//# sourceURL=brush-runtime-terminal.test.mjs" },
   alias: { "@bun-wasm/runtime": resolve(root, "third-party/bun-wasm/runtime") },
 });
 // In-memory bundle: no copied source, temp output or background helpers to clean.

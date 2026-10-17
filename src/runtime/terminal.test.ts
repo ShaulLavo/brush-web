@@ -306,11 +306,17 @@ test("nested Bun spawn retains generic pipeline stdin and closes only its own re
     const input = attachPipeEndpoint(child.runtimeStdin);
     const bytes = new Uint8Array(7);
     assert.equal(writer.tryWrite([new TextEncoder().encode("payload")]), 7);
+    // A second process reader promotes the pipe to relay mode. This manual fixture owns
+    // the page broker's pump: publish child demand before advancing the shared relay.
+    assert.equal(input.tryRead([bytes]), -6);
+    pipe.pumpRelay();
     assert.equal(input.tryRead([bytes]), 7);
     assert.equal(new TextDecoder().decode(bytes), "payload");
     childTransport(child).finish(0);
     assert.equal(input.tryRead([bytes]), -8);
     assert.equal(writer.tryWrite([new Uint8Array([42])]), 1, "parent's reader is still open");
+    assert.equal(reader.tryRead([bytes]), -6);
+    pipe.pumpRelay();
     assert.equal(reader.tryRead([bytes]), 1);
     assert.equal(bytes[0], 42);
   } finally {
