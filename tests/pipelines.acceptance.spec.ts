@@ -31,9 +31,9 @@ async function file(page: Page, path: string, source: string) {
 
 for (const [name, source, expected] of [
   [
-    "external command capture",
-    `value=$(bun -e 'process.stdout.write("captured\\n\\n")'); printf 'CAPTURE:%s\\n' "$value"`,
-    "CAPTURE:captured",
+    "external command capture preserves child status",
+    `value=$(bun -e 'process.stdout.write("captured\\n\\n"); process.exit(7)'); capture_status=$?; printf 'CAPTURE:<%s>:%s\\n' "$value" "$capture_status"`,
+    "CAPTURE:<captured>:7",
   ],
   [
     "external process-substitution reader",
