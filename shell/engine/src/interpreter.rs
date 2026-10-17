@@ -1079,6 +1079,40 @@ async fn prepare_simple_command(
     })
 }
 
+/// Unlike RHS expansion's PrefixFrame, builtin writes to a prefixed name must
+/// not change the saved caller value. Only prefixed keys are restored, leaving
+/// unrelated effects (for example `read line`) and variable attributes intact.
+struct BuiltinPrefixFrame {
+    state: SharedState,
+    saved: BTreeMap<String, Option<String>>,
+}
+impl BuiltinPrefixFrame {
+    fn enter(state: SharedState, assigned: Vec<(String, String)>) -> Self {
+        let mut saved = BTreeMap::new();
+        {
+            let mut state = state.borrow_mut();
+            // prepare_simple_command already checked readonly and expanded RHSs.
+            for (name, value) in assigned {
+                let previous = state.variables.insert(name.clone(), value);
+                saved.entry(name).or_insert(previous);
+            }
+        }
+        Self { state, saved }
+    }
+}
+impl Drop for BuiltinPrefixFrame {
+    fn drop(&mut self) {
+        let mut state = self.state.borrow_mut();
+        for (name, value) in std::mem::take(&mut self.saved) {
+            if let Some(value) = value {
+                state.variables.insert(name, value);
+            } else {
+                state.variables.remove(&name);
+            }
+        }
+    }
+}
+
 async fn dispatch_simple_command(
     prepared: PreparedCommand,
     state: SharedState,
@@ -1096,7 +1130,7 @@ async fn dispatch_simple_command(
     };
     let args: Vec<_> = fields.collect();
     // Prefix assignments for external commands belong only to their environment.
-    // Prefix assignments on functions/builtins are deferred until full Bash rules.
+    // Function prefix assignments remain deferred until full Bash rules.
     let function = state.borrow().functions.get(&name).cloned();
     if let Some(body) = function {
         if !assigned.is_empty() {
@@ -1150,9 +1184,12 @@ async fn dispatch_simple_command(
         return Ok(result);
     }
     if builtins::is_builtin(&name) {
-        if !assigned.is_empty() {
+        // Declaration builtins can promote temporary bindings into caller/local
+        // scope. Keep those unsupported rather than applying ordinary rollback.
+        if !assigned.is_empty() && matches!(name.as_str(), "export" | "local" | "readonly") {
             return Err(2);
         }
+        let _frame = BuiltinPrefixFrame::enter(state.clone(), assigned);
         let bindings = fds.borrow().clone();
         return builtins::run(&name, args, state, bindings, context).await;
     }

@@ -4019,3 +4019,5 @@ mod indirect;
 
 #[path = "words/readonly.rs"]
 mod readonly;
+#[path = "words/scoped_prefix.rs"]
+mod scoped_prefix;
