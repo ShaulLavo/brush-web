@@ -89,7 +89,11 @@ try {
     path,
     true,
   );
-  assert.equal(preflight.status, 37, "real-pipe preflight must retain Bash's exit status");
+  assert.equal(
+    preflight.status,
+    37,
+    `real-pipe preflight must retain Bash's exit status; stderr: ${preflight.stderr.toString()}`,
+  );
   assert.equal(preflight.stdout.toString(), "compat-oracle-ready");
   const version = execFileSync(shell, ["--version"], { encoding: "utf8" }).split("\n")[0];
   const executableSha256 = bytesDigest(await readFile(shell));
