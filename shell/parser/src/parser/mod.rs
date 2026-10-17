@@ -3798,6 +3798,8 @@ impl<'a> Parser<'a> {
         };
     }
 
+    // The box keeps this value out of the recursive caller's frame.
+    #[allow(clippy::boxed_local)]
     #[inline(never)]
     fn finish_simple(&mut self, parts: Box<SimpleParts>) -> Result<Option<Box<Command>>> {
         let SimpleParts {
@@ -3952,6 +3954,8 @@ impl<'a> Parser<'a> {
         assignments.push(assignment);
     }
 
+    // The box keeps this value out of the recursive caller's frame.
+    #[allow(clippy::boxed_local)]
     fn simple_word(&self, token: Box<SimpleWordToken>) -> Word {
         if token.is_literal {
             return self.literal_simple_word(token.text);
@@ -5611,6 +5615,8 @@ impl AssignmentSource {
     }
 }
 
+// The box keeps this value out of the recursive caller's frame.
+#[allow(clippy::boxed_local)]
 #[inline(never)]
 fn finish_assignment(
     source: Box<AssignmentSource>,
@@ -5670,6 +5676,8 @@ enum WordSubstitution {
     },
 }
 
+// The box keeps this value out of the recursive caller's frame.
+#[allow(clippy::boxed_local)]
 #[inline(never)]
 fn finish_scanned_word(scanned: Box<ScannedWord>, preserve_empty: bool) -> Word {
     let ScannedWord {
