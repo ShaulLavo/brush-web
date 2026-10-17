@@ -4111,5 +4111,9 @@ mod indirect;
 #[path = "words/nounset.rs"]
 mod nounset;
 
+#[path = "words/namerefs.rs"]
+mod namerefs;
 #[path = "words/readonly.rs"]
 mod readonly;
+#[path = "words/set_positionals.rs"]
+mod set_positionals;

@@ -2,9 +2,10 @@
 //! are original adapters; the full utility/compatibility work is still deferred.
 use crate::{
     executor::Budget,
+    expand::{Error, Work},
     interpreter::{Context, Flow, Outcome},
     io::{Endpoint, FdTable, OpenOptions},
-    state::{SharedState, absolute},
+    state::{SharedState, State, absolute},
 };
 use shell_parser::parser::{Word, WordPart};
 use std::fmt::Write as _;
@@ -18,11 +19,13 @@ pub(crate) fn declaration_command(word: &Word) -> bool {
     let [WordPart::Literal(name)] = word.parts.as_slice() else {
         return false;
     };
-    matches!(name.as_str(), "export" | "local" | "readonly")
-        && word
-            .raw
-            .as_deref()
-            .is_none_or(|raw| uncontinued(raw).eq(name.bytes()))
+    matches!(
+        name.as_str(),
+        "export" | "local" | "readonly" | "declare" | "typeset"
+    ) && word
+        .raw
+        .as_deref()
+        .is_none_or(|raw| uncontinued(raw).eq(name.bytes()))
 }
 
 /// The prefix-only part of Bashkit normalize_raw_word: continuations disappear
@@ -76,6 +79,8 @@ pub(crate) fn is_builtin(name: &str) -> bool {
             | "export"
             | "local"
             | "readonly"
+            | "declare"
+            | "typeset"
             | "cd"
             | "pwd"
             | "set"
@@ -122,6 +127,7 @@ pub(crate) async fn run(
     state: SharedState,
     fds: FdTable,
     context: Context,
+    work: &mut Work,
 ) -> Result<Outcome, i32> {
     match name {
         ":" | "true" => {}
@@ -281,16 +287,19 @@ pub(crate) async fn run(
                 }
                 bytes.push(byte[0]);
             };
-            state.borrow_mut().assign_parameter(
-                name.unwrap_or_else(|| "REPLY".into()),
-                String::from_utf8(bytes).map_err(|_| 2)?,
-            )?;
+            let name = name.unwrap_or_else(|| "REPLY".into());
+            State::admit_assignment(&state, &name, bytes.len(), &context.cancel, work)
+                .await
+                .map_err(error_status)?;
+            state
+                .borrow_mut()
+                .assign_parameter(name, String::from_utf8(bytes).map_err(|_| 2)?)?;
             return Ok(Outcome::status(code));
         }
-        "export" | "local" | "readonly" => {
-            return declarations(name, args, &state, &fds, &context).await;
+        "export" | "local" | "readonly" | "declare" | "typeset" => {
+            return declarations(name, args, &state, &fds, &context, work).await;
         }
-        "unset" => return unset(args, &state, &fds, &context).await,
+        "unset" => return unset(args, &state, &fds, &context, work).await,
         "cd" => {
             if args.len() != 1 {
                 return Err(2);
@@ -302,20 +311,7 @@ pub(crate) async fn run(
             let cwd = state.borrow().cwd.clone();
             write(&fds, format!("{cwd}\n").as_bytes(), &context).await?;
         }
-        "set" => match args.as_slice() {
-            [flag] if matches!(flag.as_str(), "-u" | "+u") => {
-                state.borrow_mut().nounset = flag == "-u"
-            }
-            [flag, option] if matches!(flag.as_str(), "-o" | "+o") => {
-                let enabled = flag == "-o";
-                match option.as_str() {
-                    "pipefail" => state.borrow_mut().pipefail = enabled,
-                    "nounset" => state.borrow_mut().nounset = enabled,
-                    _ => return Err(2),
-                }
-            }
-            _ => return Err(2),
-        },
+        "set" => return set(args, &state, &context, work).await,
         "wait" => {
             if args.len() > 1 {
                 return Err(2);
@@ -337,23 +333,164 @@ pub(crate) async fn run(
     Ok(Outcome::status(0))
 }
 
+fn error_status(error: Error) -> i32 {
+    match error {
+        Error::Status(code) => code,
+        _ => 2,
+    }
+}
+
+/// Original streaming adapter for Bashkit builtins/vars.rs Set. Expanded argv
+/// moves into the positional frame; no side-effect vector or argv clone.
+async fn set(
+    mut args: Vec<String>,
+    state: &SharedState,
+    context: &Context,
+    work: &mut Work,
+) -> Result<Outcome, i32> {
+    if args.is_empty() {
+        return Err(2); // Variable/option listing remains unsupported.
+    }
+    let (mut nounset, mut pipefail) = {
+        let state = state.borrow();
+        (state.nounset, state.pipefail)
+    };
+    let mut index = 0;
+    let mut explicit = false;
+    while let Some(option) = args.get(index) {
+        work.checkpoint(&context.cancel)
+            .await
+            .map_err(error_status)?;
+        if option == "--" || option == "-" {
+            explicit = option == "--";
+            index += 1;
+            break;
+        }
+        if option == "+" {
+            index += 1;
+            continue;
+        }
+        if !option.starts_with(['-', '+']) || option.len() == 1 {
+            break;
+        }
+        let enabled = option.starts_with('-');
+        index += 1;
+        if matches!(option.as_str(), "-o" | "+o") {
+            set_option(
+                args.get(index).ok_or(2)?,
+                enabled,
+                &mut nounset,
+                &mut pipefail,
+            )?;
+            index += 1;
+            continue;
+        }
+        set_short_options(option, enabled, &mut nounset, context, work).await?;
+    }
+    // All options and work admission complete before any state changes.
+    let mut state = state.borrow_mut();
+    state.nounset = nounset;
+    state.pipefail = pipefail;
+    if explicit || index < args.len() {
+        args.drain(..index);
+        state.replace_positional(args);
+    }
+    Ok(Outcome::status(0))
+}
+
+fn set_option(
+    option: &str,
+    enabled: bool,
+    nounset: &mut bool,
+    pipefail: &mut bool,
+) -> Result<(), i32> {
+    match option {
+        "nounset" => *nounset = enabled,
+        "pipefail" => *pipefail = enabled,
+        _ => return Err(2),
+    }
+    Ok(())
+}
+
+async fn set_short_options(
+    option: &str,
+    enabled: bool,
+    nounset: &mut bool,
+    context: &Context,
+    work: &mut Work,
+) -> Result<(), i32> {
+    for flag in option[1..].bytes() {
+        work.checkpoint(&context.cancel)
+            .await
+            .map_err(error_status)?;
+        if flag != b'u' {
+            return Err(2);
+        }
+        *nounset = enabled;
+    }
+    Ok(())
+}
+
 async fn declarations(
     name: &str,
     args: Vec<String>,
     state: &SharedState,
     fds: &FdTable,
     context: &Context,
+    work: &mut Work,
 ) -> Result<Outcome, i32> {
-    let mut budget = Budget::default();
+    let mut args = args.into_iter().peekable();
+    let mut nameref = false;
+    if matches!(name, "local" | "declare" | "typeset") {
+        nameref = args.next_if(|arg| arg == "-n").is_some();
+        args.next_if(|arg| arg == "--");
+    }
+    if args.peek().is_none() && (nameref || matches!(name, "declare" | "typeset")) {
+        return Err(2);
+    }
     let mut status = 0;
     for arg in args {
-        budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
+        for _ in arg.bytes() {
+            work.checkpoint(&context.cancel)
+                .await
+                .map_err(error_status)?;
+        }
+        let extended = nameref || matches!(name, "declare" | "typeset");
+        if extended {
+            work.admit_storage(arg.len()).map_err(error_status)?;
+        }
         let (key, value) = arg
             .split_once('=')
             .map(|(key, value)| (key.to_owned(), Some(value.to_owned())))
             .unwrap_or((arg, None));
         if !valid_name(&key) {
             return Err(2);
+        }
+        let local = name == "local"
+            || matches!(name, "declare" | "typeset") && !state.borrow().locals.is_empty();
+        if extended {
+            let storage = state
+                .borrow()
+                .declaration_storage(&key, local)
+                .map_err(error_status)?;
+            work.admit_storage(storage).map_err(error_status)?;
+        }
+        if nameref {
+            let result = nameref_declaration(&key, value, local, state, context, work).await;
+            status |= i32::from(result.is_err());
+            if let Err(code) = result
+                && code == 2
+            {
+                return Err(2);
+            }
+            continue;
+        }
+        if let Some(value) = &value
+            && !local
+        {
+            State::admit_assignment(state, &key, value.len(), &context.cancel, work)
+                .await
+                .map_err(error_status)?;
         }
         if apply_declaration(name, &key, value, &mut state.borrow_mut()).is_ok() {
             continue;
@@ -364,6 +501,42 @@ async fn declarations(
         }
     }
     Ok(Outcome::status(status))
+}
+
+async fn nameref_declaration(
+    key: &str,
+    value: Option<String>,
+    local: bool,
+    state: &SharedState,
+    context: &Context,
+    work: &mut Work,
+) -> Result<(), i32> {
+    let target = match value {
+        Some(value) => value,
+        None => {
+            let state = state.borrow();
+            let target = state
+                .namerefs
+                .get(key)
+                .or_else(|| state.variables.get(key))
+                .ok_or(2)?;
+            work.admit_storage(target.len()).map_err(error_status)?;
+            target.clone()
+        }
+    };
+    for _ in target.bytes() {
+        work.checkpoint(&context.cancel)
+            .await
+            .map_err(error_status)?;
+    }
+    // Array targets, unbound reference declarations and broad attributes are
+    // explicit prerequisites for later units, never target-string parsing.
+    if !valid_name(&target) || target == "PIPESTATUS" || key == "PIPESTATUS" {
+        return Err(2);
+    }
+    state
+        .borrow_mut()
+        .declare_nameref(key.to_owned(), target, local)
 }
 
 fn apply_declaration(
@@ -379,10 +552,15 @@ fn apply_declaration(
         let value = value.unwrap_or_else(|| state.variables.get(key).cloned().unwrap_or_default());
         return state.local(key.to_owned(), value);
     }
+    if matches!(name, "declare" | "typeset") && !state.locals.is_empty() {
+        return state.local(key.to_owned(), value.unwrap_or_default());
+    }
     if let Some(value) = value {
         state.assign_parameter(key.to_owned(), value)?;
     }
-    state.exported.insert(key.to_owned());
+    if name == "export" {
+        state.exported.insert(key.to_owned());
+    }
     Ok(())
 }
 
@@ -394,6 +572,7 @@ async fn unset(
     state: &SharedState,
     fds: &FdTable,
     context: &Context,
+    work: &mut Work,
 ) -> Result<Outcome, i32> {
     let mut functions = false;
     let mut variables = false;
@@ -437,6 +616,20 @@ async fn unset(
             state.borrow_mut().functions.remove(name);
             continue;
         }
+        State::admit_scalar_access(state, name, &context.cancel, work)
+            .await
+            .map_err(error_status)?;
+        let target_bytes = {
+            let state = state.borrow();
+            state
+                .namerefs
+                .contains_key(name)
+                .then(|| state.scalar_target(name))
+                .transpose()?
+                .flatten()
+                .map_or(0, str::len)
+        };
+        work.admit_storage(target_bytes).map_err(error_status)?;
         let removed = state.borrow_mut().unset_variable(name);
         match removed {
             Err(()) => {

@@ -17,6 +17,7 @@ pub type SharedState = Rc<RefCell<State>>;
 #[derive(Clone, Debug)]
 pub(crate) struct LocalVariable {
     previous: Option<String>,
+    nameref: Option<String>,
     exported: bool,
     readonly: bool,
 }
@@ -27,6 +28,8 @@ pub struct State {
     pub variables: BTreeMap<String, String>,
     pub exported: BTreeSet<String>,
     pub readonly: BTreeSet<String>,
+    /// Scalar reference targets, distinct from ordinary variable values.
+    pub(crate) namerefs: BTreeMap<String, String>,
     pub cwd: String,
     /// Function bodies are immutable. Isolated shells copy bindings, not ASTs.
     pub functions: BTreeMap<String, Rc<Command>>,
@@ -45,6 +48,7 @@ impl Default for State {
             variables: BTreeMap::from([("IFS".into(), " \t\n".into())]),
             exported: BTreeSet::new(),
             readonly: BTreeSet::new(),
+            namerefs: BTreeMap::new(),
             cwd: "/home/guest".into(),
             functions: BTreeMap::new(),
             status: 0,
@@ -87,6 +91,7 @@ impl State {
         let variables = snapshot_map(source, |s| &s.variables, cancel, work).await?;
         let exported = snapshot_set(source, |s| &s.exported, cancel, work).await?;
         let readonly = snapshot_set(source, |s| &s.readonly, cancel, work).await?;
+        let namerefs = snapshot_map(source, |s| &s.namerefs, cancel, work).await?;
         let functions = snapshot_map(source, |s| &s.functions, cancel, work).await?;
         let pipestatus = snapshot_vec(source, |s| &s.pipestatus, cancel, work).await?;
         let positional = snapshot_vec(source, |s| &s.positional, cancel, work).await?;
@@ -108,6 +113,7 @@ impl State {
             variables,
             exported,
             readonly,
+            namerefs,
             cwd,
             functions,
             status: state.status,
@@ -130,16 +136,122 @@ impl State {
                 .ok()
                 .and_then(|n| n.checked_sub(1))
                 .and_then(|n| self.positional.get(n))
-                .or_else(|| self.variables.get(name))
-                .map(|value| Cow::Borrowed(value.as_str()))
+                .map(String::as_str)
+                .or_else(|| self.scalar_parameter(name))
+                .map(Cow::Borrowed)
                 .unwrap_or(Cow::Borrowed("")),
         }
     }
     pub(crate) fn scalar_parameter(&self, name: &str) -> Option<&str> {
+        let name = self.scalar_target(name).ok().flatten()?;
         if name == "PWD" {
             return Some(&self.cwd);
         }
         self.variables.get(name).map(String::as_str)
+    }
+    /// Takes ownership of argv already admitted by command expansion.
+    pub(crate) fn replace_positional(&mut self, args: Vec<String>) {
+        self.positional = args;
+    }
+    pub(crate) fn is_nameref(&self, name: &str) -> bool {
+        self.namerefs.contains_key(name)
+    }
+    pub(crate) fn indirect_parameter<'a>(&'a self, name: &'a str) -> Result<Option<&'a str>, i32> {
+        if self.is_nameref(name) {
+            return self.scalar_target(name);
+        }
+        Ok(self.scalar_parameter(name))
+    }
+    /// Original bounded scalar adapter for Bashkit's resolve_nameref and
+    /// resolve_nameref_strict (interpreter/mod.rs and declare.rs, 491c3281).
+    /// A cycle has no scalar value. An acyclic chain beyond the bound fails.
+    /// Floyd's cursor uses constant storage, including in recursive expansion.
+    pub(crate) fn scalar_target<'a>(&'a self, name: &'a str) -> Result<Option<&'a str>, i32> {
+        let mut current = name;
+        let mut fast = Some(name);
+        for _ in 0..64 {
+            let Some(next) = self.namerefs.get(current) else {
+                return Ok(Some(current));
+            };
+            current = next;
+            fast = fast.and_then(|name| self.namerefs.get(name).map(String::as_str));
+            fast = fast.and_then(|name| self.namerefs.get(name).map(String::as_str));
+            if fast == Some(current) {
+                return Ok(None);
+            }
+        }
+        if self.namerefs.contains_key(current) {
+            return Err(2);
+        }
+        Ok(Some(current))
+    }
+    /// Account for reference traversal without copying targets or holding a
+    /// state borrow over a yield. Ordinary variables retain their prior cost.
+    pub(crate) async fn admit_scalar_access(
+        state: &SharedState,
+        name: &str,
+        cancel: &Cancel,
+        work: &mut Work,
+    ) -> Result<(), Error> {
+        if cancel.is_cancelled() {
+            return Err(130.into());
+        }
+        let bytes = state.borrow().reference_work(name)?;
+        snapshot_steps(bytes, cancel, work).await
+    }
+    fn reference_work(&self, name: &str) -> Result<usize, i32> {
+        let mut current = name;
+        let mut bytes = 0usize;
+        for _ in 0..64 {
+            let Some(next) = self.namerefs.get(current) else {
+                return Ok(bytes);
+            };
+            // Includes the resolver's second cursor and name comparisons.
+            bytes = bytes
+                .checked_add(current.len().saturating_add(next.len()).saturating_mul(4))
+                .ok_or(2)?;
+            current = next;
+        }
+        self.scalar_target(name)?;
+        Ok(bytes)
+    }
+    /// Call before a supported scalar write. In addition to the caller's RHS
+    /// storage, aliases can require an owned target key and a saved prefix copy.
+    pub(crate) async fn admit_assignment(
+        state: &SharedState,
+        name: &str,
+        value_bytes: usize,
+        cancel: &Cancel,
+        work: &mut Work,
+    ) -> Result<(), Error> {
+        Self::admit_scalar_access(state, name, cancel, work).await?;
+        state
+            .borrow()
+            .admit_assignment_storage(name, value_bytes, work)
+    }
+    pub(crate) fn admit_assignment_storage(
+        &self,
+        name: &str,
+        value_bytes: usize,
+        work: &mut Work,
+    ) -> Result<(), Error> {
+        let Some(target) = self.scalar_target(name)? else {
+            return Err(1.into());
+        };
+        if target == name {
+            return Ok(());
+        }
+        // Covers both owned target keys in PrefixFrame::set as well as the
+        // variable and saved-prefix B-tree insertions, before either grows.
+        work.admit_storage(target.len().saturating_mul(2))?;
+        work.admit_storage(snapshot_node_bytes::<Option<String>>()?)?;
+        if !self.variables.contains_key(target) {
+            work.admit_storage(snapshot_node_bytes::<String>()?)?;
+        }
+        if self.prefix_saved(target) {
+            work.admit_storage(value_bytes)?;
+        }
+        Ok(())
     }
     pub(crate) fn prefix_saved(&self, name: &str) -> bool {
         self.prefixes
@@ -147,6 +259,7 @@ impl State {
             .is_some_and(|saved| saved.contains_key(name))
     }
     pub(crate) fn assign_parameter(&mut self, name: String, value: String) -> Result<(), i32> {
+        let name = self.assignment_name(name)?;
         if self.is_readonly(&name) {
             return Err(1);
         }
@@ -159,6 +272,13 @@ impl State {
         }
         self.variables.insert(name, value);
         Ok(())
+    }
+    fn assignment_name(&self, name: String) -> Result<String, i32> {
+        let target = self.scalar_target(&name)?.ok_or(1)?;
+        if target == name {
+            return Ok(name);
+        }
+        Ok(target.to_owned())
     }
     pub(crate) fn is_readonly(&self, name: &str) -> bool {
         self.locals
@@ -201,6 +321,17 @@ impl State {
     /// value it shadowed, as Bash's dynamic scoping does. Returns whether a
     /// variable existed; readonly variables are an error.
     pub(crate) fn unset_variable(&mut self, name: &str) -> Result<bool, ()> {
+        if !self.namerefs.contains_key(name) {
+            return self.unset_binding(name);
+        }
+        let name = self
+            .scalar_target(name)
+            .map_err(|_| ())?
+            .ok_or(())?
+            .to_owned();
+        self.unset_binding(&name)
+    }
+    fn unset_binding(&mut self, name: &str) -> Result<bool, ()> {
         if self.is_readonly(name) {
             return Err(());
         }
@@ -212,6 +343,7 @@ impl State {
             && index + 1 != self.locals.len()
         {
             let local = self.locals[index].remove(name).ok_or(())?;
+            restore_nameref(&mut self.namerefs, name, local.nameref);
             if local.exported {
                 self.exported.insert(name.to_owned());
             } else {
@@ -235,21 +367,75 @@ impl State {
         Ok(self.variables.remove(name).is_some())
     }
     pub(crate) fn local(&mut self, name: String, value: String) -> Result<(), i32> {
+        self.save_local(&name)?;
+        self.namerefs.remove(&name);
+        self.variables.insert(name, value);
+        Ok(())
+    }
+    fn save_local(&mut self, name: &str) -> Result<(), i32> {
+        if self.readonly.contains(name) || self.current_local_readonly(name) {
+            return Err(1);
+        }
+        let frame = self.locals.last_mut().ok_or(1)?;
+        if !frame.contains_key(name) {
+            let previous = LocalVariable {
+                previous: self.variables.remove(name),
+                nameref: self.namerefs.remove(name),
+                exported: self.exported.contains(name),
+                readonly: false,
+            };
+            frame.insert(name.to_owned(), previous);
+        }
+        Ok(())
+    }
+    /// `declare -n` is local inside a function, like `local -n`. Only ordinary
+    /// scalar targets are admitted by the declaration adapter.
+    pub(crate) fn declare_nameref(
+        &mut self,
+        name: String,
+        target: String,
+        local: bool,
+    ) -> Result<(), i32> {
         if self.readonly.contains(&name) || self.current_local_readonly(&name) {
             return Err(1);
         }
-        let previous = LocalVariable {
-            previous: self.variables.get(&name).cloned(),
-            exported: self.exported.contains(&name),
-            readonly: false,
-        };
-        self.locals
-            .last_mut()
-            .ok_or(1)?
-            .entry(name.clone())
-            .or_insert(previous);
-        self.variables.insert(name, value);
+        if name == target && !local {
+            return Err(1);
+        }
+        if local {
+            self.save_local(&name)?;
+        }
+        self.variables.remove(&name);
+        self.namerefs.insert(name, target);
         Ok(())
+    }
+    pub(crate) fn declaration_storage(&self, name: &str, local: bool) -> Result<usize, Error> {
+        let mut bytes = snapshot_node_bytes::<String>()?.saturating_add(name.len());
+        if !local
+            || self
+                .locals
+                .last()
+                .is_some_and(|frame| frame.contains_key(name))
+        {
+            return Ok(bytes);
+        }
+        bytes = bytes
+            .saturating_add(snapshot_node_bytes::<LocalVariable>()?)
+            .saturating_add(name.len())
+            .saturating_add(self.variables.get(name).map_or(0, String::len))
+            .saturating_add(self.namerefs.get(name).map_or(0, String::len));
+        Ok(bytes)
+    }
+}
+
+fn restore_nameref(namerefs: &mut BTreeMap<String, String>, name: &str, target: Option<String>) {
+    match target {
+        Some(target) => {
+            namerefs.insert(name.to_owned(), target);
+        }
+        None => {
+            namerefs.remove(name);
+        }
     }
 }
 
@@ -270,7 +456,9 @@ impl SnapshotValue for Option<String> {
 }
 impl SnapshotValue for LocalVariable {
     fn snapshot_bytes(&self) -> usize {
-        self.previous.snapshot_bytes()
+        self.previous
+            .snapshot_bytes()
+            .saturating_add(self.nameref.snapshot_bytes())
     }
 }
 impl SnapshotValue for Rc<Command> {
@@ -426,6 +614,10 @@ impl PrefixFrame {
     }
     pub(crate) fn set(&self, name: String, value: String) -> Result<(), String> {
         let mut state = self.state.borrow_mut();
+        if state.scalar_target(&name).ok().flatten().is_none() {
+            return Err(name);
+        }
+        let name = state.assignment_name(name).map_err(|_| String::new())?;
         if state.is_readonly(&name) {
             return Err(name);
         }
@@ -486,6 +678,7 @@ impl Drop for FunctionFrame {
         s.positional = std::mem::take(&mut self.positional);
         if let Some(locals) = s.locals.pop() {
             for (name, local) in locals {
+                restore_nameref(&mut s.namerefs, &name, local.nameref);
                 // Only local declarations restore their export attribute;
                 // ordinary export changes in functions belong to the caller.
                 if local.exported {
@@ -545,6 +738,112 @@ mod tests {
             }
         }
         panic!("bounded snapshot did not finish");
+    }
+
+    #[test]
+    fn nameref_snapshot_admits_exact_metadata_before_copying_and_isolates_targets() {
+        let state = State::default().shared();
+        state
+            .borrow_mut()
+            .namerefs
+            .insert("ref".into(), "target".into());
+        let bytes = std::mem::size_of::<RefCell<State>>()
+            + 2 * std::mem::size_of::<usize>()
+            + "bash".len()
+            + "/home/guest".len()
+            + snapshot_node_bytes::<String>().unwrap_or_else(|_| panic!("node fits"))
+            + 6
+            + snapshot_node_bytes::<String>().unwrap_or_else(|_| panic!("node fits"))
+            + 9
+            + std::mem::size_of::<i32>();
+        let mut small = Work::new(100_000, bytes - 1, 0);
+        assert!(matches!(
+            finish_snapshot(&state, &Cancel::new(), &mut small),
+            Err(Error::Status(2))
+        ));
+        let mut exact = Work::new(100_000, bytes, 0);
+        let mut child = finish_snapshot(&state, &Cancel::new(), &mut exact)
+            .unwrap_or_else(|_| panic!("exact metadata allowance fits"));
+        child
+            .assign_parameter("ref".into(), "child".into())
+            .unwrap();
+        assert_eq!(child.scalar_parameter("ref"), Some("child"));
+        assert_eq!(state.borrow().scalar_parameter("ref"), None);
+        assert_eq!(state.borrow().namerefs["ref"], "target");
+    }
+
+    #[test]
+    fn saved_local_reference_targets_are_snapshot_payloads() {
+        let state = State::default().shared();
+        let target = "t".repeat(128 * 1024);
+        state.borrow_mut().namerefs.insert("ref".into(), target);
+        let _frame = FunctionFrame::enter(state.clone(), Vec::new(), 4).unwrap();
+        state
+            .borrow_mut()
+            .local("ref".into(), "inner".into())
+            .unwrap();
+        let mut work = Work::new(1_000_000, 64 * 1024, 0);
+        assert!(matches!(
+            finish_snapshot(&state, &Cancel::new(), &mut work),
+            Err(Error::Status(2))
+        ));
+        assert_eq!(state.borrow().scalar_parameter("ref"), Some("inner"));
+    }
+
+    #[test]
+    fn scalar_reference_depth_cycles_and_access_cancellation_use_constant_storage() {
+        let mut state = State::default();
+        for index in 0..64 {
+            state
+                .namerefs
+                .insert(format!("r{index}"), format!("r{}", index + 1));
+        }
+        state.variables.insert("r64".into(), "value".into());
+        assert_eq!(state.scalar_target("r0"), Ok(Some("r64")));
+        assert_eq!(state.scalar_parameter("r0"), Some("value"));
+        state.namerefs.insert("r63".into(), "r0".into());
+        assert_eq!(state.scalar_target("r0"), Ok(None));
+        state.namerefs.insert("r63".into(), "r64".into());
+        state.namerefs.insert("r64".into(), "end".into());
+        assert_eq!(state.scalar_target("r0"), Err(2));
+        state.namerefs.insert("r1".into(), "r0".into());
+        assert_eq!(state.scalar_target("r0"), Ok(None));
+
+        let state = State::default().shared();
+        state
+            .borrow_mut()
+            .namerefs
+            .insert("ref".into(), "t".repeat(100_000));
+        let cancel = Cancel::new();
+        let mut work = Work::new(1_000_000, 0, 0);
+        let mut access = Box::pin(State::admit_scalar_access(
+            &state, "ref", &cancel, &mut work,
+        ));
+        let waker = noop_waker();
+        let mut context = Context::from_waker(&waker);
+        assert!(access.as_mut().poll(&mut context).is_pending());
+        assert!(state.try_borrow_mut().is_ok());
+        cancel.cancel();
+        assert!(matches!(
+            access.as_mut().poll(&mut context),
+            Poll::Ready(Err(Error::Status(130)))
+        ));
+    }
+
+    #[test]
+    fn alias_write_admission_precedes_owned_target_growth() {
+        let state = State::default().shared();
+        state
+            .borrow_mut()
+            .namerefs
+            .insert("r".into(), "target".into());
+        let mut work = Work::new(1000, 0, 0);
+        assert!(matches!(
+            State::admit_assignment(&state, "r", 5, &Cancel::new(), &mut work).now_or_never(),
+            Some(Err(Error::Status(2)))
+        ));
+        assert!(!state.borrow().variables.contains_key("target"));
+        assert_eq!(state.borrow().namerefs["r"], "target");
     }
 
     #[test]
@@ -620,6 +919,7 @@ mod tests {
                 "local".into(),
                 LocalVariable {
                     previous: Some("before local".into()),
+                    nameref: None,
                     exported: true,
                     readonly: true,
                 },
@@ -660,6 +960,7 @@ mod tests {
                     "v".into(),
                     LocalVariable {
                         previous: Some("x".repeat(128 * 1024)),
+                        nameref: None,
                         exported: false,
                         readonly: false,
                     },

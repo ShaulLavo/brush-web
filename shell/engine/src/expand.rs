@@ -4,7 +4,7 @@
 //! Scalar trims and replacements use basic patterns; pathname globbing and substitutions remain unsupported.
 use crate::{
     executor::{Budget, Cancel},
-    state::SharedState,
+    state::{SharedState, State},
 };
 use futures::{FutureExt, future::LocalBoxFuture};
 use shell_parser::parser::{ParameterOp, Word, WordPart};
@@ -672,6 +672,7 @@ impl Expansion<'_> {
     /// default/replacement/error operator is tested for absence, not read;
     /// ordinary expansions in its selected operand still pass through here.
     async fn require_bound(&mut self, name: &str, state: &SharedState) -> Result<(), Error> {
+        State::admit_scalar_access(state, name, self.cancel, self.work).await?;
         if !state.borrow().nounset {
             return Ok(());
         }
@@ -1319,6 +1320,7 @@ impl Expansion<'_> {
             ParameterOp::AssignDefault | ParameterOp::Error => false,
             _ => return Err(2.into()),
         };
+        State::admit_scalar_access(state, name, self.cancel, self.work).await?;
         let absent = state
             .borrow()
             .scalar_parameter(name)
@@ -1559,13 +1561,15 @@ impl Expansion<'_> {
             .operand(source, state, quoted, scalar, depth + 1, false)
             .await?;
         self.raw_remaining -= capacity - child.raw_remaining;
-        let ifs_changed = child.ifs_changed || name == "IFS";
+        let ifs_changed = child.ifs_changed;
         let replacement_output = child.segments.account_storage;
         let captured = child.captured.take().ok_or(2)?;
         drop(child);
         if replacement_output {
             self.admit_replacement_output().await?;
         }
+        State::admit_assignment(state, name, captured.value.len(), self.cancel, self.work).await?;
+        let ifs_changed = ifs_changed || state.borrow().scalar_target(name)? == Some("IFS");
         self.work.admit_storage(captured.value.len())?;
         // A prefix frame may also retain the durable value it will restore.
         if state.borrow().prefix_saved(name) {

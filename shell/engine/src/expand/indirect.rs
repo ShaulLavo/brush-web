@@ -31,13 +31,22 @@ impl Expansion<'_> {
         if self.indirect_kind(name).await? != TargetKind::Scalar {
             return Err(2.into());
         }
-        let Some(target) = self.indirect_snapshot(name, state).await? else {
+        let Some(target) = self.indirect_snapshot(name, state, true).await? else {
             return Err(self.invalid_indirect(name, true)?);
         };
         match self.indirect_kind(&target).await? {
             TargetKind::Unsupported => return Err(2.into()),
             TargetKind::Invalid => return Err(self.invalid_indirect(&target, false)?),
             TargetKind::Scalar => {}
+        }
+        if operator.is_none() && state.borrow().is_nameref(name) {
+            return self
+                .segment(
+                    &target,
+                    Protection::expansion(scalar || quoted, state),
+                    scalar || quoted,
+                )
+                .await;
         }
         let Some(operator) = operator else {
             // A bare indirection reads its resolved target. Lazy operators
@@ -60,7 +69,7 @@ impl Expansion<'_> {
                 });
             }
             let value = self
-                .indirect_snapshot(&target, state)
+                .indirect_snapshot(&target, state, false)
                 .await?
                 .unwrap_or_default();
             return self
@@ -120,11 +129,18 @@ impl Expansion<'_> {
         &mut self,
         name: &str,
         state: &SharedState,
+        pointer: bool,
     ) -> Result<Option<String>, Error> {
         self.work.checkpoint(self.cancel).await?;
+        crate::state::State::admit_scalar_access(state, name, self.cancel, self.work).await?;
         let value = {
             let state = state.borrow();
-            let Some(value) = state.scalar_parameter(name) else {
+            let value = if pointer {
+                state.indirect_parameter(name)?
+            } else {
+                state.scalar_parameter(name)
+            };
+            let Some(value) = value else {
                 return Ok(None);
             };
             if value.len() > self.raw_remaining.min(self.work.remaining) {

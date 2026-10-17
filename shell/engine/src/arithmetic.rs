@@ -5,7 +5,7 @@
 use crate::{
     executor::Cancel,
     expand::{self, Error, Work},
-    state::SharedState,
+    state::{SharedState, State},
 };
 use futures::{
     FutureExt,
@@ -267,7 +267,7 @@ fn parse<'a, 's: 'a>(
             } else {
                 binary(&op[..op.len() - 1], old, rhs, active, work)?
             };
-            store(name, result, active, state, max, work)?;
+            store(name, result, active, state, cancel, max, work).await?;
             result
         } else {
             unary(p, active, state, cancel, max, work, depth + 1).await?
@@ -366,7 +366,7 @@ fn unary<'a, 's: 'a>(
                 } else {
                     old.wrapping_sub(1)
                 };
-                store(name, value, active, state, max, work)?;
+                store(name, value, active, state, cancel, max, work).await?;
                 return Ok(value);
             }
             // Two unary signs when there is no identifier after the token.
@@ -408,9 +408,11 @@ fn unary<'a, 's: 'a>(
                         },
                         active,
                         state,
+                        cancel,
                         max,
                         work,
-                    )?;
+                    )
+                    .await?;
                 }
                 Ok(value)
             }
@@ -441,6 +443,7 @@ async fn read(
     if !active {
         return Ok(0);
     }
+    State::admit_scalar_access(state, name, cancel, work).await?;
     let value = {
         let s = state.borrow();
         let value = s.scalar_parameter(name).unwrap_or("");
@@ -455,11 +458,12 @@ async fn read(
     work.leave_scalar_arithmetic();
     result
 }
-fn store(
+async fn store(
     name: &str,
     value: i64,
     active: bool,
     state: &SharedState,
+    cancel: &Cancel,
     max: usize,
     work: &mut Work,
 ) -> Result<(), Error> {
@@ -474,6 +478,7 @@ fn store(
     if name.len() > max || digits > max {
         return Err(2.into());
     }
+    State::admit_assignment(state, name, digits, cancel, work).await?;
     // State insertion and an active prefix frame may both retain the value.
     work.admit_storage(name.len().saturating_mul(2).saturating_add(80 + 128))?;
     let text = value.to_string();
