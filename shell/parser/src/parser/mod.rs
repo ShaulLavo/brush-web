@@ -5615,7 +5615,10 @@ impl<'a> Parser<'a> {
 
     #[inline(never)]
     fn parse_substitution_body(&self, body: &str) -> Result<Script> {
-        self.nested_parser(body)?.parse_inner()
+        let mut parser = self.nested_parser(body)?;
+        let result = parser.parse_inner();
+        self.fuel.set(self.fuel.get().min(parser.fuel.get()));
+        result
     }
 
     #[inline(never)]
@@ -5817,6 +5820,11 @@ impl<'a> Parser<'a> {
                     out.push(' ');
                 }
                 out.push_str(&printed);
+            }
+            Err(error @ Error::ResourceLimit(_)) => {
+                let first = self.deferred_error.take();
+                self.deferred_error.set(first.or(Some(error)));
+                out.push_str(&body);
             }
             Err(_) => out.push_str(&body),
         }

@@ -154,7 +154,7 @@ fn operands_and_arithmetic_run_substitutions_lazily() {
 #[test]
 fn backtick_bodies_do_not_close_surrounding_parameter_operands() {
     check(
-        r#"v=set; unset u; args "${v:-`f() { :; }; f`}" "${u:-`f() { :; }; f`}" "${v:-`'open`}" "${u:-`\"open`}" "${v:-`$(open`}""#,
+        r#"v=set; unset u; args "${v:-`f() { :; }; f`}" "${u:-`f() { :; }; f`}" "${v:-`'open`}" "${u:-`"open`}" "${v:-`$(open`}""#,
         &[&["set", "", "set", "", "set"]],
     );
 }
