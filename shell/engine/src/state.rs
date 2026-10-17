@@ -1294,7 +1294,7 @@ mod tests {
             state.borrow().scalar_parameter("IFS").map(str::len),
             Some(4096)
         );
-        assert_eq!(work.storage_remaining, 0);
+        assert!(matches!(work.admit_storage(1), Err(Error::Status(2))));
     }
 
     #[test]
