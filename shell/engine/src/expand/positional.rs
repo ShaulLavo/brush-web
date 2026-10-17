@@ -10,9 +10,9 @@ impl Expansion<'_> {
         quoted: bool,
         scalar: bool,
     ) -> Result<(), Error> {
-        self.slice_boundaries(offset).await?;
+        self.slice_boundaries(offset, false).await?;
         if let Some(length) = length {
-            self.slice_boundaries(length).await?;
+            self.slice_boundaries(length, false).await?;
         }
         let count = state.borrow().positional.len().checked_add(1).ok_or(2)?;
         let offset =
