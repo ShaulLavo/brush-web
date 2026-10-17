@@ -866,15 +866,19 @@ fn execute(
             }
             let preserve = matches!(command, Command::Pipeline(_) | Command::List(_));
             let result = command_body(command, state.clone(), fds, context).await;
-            let mut s = state.borrow_mut();
-            s.status = result.code;
-            if !preserve {
-                s.pipestatus = vec![result.code];
-            }
-            result
+            finish_command(&state, result, preserve)
         },
         Outcome::status,
     )
+}
+
+fn finish_command(state: &SharedState, result: Outcome, preserve_pipeline: bool) -> Outcome {
+    let mut state = state.borrow_mut();
+    state.status = result.code;
+    if !preserve_pipeline {
+        state.pipestatus = vec![result.code];
+    }
+    result
 }
 
 // Select the future outside the recursive poll frame. An async match retains
@@ -1184,6 +1188,11 @@ fn loop_sequence<'a>(
     fds: &'a Descriptors,
     context: &'a Context,
 ) -> eval::Frame<'a> {
+    if let [Command::Compound(CompoundCommand::Arithmetic(source), redirs)] = commands
+        && redirs.is_empty()
+    {
+        return loop_arithmetic(source, state, fds, context);
+    }
     context.evaluation.frame(
         async move {
             // The prior iteration's copy is gone. Admit this retained AST
@@ -1199,6 +1208,47 @@ fn loop_sequence<'a>(
                 context.clone(),
             )
             .await
+        },
+        Outcome::status,
+    )
+}
+
+fn loop_arithmetic<'a>(
+    source: &'a str,
+    state: &'a SharedState,
+    fds: &'a Descriptors,
+    context: &Context,
+) -> eval::Frame<'a> {
+    if context.cancel.is_cancelled() {
+        return futures::future::Either::Left(futures::future::ready(Outcome::status(130)));
+    }
+    let evaluation = match context.evaluation.descend() {
+        Ok(scope) => scope,
+        Err(code) => {
+            return futures::future::Either::Left(futures::future::ready(Outcome::status(code)));
+        }
+    };
+    let context = Context {
+        evaluation: evaluation.clone(),
+        ..context.compound_body()
+    };
+    // The retained loop already owns this typed source. Replay borrows it;
+    // every evaluation still owns fresh Work and command-local descriptors.
+    evaluation.frame(
+        async move {
+            yield_now().await;
+            if context.cancel.is_cancelled() {
+                return Outcome::status(130);
+            }
+            let table = fds.borrow().clone();
+            let fds = Rc::new(RefCell::new(table));
+            let mut work = substitution_work(&context, &fds);
+            let result = arithmetic_command(source, state, &fds, &context, &mut work).await;
+            let result = finish_command(state, result, false);
+            if context.cancel.is_cancelled() {
+                return Outcome::status(130);
+            }
+            result
         },
         Outcome::status,
     )
@@ -2767,7 +2817,135 @@ async fn redirects(
 
 #[cfg(test)]
 mod scope_tests {
-    use super::Scope;
+    use super::*;
+    use crate::{io::MemoryFs, process::InProcessHost};
+    use futures::FutureExt;
+
+    fn replay_context() -> (SharedState, Descriptors, Context) {
+        let executor = Executor::new();
+        let host = Rc::new(InProcessHost::new(executor.clone()));
+        let group = host.allocate_group();
+        let session = Session::new(
+            executor,
+            host,
+            Rc::new(MemoryFs::new(4096)),
+            Limits::default(),
+        );
+        let context = Context {
+            evaluation: eval::Scope::new(&session.core.limits, session.core.eval_storage.clone()),
+            core: session.core.clone(),
+            source: eval::Source::root(""),
+            cancel: Cancel::new(),
+            signal: Rc::new(Cell::new(None)),
+            group,
+            scope: Scope::new(0),
+            parameter_error_status: 127,
+            compound_child: false,
+        };
+        (session.state(), session.core.descriptors.clone(), context)
+    }
+
+    fn finish_replay(future: impl std::future::Future<Output = Outcome>) -> Outcome {
+        futures::pin_mut!(future);
+        for _ in 0..1000 {
+            if let Some(outcome) = future.as_mut().now_or_never() {
+                return outcome;
+            }
+        }
+        panic!("arithmetic replay exceeded bounded polls");
+    }
+
+    #[test]
+    fn borrowed_arithmetic_replay_preserves_execution_depth_and_status() {
+        for (depth, code) in [(255, 0), (256, 2)] {
+            let (state, fds, mut context) = replay_context();
+            state.borrow_mut().status = 13;
+            state.borrow_mut().pipestatus = vec![9, 13];
+            for _ in 0..depth {
+                context.evaluation = context.evaluation.descend().unwrap();
+            }
+            let commands = [Command::Compound(
+                CompoundCommand::Arithmetic("n=7".into()),
+                Vec::new(),
+            )];
+            let outcome = finish_replay(loop_sequence(&commands, &state, &fds, &context));
+            assert_eq!(outcome.code, code);
+            assert_eq!(outcome.flow, Flow::Normal);
+            assert_eq!(state.borrow().variables.contains_key("n"), code == 0);
+            assert_eq!(state.borrow().status, if code == 0 { 0 } else { 13 });
+            assert_eq!(
+                state.borrow().pipestatus,
+                if code == 0 { vec![0] } else { vec![9, 13] }
+            );
+        }
+    }
+
+    #[test]
+    fn borrowed_arithmetic_replay_admits_its_frame_and_releases_it_on_drop() {
+        let (state, fds, context) = replay_context();
+        let limit =
+            usize::try_from(shell_parser::limits::ExecutionLimits::default().max_work_units)
+                .unwrap();
+        let allocation = context.evaluation.admit_execution(limit).unwrap();
+        let commands = [Command::Compound(
+            CompoundCommand::Arithmetic("n=7".into()),
+            Vec::new(),
+        )];
+        assert_eq!(
+            finish_replay(loop_sequence(&commands, &state, &fds, &context)).code,
+            2
+        );
+        assert!(!state.borrow().variables.contains_key("n"));
+        drop(allocation);
+        let replay = loop_sequence(&commands, &state, &fds, &context);
+        assert!(context.evaluation.admit_execution(limit).is_err());
+        drop(replay);
+        drop(context.evaluation.admit_execution(limit).unwrap());
+        assert_eq!(
+            finish_replay(loop_sequence(&commands, &state, &fds, &context)).code,
+            0
+        );
+        assert_eq!(state.borrow().variables["n"], "7");
+        drop(context.evaluation.admit_execution(limit).unwrap());
+    }
+
+    #[test]
+    fn borrowed_arithmetic_replay_keeps_compound_context_and_pre_cancel_checks() {
+        let (state, fds, mut context) = replay_context();
+        context.compound_child = true;
+        let commands = [Command::Compound(
+            CompoundCommand::Arithmetic("${missing:?required}".into()),
+            Vec::new(),
+        )];
+        let outcome = finish_replay(loop_sequence(&commands, &state, &fds, &context));
+        assert_eq!(outcome.code, 1);
+        assert_eq!(outcome.flow, Flow::Abort);
+        assert_eq!(context.parameter_error_status, 127);
+        context.cancel.cancel();
+        assert_eq!(
+            finish_replay(loop_sequence(&commands, &state, &fds, &context)).code,
+            130
+        );
+    }
+
+    #[test]
+    fn borrowed_arithmetic_replay_keeps_command_storage_admission() {
+        let (state, fds, mut context) = replay_context();
+        Rc::get_mut(&mut context.core)
+            .unwrap()
+            .limits
+            .expansion_bytes = 0;
+        let commands = [Command::Compound(
+            CompoundCommand::Arithmetic("n=7".into()),
+            Vec::new(),
+        )];
+        assert_eq!(
+            finish_replay(loop_sequence(&commands, &state, &fds, &context)).code,
+            2
+        );
+        assert!(!state.borrow().variables.contains_key("n"));
+        assert_eq!(state.borrow().pipestatus, vec![2]);
+    }
 
     #[test]
     fn later_descendant_transfers_follow_already_forwarded_parent_handles() {

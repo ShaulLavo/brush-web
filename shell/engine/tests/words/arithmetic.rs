@@ -149,6 +149,52 @@ fn arithmetic_commands_and_let_errors_do_not_abort_following_commands() {
 }
 
 #[test]
+fn loop_arithmetic_replay_preserves_status_and_owned_command_forms() {
+    for (condition, body) in [
+        ("((i < 4))", "((i += 1))"),
+        (":; ((i < 4))", ":; ((i += 1))"),
+        ("((i < 4)) 2>/dev/null", "((i += 1)) >replay-output"),
+    ] {
+        let rig = Rig::new(Limits::default());
+        assert_eq!(
+            rig.run(&format!(
+                "i=0; while {condition}; do {body}; done; args \"$i\" \"$?\" \"${{PIPESTATUS[@]}}\""
+            )),
+            0,
+        );
+        assert_eq!(*rig.calls.borrow(), [vec!["4", "0", "0"]]);
+        assert!(rig.output.bytes().is_empty());
+        assert!(rig.errors.bytes().is_empty());
+    }
+    check(
+        r#"i=0; false; while ((seen=$?, i < 1)); do ((i+=1, body=$?, 1)); done; args "$seen" "$body" "$?" "${PIPESTATUS[@]}""#,
+        &[&["0", "0", "0", "0"]],
+    );
+}
+
+#[test]
+fn loop_arithmetic_replay_retains_substitutions_and_read_unit_failures() {
+    check(
+        r#"i=0; while ((i < $(printf 3))); do ((i += $(printf 1))); done; args "$i" "$?" "${PIPESTATUS[@]}""#,
+        &[&["3", "0", "0"]],
+    );
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run(r#"i=0; while ((i < 1)); do ((i=9,1/0)); done; args "$?" "$i" "${PIPESTATUS[@]}""#),
+        0,
+    );
+    assert_eq!(*rig.calls.borrow(), [vec!["1", "9", "1"]]);
+    assert!(!rig.errors.bytes().is_empty());
+    let rig = Rig::new(Limits::default());
+    assert_eq!(
+        rig.run("i=0; while ((i < 1)); do ((i += $((1/0)))); done; args forbidden\nargs \"$?\" \"$i\" recovered"),
+        0,
+    );
+    assert_eq!(*rig.calls.borrow(), [vec!["1", "0", "recovered"]]);
+    assert!(!rig.errors.bytes().is_empty());
+}
+
+#[test]
 fn expansion_errors_abort_and_completed_writes_survive() {
     for expression in ["x=9,1/0", "x=9,08", "x=9,2**-1", "x=9,1+", "x=9,1=2"] {
         let rig = Rig::new(Limits::default());

@@ -922,6 +922,31 @@ fn long_running_loop_remains_interruptible_after_cumulative_work_would_exhaust()
 }
 
 #[test]
+fn sustained_arithmetic_replay_yields_cancels_and_preserves_background() {
+    let rig = Rig::new(Limits::default());
+    let release = register_status_gate(&rig, "status_gate", 9);
+    assert_eq!(rig.run("status_gate & background=$!"), 0);
+    rig.variable("n", "0");
+    let job = rig.shell.start("while ((1)); do ((n += 1)); done").unwrap();
+    let peer = rig.ex.spawn(async { 7 });
+    let progress = drive_eval_progress(&rig, &job, 8192);
+    assert!(progress >= 8192, "replay stopped at {progress}");
+    assert_eq!(peer.now_or_never(), Some(7), "replay must yield to peers");
+    assert!(!job.is_finished());
+    rig.shell.interrupt();
+    assert_eq!(rig.finish(job), 130);
+    assert_eq!(rig.shell.background_jobs(), 1);
+    assert_eq!(rig.host.active_count(), 1);
+    release.cancel();
+    assert_eq!(rig.run(r#"wait "$background""#), 9);
+    assert_eq!(rig.run("wait; args recovered"), 0);
+    assert_eq!(*rig.calls.borrow(), [vec!["recovered"]]);
+    assert_eq!(rig.ex.drive(64).pending, 0);
+    assert_eq!(rig.host.active_count(), 0);
+    assert_eq!(rig.host.retained_count(), 0);
+}
+
+#[test]
 fn repeated_pipeline_subshell_and_capture_tasks_release_execution_admission() {
     for body in [": | :", "(:)", "value=$(true)"] {
         let rig = Rig::new(Limits::default());
