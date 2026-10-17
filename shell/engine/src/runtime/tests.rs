@@ -641,8 +641,8 @@ fn background_brace_sequence_kill_and_wait_cover_later_runtime_members() {
     assert_eq!(
         *fake.signals.borrow(),
         vec![
-            (true, members[0].0, 15),
-            (true, members[1].0, 15),
+            (true, members[0].1, 15),
+            (true, members[1].1, 15),
             (false, members[1].0, 2),
             (true, members[0].1, 2),
             (true, members[1].1, 2),
