@@ -303,8 +303,16 @@ pub(crate) async fn run(
             write(&fds, format!("{cwd}\n").as_bytes(), &context).await?;
         }
         "set" => match args.as_slice() {
-            [flag, option] if option == "pipefail" && matches!(flag.as_str(), "-o" | "+o") => {
-                state.borrow_mut().pipefail = flag == "-o"
+            [flag] if matches!(flag.as_str(), "-u" | "+u") => {
+                state.borrow_mut().nounset = flag == "-u"
+            }
+            [flag, option] if matches!(flag.as_str(), "-o" | "+o") => {
+                let enabled = flag == "-o";
+                match option.as_str() {
+                    "pipefail" => state.borrow_mut().pipefail = enabled,
+                    "nounset" => state.borrow_mut().nounset = enabled,
+                    _ => return Err(2),
+                }
             }
             _ => return Err(2),
         },

@@ -75,16 +75,22 @@ enum DiagnosticStderr {
 struct CommandError {
     error: expand::Error,
     stderr: DiagnosticStderr,
+    heredoc_status: Option<i32>,
 }
 impl CommandError {
     fn at_line(mut self, line: Option<usize>) -> Self {
         self.error = self.error.at_line(line);
         self
     }
-    fn redirect(error: expand::Error, stderr: Option<io::Endpoint>) -> Self {
+    fn redirect(
+        error: expand::Error,
+        stderr: Option<io::Endpoint>,
+        heredoc_status: Option<i32>,
+    ) -> Self {
         Self {
             error,
             stderr: DiagnosticStderr::Redirected(stderr),
+            heredoc_status,
         }
     }
 }
@@ -93,6 +99,7 @@ impl From<expand::Error> for CommandError {
         Self {
             error,
             stderr: DiagnosticStderr::Inherited,
+            heredoc_status: None,
         }
     }
 }
@@ -103,8 +110,43 @@ impl From<i32> for CommandError {
 }
 
 type Descriptors = Rc<RefCell<FdTable>>;
+/// Shared forwarding keeps descendants attached when several isolated scopes
+/// finish in a different order. Captured parent handles follow later transfers.
+#[derive(Clone)]
+struct Scope(Rc<ScopeState>);
+struct ScopeState {
+    id: u64,
+    parent: RefCell<Option<Scope>>,
+}
+impl Scope {
+    fn new(id: u64) -> Self {
+        Self(Rc::new(ScopeState {
+            id,
+            parent: RefCell::new(None),
+        }))
+    }
+    fn resolved_id(&self) -> u64 {
+        let mut scope = self.clone();
+        loop {
+            let parent = scope.0.parent.borrow().clone();
+            match parent {
+                Some(parent) => scope = parent,
+                None => return scope.0.id,
+            }
+        }
+    }
+    fn forward_to(&self, parent: Scope) {
+        *self.0.parent.borrow_mut() = Some(parent);
+    }
+}
+impl PartialEq for Scope {
+    fn eq(&self, other: &Self) -> bool {
+        self.resolved_id() == other.resolved_id()
+    }
+}
 struct Job {
-    owner: u64,
+    owner: Scope,
+    detached: bool,
     cancel: Cancel,
     join: JoinHandle<i32>,
 }
@@ -125,7 +167,7 @@ pub(crate) struct Context {
     source: Rc<str>,
     pub cancel: Cancel,
     pub group: GroupId,
-    scope: u64,
+    scope: Scope,
     parameter_error_status: i32,
     compound_child: bool,
 }
@@ -138,7 +180,7 @@ impl Context {
     }
     fn isolated(&self) -> Self {
         Self {
-            scope: self.core.allocate_id(),
+            scope: Scope::new(self.core.allocate_id()),
             ..self.clone()
         }
     }
@@ -186,6 +228,23 @@ impl Context {
             self.core.jobs.borrow_mut().remove(&id);
         }
     }
+    /// A successful isolated scope leaves asynchronous descendants running.
+    /// Transfer their cleanup ownership outward without making them waitable
+    /// jobs of the caller. Cancellation still reaps the whole owned subtree.
+    async fn finish_scope(&self, parent_scope: Scope) {
+        if self.cancel.is_cancelled() {
+            self.cleanup_jobs().await;
+            return;
+        }
+        self.core.jobs.borrow_mut().retain(|_, job| {
+            if job.owner != self.scope {
+                return true;
+            }
+            job.detached = true;
+            !job.join.is_finished()
+        });
+        self.scope.forward_to(parent_scope);
+    }
     async fn finish_group(&self, processes: &mut ProcessGroup, code: i32) -> i32 {
         let finished = self.cancel.run(processes.finish()).await;
         match finished {
@@ -195,29 +254,42 @@ impl Context {
         }
     }
     pub(crate) async fn wait_job(&self, id: Option<u64>) -> Result<i32, i32> {
-        let jobs: Vec<_> = self
-            .core
-            .jobs
-            .borrow()
-            .iter()
-            .filter(|(key, job)| job.owner == self.scope && id.is_none_or(|id| id == **key))
-            .map(|(id, job)| (*id, job.join.clone()))
-            .collect();
-        if id.is_some() && jobs.is_empty() {
-            return Err(127);
-        }
+        self.wait_jobs(id, false).await
+    }
+    async fn wait_jobs(&self, id: Option<u64>, include_detached: bool) -> Result<i32, i32> {
         let mut code = 0;
-        for (id, job) in jobs {
-            code = self.cancel.run(job).await.map_err(|_| 130)?;
-            self.core.jobs.borrow_mut().remove(&id);
+        loop {
+            let jobs: Vec<_> = self
+                .core
+                .jobs
+                .borrow()
+                .iter()
+                .filter(|(key, job)| {
+                    (include_detached || !job.detached)
+                        && job.owner == self.scope
+                        && id.is_none_or(|id| id == **key)
+                })
+                .map(|(id, job)| (*id, job.join.clone()))
+                .collect();
+            if jobs.is_empty() {
+                return if id.is_some() { Err(127) } else { Ok(code) };
+            }
+            for (id, job) in jobs {
+                code = self.cancel.run(job).await.map_err(|_| 130)?;
+                self.core.jobs.borrow_mut().remove(&id);
+            }
+            if !include_detached {
+                return Ok(code);
+            }
+            // Exiting children may transfer their own descendants to this
+            // scope. Supervisors drain those too, unlike the shell's `wait`.
         }
-        Ok(code)
     }
     pub(crate) fn kill_job(&self, id: u64) -> Result<(), i32> {
         let jobs = self.core.jobs.borrow();
         let job = jobs
             .get(&id)
-            .filter(|job| job.owner == self.scope)
+            .filter(|job| !job.detached && job.owner == self.scope)
             .ok_or(1)?;
         job.cancel.cancel();
         Ok(())
@@ -285,7 +357,7 @@ impl Session {
             source: Rc::from(source),
             cancel,
             group,
-            scope: 0,
+            scope: Scope::new(0),
             parameter_error_status: 127,
             compound_child: false,
         };
@@ -310,7 +382,8 @@ impl Session {
             code
         });
         *self.core.foreground.borrow_mut() = Some(Job {
-            owner: 0,
+            owner: Scope::new(0),
+            detached: false,
             cancel: foreground_cancel,
             join: join.clone(),
         });
@@ -348,6 +421,11 @@ impl Drop for Session {
     }
 }
 impl Core {
+    fn reap_detached_jobs(&self) {
+        self.jobs
+            .borrow_mut()
+            .retain(|_, job| !job.detached || !job.join.is_finished());
+    }
     fn allocate_id(&self) -> u64 {
         let id = self.next.get();
         self.next.set(id.checked_add(1).expect("job ID overflow"));
@@ -545,7 +623,7 @@ fn execute(
                 state
                     .borrow_mut()
                     .functions
-                    .insert(function.name, *function.body);
+                    .insert(function.name, Rc::new(*function.body));
                 Outcome::status(0)
             }
             Command::Pipeline(pipeline) => {
@@ -582,11 +660,12 @@ fn execute(
                     } else {
                         Rc::new(RefCell::new(stage_fds))
                     };
+                    let parent_scope = context.scope.clone();
                     tasks.push(context.core.executor.spawn(async move {
                         let result =
                             execute(command, child, stage_fds, stage_context.clone()).await;
                         if count > 1 {
-                            stage_context.cleanup_jobs().await;
+                            stage_context.finish_scope(parent_scope).await;
                         }
                         result
                     }));
@@ -659,7 +738,7 @@ async fn command_redirects(
     work: &mut expand::Work,
 ) -> Result<Descriptors, Outcome> {
     let original_fds = fds.clone();
-    match redirects(redirs, state, fds, context, work).await {
+    match redirects(redirs, state, fds, context, work, None).await {
         Ok(fds) => Ok(fds),
         Err(error) => Err(expansion_failure(error, &original_fds, context).await),
     }
@@ -748,8 +827,18 @@ async fn arithmetic_command(
 }
 
 async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Context) -> Outcome {
-    let CommandError { error, stderr } = error;
-    let flow = if matches!(
+    let CommandError {
+        error,
+        stderr,
+        heredoc_status,
+    } = error;
+    // External and unnamed commands expand heredocs in a command-local reader.
+    // Shell builtins/functions and prefix RHS errors stay in the shell scope.
+    let recover_unbound =
+        heredoc_status.is_some() && matches!(&error, expand::Error::Unbound { .. });
+    let flow = if recover_unbound {
+        Flow::Normal
+    } else if matches!(
         error,
         expand::Error::Arithmetic { .. }
             | expand::Error::Readonly { .. }
@@ -767,6 +856,12 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
         expand::Error::Readonly { name, line, .. } => {
             (name, "readonly variable".to_owned(), line, 1)
         }
+        expand::Error::Unbound { name, line } => (
+            name,
+            "unbound variable".to_owned(),
+            line,
+            heredoc_status.unwrap_or(context.parameter_error_status),
+        ),
         expand::Error::ShellBoundary { stage, line } => (
             "arithmetic expression".to_owned(),
             "syntax error while looking for matching `)'".to_owned(),
@@ -835,6 +930,7 @@ async fn subshell(
     context: Context,
 ) -> Outcome {
     let child = state.borrow().clone().shared();
+    let parent_scope = context.scope.clone();
     let child_context = context.isolated();
     let child_fds = Rc::new(RefCell::new(fds.borrow().clone()));
     drop(fds);
@@ -859,7 +955,7 @@ async fn subshell(
                         }
                         Err(outcome) => outcome,
                     };
-                child_context.cleanup_jobs().await;
+                child_context.finish_scope(parent_scope).await;
                 result
             })
             .await;
@@ -924,6 +1020,7 @@ fn background(
     fds: &Descriptors,
     context: &Context,
 ) -> Outcome {
+    context.core.reap_detached_jobs();
     if context.core.jobs.borrow().len() >= context.limits().jobs {
         state.borrow_mut().status = 2;
         state.borrow_mut().pipestatus = vec![2];
@@ -936,7 +1033,7 @@ fn background(
         source: context.source.clone(),
         cancel: cancel.clone(),
         group,
-        scope: context.core.allocate_id(),
+        scope: Scope::new(context.core.allocate_id()),
         parameter_error_status: context.child_error_status(&command),
         compound_child: matches!(command, Command::Compound(..)),
     };
@@ -944,10 +1041,11 @@ fn background(
     let fds = Rc::new(RefCell::new(fds.borrow().clone()));
     let job = context.core.next_job.get();
     context.core.next_job.set(job + 1);
+    let parent_scope = context.scope.clone();
     let join = context.core.executor.spawn(async move {
         let mut processes = ProcessGroup::new(child_context.core.host.clone(), group);
         let result = execute(command, child, fds, child_context.clone()).await;
-        child_context.cleanup_jobs().await;
+        child_context.finish_scope(parent_scope).await;
         child_context
             .finish_group(&mut processes, result.code)
             .await
@@ -955,7 +1053,8 @@ fn background(
     context.core.jobs.borrow_mut().insert(
         job,
         Job {
-            owner: context.scope,
+            owner: context.scope.clone(),
+            detached: false,
             cancel,
             join,
         },
@@ -1012,10 +1111,14 @@ impl Substitutions {
     pub(crate) fn start(
         &self,
         commands: Vec<Command>,
-        state: &SharedState,
-    ) -> (io::Endpoint, SubstitutionTask) {
+        state: SharedState,
+    ) -> Result<(io::Endpoint, SubstitutionTask), i32> {
+        self.context.core.reap_detached_jobs();
+        if self.context.core.jobs.borrow().len() >= self.context.limits().jobs {
+            return Err(2);
+        }
         let (reader, writer) = io::pipe();
-        let child = state.borrow().clone().shared();
+        let child = state;
         let mut table = self.fds.borrow().clone();
         table.insert(1, writer);
         let fds = Rc::new(RefCell::new(table));
@@ -1028,10 +1131,24 @@ impl Substitutions {
             ..self.context.isolated()
         };
         let link = cancel.clone();
+        let capture_complete = Cancel::new();
+        let captured = capture_complete.clone();
         let join = self.context.core.executor.spawn(async move {
             let body = async {
                 let result = sequence(commands, child, fds, context.clone()).await;
-                context.cleanup_jobs().await;
+                // Capturing waits for actual stdout EOF, not every background
+                // job: redirected descendants may keep running after EOF.
+                if context.cancel.run(captured.cancelled()).await.is_err() {
+                    context.cleanup_jobs().await;
+                } else {
+                    context.core.jobs.borrow_mut().retain(|_, job| {
+                        if job.owner != context.scope {
+                            return true;
+                        }
+                        job.detached = true;
+                        !job.join.is_finished()
+                    });
+                }
                 result.code
             };
             // The parent's cancellation reaches the body through its own
@@ -1047,14 +1164,29 @@ impl Substitutions {
                 futures::future::Either::Right(((), body)) => body.await,
             }
         });
-        (
+        let core = &self.context.core;
+        let id = core.next_job.get();
+        core.next_job.set(id.checked_add(1).ok_or(2)?);
+        core.jobs.borrow_mut().insert(
+            id,
+            Job {
+                owner: self.context.scope.clone(),
+                detached: false,
+                cancel: cancel.clone(),
+                join: join.clone(),
+            },
+        );
+        Ok((
             reader,
             SubstitutionTask {
                 cancel,
+                capture_complete,
                 join,
+                core: core.clone(),
+                id,
                 finished: false,
             },
-        )
+        ))
     }
     /// Start `<(commands)` (`is_input`) or `>(commands)` as a job of this
     /// shell and open its end of the pipe in the command's descriptor table,
@@ -1065,13 +1197,14 @@ impl Substitutions {
         &self,
         commands: Vec<Command>,
         is_input: bool,
-        state: &SharedState,
+        state: SharedState,
     ) -> Result<u32, i32> {
         let fd = (3..=63u32)
             .rev()
             .find(|fd| self.fds.borrow().get(*fd).is_none())
             .ok_or(2)?;
         let core = &self.context.core;
+        core.reap_detached_jobs();
         if core.jobs.borrow().len() >= self.context.limits().jobs {
             return Err(2);
         }
@@ -1085,7 +1218,7 @@ impl Substitutions {
             writer
         };
         let fds = Rc::new(RefCell::new(table));
-        let child = state.borrow().clone().shared();
+        let child = state;
         let cancel = Cancel::new();
         let context = Context {
             cancel: cancel.clone(),
@@ -1093,17 +1226,33 @@ impl Substitutions {
             compound_child: false,
             ..self.context.isolated()
         };
+        let parent = self.context.cancel.clone();
+        let link = cancel.clone();
         let join = core.executor.spawn(async move {
-            let result = sequence(commands, child, fds, context.clone()).await;
-            context.cleanup_jobs().await;
-            result.code
+            let body = async {
+                let result = sequence(commands, child, fds, context.clone()).await;
+                let _ = context.wait_jobs(None, true).await;
+                context.cleanup_jobs().await;
+                result.code
+            };
+            let forward = async {
+                parent.cancelled().await;
+                link.cancel();
+                futures::future::pending::<()>().await
+            };
+            futures::pin_mut!(body, forward);
+            match futures::future::select(body, forward).await {
+                futures::future::Either::Left((code, _)) => code,
+                futures::future::Either::Right(((), body)) => body.await,
+            }
         });
         let job = core.next_job.get();
         core.next_job.set(job + 1);
         core.jobs.borrow_mut().insert(
             job,
             Job {
-                owner: self.context.scope,
+                owner: self.context.scope.clone(),
+                detached: false,
                 cancel,
                 join,
             },
@@ -1119,16 +1268,24 @@ impl Substitutions {
         &self.context.cancel
     }
 }
-/// A running substitution body. Dropping it before `finish` (an expansion
-/// error or cancellation) cancels the body, which then unwinds on its own.
+/// A running substitution body. Its registered join remains owned by the
+/// session if a caller drops the capture; normal/error completion awaits it.
 pub(crate) struct SubstitutionTask {
     cancel: Cancel,
+    capture_complete: Cancel,
     join: JoinHandle<i32>,
+    core: Rc<Core>,
+    id: u64,
     finished: bool,
 }
 impl SubstitutionTask {
+    pub(crate) fn cancel(&self) {
+        self.cancel.cancel();
+    }
     pub(crate) async fn finish(mut self) -> i32 {
+        self.capture_complete.cancel();
         let code = self.join.clone().await;
+        self.core.jobs.borrow_mut().remove(&self.id);
         self.finished = true;
         code
     }
@@ -1302,7 +1459,7 @@ async fn prepare_simple_command(
             true,
         )
         .await?;
-        let fds = redirects(&simple.redirects, state, fds, context, &mut work).await?;
+        let fds = redirects(&simple.redirects, state, fds, context, &mut work, Some(1)).await?;
         work.substitutions = None;
         return Ok(PreparedCommand {
             argv,
@@ -1311,7 +1468,20 @@ async fn prepare_simple_command(
             work,
         });
     }
-    let fds = redirects(&simple.redirects, state, fds, context, &mut work).await?;
+    let name = &argv[0];
+    let shell_command = state.borrow().functions.contains_key(name)
+        || matches!(name.as_str(), "exec" | "let" | "eval")
+        || (builtins::is_builtin(name) && !matches!(name.as_str(), "cat" | "seq"));
+    let heredoc_status = (!shell_command).then_some(context.parameter_error_status);
+    let fds = redirects(
+        &simple.redirects,
+        state,
+        fds,
+        context,
+        &mut work,
+        heredoc_status,
+    )
+    .await?;
     let assigned = assignments(
         simple.assignments,
         state,
@@ -1355,8 +1525,13 @@ async fn dispatch_simple_command(
         if !assigned.is_empty() {
             return Err(2);
         }
+        if let Err(error) =
+            crate::ast_copy::command(body.as_ref(), &context.cancel, &mut work).await
+        {
+            return Ok(expansion_failure(error.into(), &fds, &context).await);
+        }
         let _frame = FunctionFrame::enter(state.clone(), args, context.limits().function_depth)?;
-        let mut outcome = execute(body, state, fds, context).await;
+        let mut outcome = execute(body.as_ref().clone(), state, fds, context).await;
         if outcome.flow == Flow::Return {
             outcome.flow = Flow::Normal;
         }
@@ -1541,11 +1716,17 @@ async fn redirects(
     fds: Descriptors,
     context: &Context,
     work: &mut expand::Work,
+    heredoc_status: Option<i32>,
 ) -> Result<Descriptors, CommandError> {
     if redirs.is_empty() {
         return Ok(fds);
     }
-    let mut fds = fds.borrow().clone();
+    let fds = Rc::new(RefCell::new(fds.borrow().clone()));
+    // Target substitutions observe the redirections already applied, and
+    // process substitutions insert their descriptors into this same table.
+    if let Some(runner) = &mut work.substitutions {
+        runner.fds = fds.clone();
+    }
     let mut budget = Budget::default();
     for redirect in redirs {
         budget.checkpoint(&context.cancel).await.map_err(|_| 130)?;
@@ -1562,7 +1743,18 @@ async fn redirects(
         )
         .await
         .map_err(|error| {
-            CommandError::redirect(error.at_line(redirect.expansion_line), fds.get(2))
+            CommandError::redirect(
+                error.at_line(redirect.expansion_line),
+                fds.borrow().get(2),
+                if matches!(
+                    redirect.kind,
+                    RedirectKind::HereDoc | RedirectKind::HereDocStrip
+                ) {
+                    heredoc_status
+                } else {
+                    None
+                },
+            )
         })?;
         let input = matches!(
             redirect.kind,
@@ -1578,10 +1770,11 @@ async fn redirects(
         match redirect.kind {
             RedirectKind::DupInput | RedirectKind::DupOutput => {
                 if target == "-" {
-                    fds.remove(fd);
+                    fds.borrow_mut().remove(fd);
                 } else {
                     let source = target.parse::<u32>().map_err(|_| 2)?;
-                    fds.insert(fd, fds.get(source).ok_or(1)?);
+                    let endpoint = fds.borrow().get(source).ok_or(1)?;
+                    fds.borrow_mut().insert(fd, endpoint);
                 }
             }
             RedirectKind::HereDoc | RedirectKind::HereDocStrip | RedirectKind::HereString => {
@@ -1592,7 +1785,8 @@ async fn redirects(
                     work.admit_storage(1)?;
                     text.push('\n');
                 }
-                fds.insert(fd, io::Endpoint::bytes(text.into_bytes()));
+                fds.borrow_mut()
+                    .insert(fd, io::Endpoint::bytes(text.into_bytes()));
             }
             RedirectKind::Input
             | RedirectKind::Output
@@ -1600,12 +1794,13 @@ async fn redirects(
             | RedirectKind::Append
             | RedirectKind::OutputBoth
             | RedirectKind::ReadWrite => {
-                if let Some(endpoint) = device_endpoint(&target, &fds) {
+                let device = device_endpoint(&target, &fds.borrow());
+                if let Some(endpoint) = device {
                     let endpoint = endpoint?;
                     if redirect.kind == RedirectKind::OutputBoth {
-                        fds.insert(2, endpoint.clone());
+                        fds.borrow_mut().insert(2, endpoint.clone());
                     }
-                    fds.insert(fd, endpoint);
+                    fds.borrow_mut().insert(fd, endpoint);
                     continue;
                 }
                 let path = absolute(&state.borrow().cwd, &target);
@@ -1627,11 +1822,43 @@ async fn redirects(
                     .map_err(|_| 130)?
                     .map_err(|e| e.status())?;
                 if redirect.kind == RedirectKind::OutputBoth {
-                    fds.insert(2, endpoint.clone());
+                    fds.borrow_mut().insert(2, endpoint.clone());
                 }
-                fds.insert(fd, endpoint);
+                fds.borrow_mut().insert(fd, endpoint);
             }
         }
     }
-    Ok(Rc::new(RefCell::new(fds)))
+    Ok(fds)
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::Scope;
+
+    #[test]
+    fn later_descendant_transfers_follow_already_forwarded_parent_handles() {
+        let root = Scope::new(0);
+        let outer = Scope::new(1);
+        let middle = Scope::new(2);
+        let inner = Scope::new(3);
+        let captured_outer = outer.clone();
+        let captured_middle = middle.clone();
+        outer.forward_to(root);
+        middle.forward_to(captured_outer);
+        inner.forward_to(captured_middle);
+        assert_eq!(inner.resolved_id(), 0);
+    }
+
+    #[test]
+    fn earlier_descendant_transfers_follow_later_ancestor_exits() {
+        let root = Scope::new(0);
+        let outer = Scope::new(1);
+        let middle = Scope::new(2);
+        let inner = Scope::new(3);
+        inner.forward_to(middle.clone());
+        middle.forward_to(outer.clone());
+        assert_eq!(inner.resolved_id(), 1);
+        outer.forward_to(root);
+        assert_eq!(inner.resolved_id(), 0);
+    }
 }

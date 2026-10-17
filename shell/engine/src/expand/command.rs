@@ -3,7 +3,7 @@
 //! straight into the expansion. Only a count of trailing newlines is held back,
 //! so no copy of the whole output exists beyond the expansion's own fields.
 use super::{Error, Expansion, Protection};
-use crate::state::SharedState;
+use crate::state::{SharedState, State};
 use shell_parser::parser::Command;
 
 /// Bytes read per pipe turn, plus the same again for the decoded text that is
@@ -50,66 +50,80 @@ impl Expansion<'_> {
         buffer.resize(CHUNK + CARRY, 0);
         let mut text = String::new();
         text.try_reserve_exact(CHUNK).map_err(|_| 2)?;
-        let (reader, task) = runner.start(commands.to_vec(), state);
-        let mut carried = 0usize;
-        let mut newlines = 0usize;
-        let mut warned = false;
-        loop {
-            let count = reader
-                .read_cancelled(&mut buffer[carried..carried + CHUNK], self.cancel)
-                .await
-                .map_err(|error| match error {
-                    crate::io::IoError::Cancelled => Error::Status(130),
-                    _ => Error::Status(2),
-                })?;
-            if count == 0 {
-                break;
-            }
-            self.work.checkpoint(self.cancel).await?;
-            let total = carried + count;
-            let (valid, rest) = match std::str::from_utf8(&buffer[..total]) {
-                Ok(_) => (total, 0),
-                // Byte-valued strings are not representable yet: fail closed
-                // rather than emit text Bash would not produce.
-                Err(error) if error.error_len().is_some() => return Err(2.into()),
-                Err(error) => (error.valid_up_to(), total - error.valid_up_to()),
-            };
-            let decoded = std::str::from_utf8(&buffer[..valid]).map_err(|_| 2)?;
-            for ch in decoded.chars() {
+        crate::ast_copy::admit(commands, self.cancel, self.work).await?;
+        let child = State::snapshot(state, self.cancel, self.work)
+            .await?
+            .shared();
+        let (reader, task) = runner.start(commands.to_vec(), child)?;
+        let result: Result<(), Error> = async {
+            let mut carried = 0usize;
+            let mut newlines = 0usize;
+            let mut warned = false;
+            loop {
+                let count = reader
+                    .read_cancelled(&mut buffer[carried..carried + CHUNK], self.cancel)
+                    .await
+                    .map_err(|error| match error {
+                        crate::io::IoError::Cancelled => Error::Status(130),
+                        _ => Error::Status(2),
+                    })?;
+                if count == 0 {
+                    break;
+                }
                 self.work.checkpoint(self.cancel).await?;
-                match ch {
-                    '\0' => {
-                        if !warned {
-                            warned = true;
-                            self.warn_null(&runner).await?;
+                let total = carried + count;
+                let (valid, rest) = match std::str::from_utf8(&buffer[..total]) {
+                    Ok(_) => (total, 0),
+                    // Byte-valued strings are not representable yet: fail closed
+                    // rather than emit text Bash would not produce.
+                    Err(error) if error.error_len().is_some() => return Err(2.into()),
+                    Err(error) => (error.valid_up_to(), total - error.valid_up_to()),
+                };
+                let decoded = std::str::from_utf8(&buffer[..valid]).map_err(|_| 2)?;
+                for ch in decoded.chars() {
+                    self.work.checkpoint(self.cancel).await?;
+                    match ch {
+                        '\0' => {
+                            if !warned {
+                                warned = true;
+                                self.warn_null(&runner).await?;
+                            }
                         }
-                    }
-                    '\n' => newlines = newlines.checked_add(1).ok_or(2)?,
-                    _ => {
-                        while newlines > 0 {
-                            self.work.checkpoint(self.cancel).await?;
-                            if text.len() + 1 > CHUNK {
+                        '\n' => newlines = newlines.checked_add(1).ok_or(2)?,
+                        _ => {
+                            while newlines > 0 {
+                                self.work.checkpoint(self.cancel).await?;
+                                if text.len() + 1 > CHUNK {
+                                    self.flush(&mut text, protection, keeps_empty).await?;
+                                }
+                                text.push('\n');
+                                newlines -= 1;
+                            }
+                            if text.len() + ch.len_utf8() > CHUNK {
                                 self.flush(&mut text, protection, keeps_empty).await?;
                             }
-                            text.push('\n');
-                            newlines -= 1;
+                            text.push(ch);
                         }
-                        if text.len() + ch.len_utf8() > CHUNK {
-                            self.flush(&mut text, protection, keeps_empty).await?;
-                        }
-                        text.push(ch);
                     }
                 }
+                self.flush(&mut text, protection, keeps_empty).await?;
+                buffer.copy_within(valid..total, 0);
+                carried = rest;
             }
-            self.flush(&mut text, protection, keeps_empty).await?;
-            buffer.copy_within(valid..total, 0);
-            carried = rest;
+            if carried != 0 {
+                return Err(2.into());
+            }
+            Ok(())
         }
-        if carried != 0 {
-            return Err(2.into());
-        }
+        .await;
         drop(reader);
-        Ok(task.finish().await)
+        if result.is_err() {
+            task.cancel();
+        }
+        // Errors retain ownership until host children and nested jobs unwind.
+        let code = task.finish().await;
+        result?;
+        Ok(code)
     }
 
     async fn flush(

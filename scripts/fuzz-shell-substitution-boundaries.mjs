@@ -159,8 +159,8 @@ export function optionsFor(args) {
           "  --help          Show this help\n\n" +
           "The oracle is /usr/bin/bash 5.3.15 invoked with bash -c SCRIPT. Matching uses\n" +
           "stdout bytes and exit status; stderr is diagnostic only. UNSUPPORTED is reserved\n" +
-          "for a successful Bash run where the candidate exits 2 with empty stdout because\n" +
-          "substitutions or compound commands are not executable yet. Parse rejections and\n" +
+          "for a successful Bash run where the candidate exits 2 with empty stdout and an\n" +
+          "explicit unsupported-feature diagnostic. Parse rejections and\n" +
           "status 127 remain MISMATCH. The run queues through the host light queue and\n" +
           "cleans its private scratch directory.",
       );
@@ -403,6 +403,11 @@ export function classify(bash, candidate, selfControl = false) {
     bash.status === 0 &&
     candidate.status === 2 &&
     candidate.stdout.length === 0 &&
+    /^(?:shell-engine: )?(?:unsupported (?:feature|syntax|command substitution|process substitution)\b|(?:command|process) substitution (?:is )?not supported\b)/im.test(
+      candidate.stderr.toString(),
+    ) &&
+    bash.signal === null &&
+    candidate.signal === null &&
     !bash.timedOut &&
     !candidate.timedOut &&
     !bash.error &&

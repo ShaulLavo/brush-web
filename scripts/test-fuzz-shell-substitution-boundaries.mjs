@@ -75,20 +75,64 @@ test("spelling preserves fused and spaced opener families", () => {
   }
 });
 
-test("classification only grants the narrow substitution unsupported exemption", () => {
+test("classification only grants an explicitly diagnosed unsupported exemption", () => {
+  const candidate = processResult({
+    status: 2,
+    stdout: Buffer.alloc(0),
+    stderr: Buffer.from("shell-engine: unsupported feature: process substitution\n"),
+  });
+  assert.equal(classify(processResult(), candidate), "UNSUPPORTED");
+  for (const stderr of [
+    "unsupported syntax: compound command\n",
+    "unsupported command substitution\n",
+    "process substitution is not supported\n",
+  ]) {
+    assert.equal(
+      classify(processResult(), { ...candidate, stderr: Buffer.from(stderr) }),
+      "UNSUPPORTED",
+      stderr,
+    );
+  }
+  for (const mutation of [
+    { stdout: Buffer.from("x") },
+    { status: 127 },
+    { timedOut: true },
+    { error: "EIO" },
+    { signal: "SIGKILL" },
+  ]) {
+    assert.equal(classify(processResult(), { ...candidate, ...mutation }), "MISMATCH");
+  }
+  assert.equal(classify(processResult(), candidate, true), "MISMATCH");
+  assert.equal(classify(processResult({ status: 2, stdout: Buffer.alloc(0) }), candidate), "MATCH");
+  assert.equal(classify(processResult({ status: 2 }), candidate), "MISMATCH");
+  assert.equal(classify(processResult({ signal: "SIGKILL" }), candidate), "MISMATCH");
+});
+
+test("diagnostic mutations cannot hide supported parse rejections as unsupported", () => {
+  const candidate = processResult({ status: 2, stdout: Buffer.alloc(0) });
+  for (const stderr of [
+    "",
+    "parse error: expected ')'\n",
+    "syntax error near unexpected token ')'\n",
+    "shell-engine: parse error: unexpected process substitution\n",
+    "parse error: unexpected token 'unsupported syntax'\n",
+    "shell-engine: unsupported-feature diagnostic missing\n",
+    "command not found: unsupported\n",
+    "expansion limit exceeded\n",
+  ]) {
+    assert.equal(
+      classify(processResult(), { ...candidate, stderr: Buffer.from(stderr) }),
+      "MISMATCH",
+      JSON.stringify(stderr),
+    );
+  }
   assert.equal(
-    classify(processResult(), processResult({ status: 2, stdout: Buffer.alloc(0) })),
-    "UNSUPPORTED",
-  );
-  assert.equal(
-    classify(processResult(), processResult({ status: 2, stdout: Buffer.from("x") })),
-    "MISMATCH",
-  );
-  assert.equal(classify(processResult({ status: 2 }), processResult({ status: 2 })), "MATCH");
-  assert.equal(classify(processResult({ status: 2 }), processResult({ status: 127 })), "MISMATCH");
-  assert.equal(
-    classify(processResult(), processResult({ status: 2, stdout: Buffer.alloc(0) }), true),
-    "MISMATCH",
+    classify(processResult({ status: 2, stdout: Buffer.alloc(0) }), {
+      ...candidate,
+      stderr: Buffer.from("parse error\n"),
+    }),
+    "MATCH",
+    "matching parse rejection statuses remain real observations",
   );
 });
 

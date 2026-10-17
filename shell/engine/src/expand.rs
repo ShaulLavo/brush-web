@@ -46,6 +46,10 @@ pub(crate) enum Error {
         unset: bool,
         line: Option<usize>,
     },
+    Unbound {
+        name: String,
+        line: Option<usize>,
+    },
     Parameter {
         name: String,
         message: String,
@@ -97,6 +101,7 @@ impl Error {
                 line,
             },
             Self::Indirect { name, unset, .. } => Self::Indirect { name, unset, line },
+            Self::Unbound { name, .. } => Self::Unbound { name, line },
             status => status,
         }
     }
@@ -662,6 +667,41 @@ struct Expansion<'a> {
     elements_remaining: usize,
 }
 impl Expansion<'_> {
+    /// Only actual value reads require a binding. The target of a lazy
+    /// default/replacement/error operator is tested for absence, not read;
+    /// ordinary expansions in its selected operand still pass through here.
+    async fn require_bound(&mut self, name: &str, state: &SharedState) -> Result<(), Error> {
+        if !state.borrow().nounset {
+            return Ok(());
+        }
+        for _ in name.bytes() {
+            self.work.checkpoint(self.cancel).await?;
+        }
+        let missing = {
+            let state = state.borrow();
+            match name {
+                "0" | "?" | "#" | "@" | "*" | "PWD" | "PIPESTATUS" => false,
+                _ if operand::scalar_name(name) => state.scalar_parameter(name).is_none(),
+                _ if !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_digit()) => name
+                    .parse::<usize>()
+                    .map_or(true, |index| index > state.positional.len()),
+                // Other special parameters and general arrays are outside the
+                // scalar adapter; nounset does not add semantics for them.
+                _ => false,
+            }
+        };
+        if !missing {
+            return Ok(());
+        }
+        // Own the name only after admitting it and the owning diagnostic's
+        // later formatted copy. Cancellation/limits win before allocation.
+        self.work
+            .admit_storage(name.len().saturating_mul(2).saturating_add(128))?;
+        Err(Error::Unbound {
+            name: name.to_owned(),
+            line: None,
+        })
+    }
     async fn current_ifs(&mut self, state: &SharedState) -> Result<(), Error> {
         if self.ifs.is_none() {
             self.ifs = Some(Ifs::new(state, self.cancel, self.max_raw, self.work).await?);
@@ -854,8 +894,12 @@ impl Expansion<'_> {
                     return self.segment("", Protection::All, false).await;
                 }
                 let runner = self.work.substitutions.clone().ok_or(2)?;
-                let fd = runner.process(commands.clone(), *is_input, state)?;
+                crate::ast_copy::admit(commands, self.cancel, self.work).await?;
+                let child = crate::state::State::snapshot(state, self.cancel, self.work)
+                    .await?
+                    .shared();
                 self.work.admit_storage(16)?;
+                let fd = runner.process(commands.clone(), *is_input, child)?;
                 return self
                     .segment(&format!("/dev/fd/{fd}"), Protection::All, false)
                     .await;
@@ -922,6 +966,9 @@ impl Expansion<'_> {
                 }
                 self.admit_pattern_length(name, state)?;
                 return self.length(name, state, scalar || quoted, depth).await;
+            }
+            if let WordPart::Variable(name) = part {
+                self.require_bound(name, state).await?;
             }
             let max = self.snapshot_max();
             let value = scalar_value(
@@ -1060,6 +1107,7 @@ impl Expansion<'_> {
         }
         // Resolve the source before arithmetic side effects. An unset scalar
         // skips both expressions; an out-of-range start skips the length.
+        self.require_bound(name, state).await?;
         let (value, utf8) = {
             let s = state.borrow();
             let present = if operand::scalar_name(name) {
@@ -1163,6 +1211,7 @@ impl Expansion<'_> {
             return Err(2.into());
         }
         self.work.checkpoint(self.cancel).await?;
+        self.require_bound(name, state).await?;
         let (value, utf8) = {
             let s = state.borrow();
             // Admit the transient snapshot before copying, independently of the
@@ -1206,6 +1255,17 @@ impl Expansion<'_> {
         self.slice_boundaries(operand).await?;
         if error_pointer.is_none() && !operand::scalar_name(name) || depth >= operand::MAX_DEPTH {
             return Err(2.into());
+        }
+        // These operators read their source value, unlike the four lazy
+        // presence-testing operators below. Check before operand side effects.
+        if trim_mode(operator).is_some()
+            || case_mode(operator).is_some()
+            || matches!(
+                operator,
+                ParameterOp::ReplaceFirst { .. } | ParameterOp::ReplaceAll { .. }
+            )
+        {
+            self.require_bound(name, state).await?;
         }
         if let ParameterOp::ReplaceFirst {
             pattern,
@@ -2117,6 +2177,44 @@ pub(crate) async fn word(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nounset_admits_its_owned_diagnostic_at_the_exact_storage_boundary() {
+        let state = crate::state::State::default().shared();
+        state.borrow_mut().nounset = true;
+        let token = shell_parser::Parser::parse_word_string_with_limits("$missing", 10, 1000);
+        let storage = "missing".len() * 2 + 128;
+        let cancel = Cancel::new();
+        let mut work = Work::new(64, storage - 1, 1);
+        assert!(matches!(
+            fields(&token, &state, &cancel, 64, 1, 64, &mut work).now_or_never(),
+            Some(Err(Error::Status(2))),
+        ));
+        let mut work = Work::new(64, storage, 1);
+        assert!(matches!(
+            fields(&token, &state, &cancel, 64, 1, 64, &mut work).now_or_never(),
+            Some(Err(Error::Unbound { name, line: None })) if name == "missing",
+        ));
+        assert_eq!(work.storage_remaining, 0);
+    }
+
+    #[test]
+    fn nounset_long_name_yields_and_cancels_before_owning_a_diagnostic() {
+        let state = crate::state::State::default().shared();
+        state.borrow_mut().nounset = true;
+        let source = format!("${}", "v".repeat(1024));
+        let token = shell_parser::Parser::parse_word_string_with_limits(&source, 10, 16384);
+        let cancel = Cancel::new();
+        let mut work = Work::new(8192, 4096, 1);
+        let mut expansion = Box::pin(fields(&token, &state, &cancel, 4096, 1, 4096, &mut work));
+        assert!(expansion.as_mut().now_or_never().is_none());
+        cancel.cancel();
+        assert!(matches!(
+            expansion.now_or_never(),
+            Some(Err(Error::Status(130)))
+        ));
+        assert_eq!(work.storage_remaining, 4096);
+    }
 
     #[test]
     fn substring_special_snapshots_admit_decimal_storage_before_formatting() {

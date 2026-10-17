@@ -40,6 +40,25 @@ impl Expansion<'_> {
             TargetKind::Scalar => {}
         }
         let Some(operator) = operator else {
+            // A bare indirection reads its resolved target. Lazy operators
+            // below only test target presence; their selected operands enforce
+            // nounset through ordinary expansion instead.
+            if let Err(error) = self.require_bound(&target, state).await {
+                return Err(match error {
+                    Error::Unbound { line, .. } => {
+                        // Bash names the indirect expression (`!p`), not its
+                        // resolved target. Admit both diagnostic spellings
+                        // before allocating this replacement name.
+                        self.work
+                            .admit_storage(name.len().saturating_add(1).saturating_mul(2))?;
+                        Error::Unbound {
+                            name: format!("!{name}"),
+                            line,
+                        }
+                    }
+                    other => other,
+                });
+            }
             let value = self
                 .indirect_snapshot(&target, state)
                 .await?
