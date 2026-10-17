@@ -461,6 +461,9 @@ impl fmt::Display for Word {
                 WordPart::PrefixMatch { prefix, star } => {
                     write!(f, "${{!{}{}}}", prefix, if *star { '*' } else { '@' })?
                 }
+                WordPart::UnparsedProcessSubstitution { source, is_input } => {
+                    write!(f, "{}({})", if *is_input { "<" } else { ">" }, source)?
+                }
                 WordPart::ProcessSubstitution { commands, is_input } => {
                     let prefix = if *is_input { "<" } else { ">" };
                     write!(
@@ -561,6 +564,10 @@ pub enum WordPart {
     /// Prefix matching `${!prefix*}` (`star`) or `${!prefix@}` - names of
     /// variables with given prefix
     PrefixMatch { prefix: String, star: bool },
+    /// A fused `<((...)` or `>((...)` span whose text is not a command list.
+    /// Bash parses a process substitution again when the word expands, and
+    /// that parse fails then (status 1) rather than rejecting the script.
+    UnparsedProcessSubstitution { source: String, is_input: bool },
     /// Process substitution <(cmd) or >(cmd)
     ProcessSubstitution {
         /// The commands to run

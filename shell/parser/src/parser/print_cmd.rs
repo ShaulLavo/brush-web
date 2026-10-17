@@ -83,6 +83,9 @@ struct Printer {
     printing_connection: usize,
     inside_function_def: usize,
     deferred: Vec<HereDoc>,
+    /// Printing a command substitution body (bash's `printing_comsub`):
+    /// a `case` keeps its first clause on the `case ... in` line.
+    printing_comsub: bool,
 }
 
 impl Printer {
@@ -416,8 +419,10 @@ impl Printer {
                 self.out.push_str(&word_text(&c.word));
                 self.out.push_str(" in ");
                 self.indentation += INDENT_AMOUNT;
-                for item in &c.cases {
-                    self.newline("");
+                for (index, item) in c.cases.iter().enumerate() {
+                    if !(self.printing_comsub && index == 0) {
+                        self.newline("");
+                    }
                     let pats: Vec<String> = item.patterns.iter().map(word_text).collect();
                     self.out.push_str(&pats.join(" | "));
                     self.out.push_str(")\n");
@@ -739,6 +744,17 @@ fn reconstruct_word(w: &Word) -> String {
         return super::raw::single_quote(&s);
     }
     s
+}
+
+/// A substitution body as bash stores it after parsing (`print_comsub`).
+pub(crate) fn comsub_commands(cmds: &[Command]) -> String {
+    let mut p = Printer {
+        printing_comsub: true,
+        ..Printer::default()
+    };
+    p.print_list(cmds);
+    p.print_deferred_if_any("");
+    p.out
 }
 
 /// Commands printed on one line (inside `$(...)` reconstructions).

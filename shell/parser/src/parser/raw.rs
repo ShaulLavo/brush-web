@@ -13,6 +13,11 @@ pub(crate) fn heredoc_eof_from_raw(raw: &str) -> (String, bool) {
     let mut chars = raw.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
+            // A line continuation joins the word before it is read, so it
+            // neither quotes the delimiter nor adds a newline to it.
+            '\\' if chars.peek() == Some(&'\n') => {
+                chars.next();
+            }
             '\\' => {
                 quoted = true;
                 if let Some(n) = chars.next() {
@@ -33,6 +38,9 @@ pub(crate) fn heredoc_eof_from_raw(raw: &str) -> (String, bool) {
                 while let Some(n) = chars.next() {
                     match n {
                         '"' => break,
+                        '\\' if chars.peek() == Some(&'\n') => {
+                            chars.next();
+                        }
                         '\\' if matches!(chars.peek(), Some('"' | '\\' | '$' | '`')) => {
                             if let Some(e) = chars.next() {
                                 eof.push(e);
@@ -125,6 +133,10 @@ mod tests {
         assert_eq!(heredoc_eof_from_raw("'EOF'"), ("EOF".into(), true));
         assert_eq!(heredoc_eof_from_raw("\\E\\OF"), ("EOF".into(), true));
         assert_eq!(heredoc_eof_from_raw("E\"OF\""), ("EOF".into(), true));
+        // GNU Bash 5.3.15: `x=1; cat <<E\<newline>OF` expands `$x` and
+        // ends at `EOF`; inside double quotes the continuation also goes.
+        assert_eq!(heredoc_eof_from_raw("EO\\\nF"), ("EOF".into(), false));
+        assert_eq!(heredoc_eof_from_raw("\"E\\\nOF\""), ("EOF".into(), true));
     }
 
     #[test]

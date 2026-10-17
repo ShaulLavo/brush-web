@@ -804,7 +804,7 @@ impl<'a> Parser<'a> {
     /// syntax error (status 127); only the open body running out of input is
     /// the plain EOF error (status 2).
     #[inline(never)]
-    fn classify_substitution_text(&self, body: &str, closed: bool) -> Result<()> {
+    pub(super) fn classify_substitution_text(&self, body: &str, closed: bool) -> Result<()> {
         // Bash's reader ends the open text with a newline before the end of
         // input: `$(echo <` is a token error (127), `$(echo |` waits (2).
         let text;
@@ -2505,9 +2505,21 @@ impl<'a> Parser<'a> {
             ) {
                 break;
             }
-            if let Some(cmd) = self.parse_command_list()? {
-                commands.push(*cmd);
+            match self.parse_command_list()? {
+                Some(cmd) => commands.push(*cmd),
+                // A token no command can start with (`;`, `do`, `then`):
+                // bash stops there instead of skipping it.
+                None => {
+                    self.pop_depth();
+                    return Err(self.error("unexpected token"));
+                }
             }
+        }
+
+        // Bash requires at least one command: `( )` stops at the `)`.
+        if commands.is_empty() && self.current_token.is_some() {
+            self.pop_depth();
+            return Err(self.error("syntax error: empty subshell"));
         }
 
         if matches!(self.current_token, Some(tokens::Token::DoubleRightParen)) {
@@ -2536,8 +2548,12 @@ impl<'a> Parser<'a> {
             if matches!(self.current_token, Some(tokens::Token::RightBrace)) {
                 break;
             }
-            if let Some(cmd) = self.parse_command_list()? {
-                commands.push(*cmd);
+            match self.parse_command_list()? {
+                Some(cmd) => commands.push(*cmd),
+                None => {
+                    self.pop_depth();
+                    return Err(self.error("unexpected token"));
+                }
             }
         }
 
@@ -4496,6 +4512,23 @@ impl<'a> Parser<'a> {
                     }
                 }
 
+                // Bash quirk: in a fused `<((` span whose here-document ends
+                // on its delimiter's line (`EOF))`), the substitution text
+                // stops at that first `)`; the rest of the span stays in the
+                // word as text and the child parses the shorter body.
+                let mut tail = None;
+                if fused
+                    && let Some(cut) = self
+                        .input
+                        .get(body_start_offset..body_end_offset)
+                        .and_then(fused_heredoc_cut)
+                {
+                    tail = self
+                        .input
+                        .get(body_start_offset + cut + 1..body_end_offset + 1)
+                        .map(str::to_string);
+                    body_end_offset = body_start_offset + cut;
+                }
                 let body_len = body_end_offset.saturating_sub(body_start_offset);
                 self.tick_units(body_len)?;
 
@@ -4527,6 +4560,7 @@ impl<'a> Parser<'a> {
                     inner_parser.strict_command_separators =
                         self.strict_command_separators || self.strict_substitution_bodies;
                     inner_parser.strict_substitution_bodies = self.strict_substitution_bodies;
+                    inner_parser.lexer.set_substitution_body(true);
                     inner_parser.current_depth = self.current_depth + 1;
                     inner_parser.started_at = self.started_at;
                     let mut commands = Vec::new();
@@ -4541,7 +4575,28 @@ impl<'a> Parser<'a> {
                 let commands = match parse_result {
                     Ok(commands) => commands,
                     Err(err @ Error::ResourceLimit(_)) => return Err(err),
-                    Err(_) if fused => Vec::new(),
+                    // The shortened body fails in the child, not the parent.
+                    Err(_) if tail.is_some() => {
+                        let body = self
+                            .input
+                            .get(body_start_offset..body_end_offset)
+                            .unwrap_or("");
+                        self.deferred_child_error(body)?
+                    }
+                    Err(_) if fused => {
+                        let source = self
+                            .input
+                            .get(body_start_offset..body_end_offset)
+                            .unwrap_or("")
+                            .to_string();
+                        return Ok(Word {
+                            parts: vec![WordPart::UnparsedProcessSubstitution { source, is_input }],
+                            quoted: false,
+                            has_unquoted_glob: false,
+                            part_quoted: Vec::new(),
+                            raw,
+                        });
+                    }
                     // Bash parses the body with the script and exits 127.
                     Err(_) if self.strict_substitution_bodies => {
                         return Err(Error::ShellWord { line: start_line });
@@ -4550,8 +4605,10 @@ impl<'a> Parser<'a> {
                     Err(_) => Vec::new(),
                 };
 
+                let mut parts = vec![WordPart::ProcessSubstitution { commands, is_input }];
+                parts.extend(tail.map(WordPart::Literal));
                 Ok(Word {
-                    parts: vec![WordPart::ProcessSubstitution { commands, is_input }],
+                    parts,
                     quoted: false,
                     has_unquoted_glob: false,
                     part_quoted: Vec::new(),
@@ -4633,6 +4690,7 @@ impl<'a> Parser<'a> {
         parser.strict_command_separators =
             self.strict_command_separators || self.strict_substitution_bodies;
         parser.strict_substitution_bodies = self.strict_substitution_bodies;
+        parser.lexer.set_substitution_body(true);
         // `$( )` spans count from the outer word's line, so `$LINENO` and
         // error line numbers inside it match bash.
         let shift = self.current_span.start.line.saturating_sub(1);
@@ -5522,6 +5580,18 @@ impl<'a> Parser<'a> {
         present
     }
 
+    /// Commands that report `body`'s syntax error when they run, as a child
+    /// process parsing it would (the same `eval` form deferred backtick
+    /// bodies use).
+    #[inline(never)]
+    fn deferred_child_error(&self, body: &str) -> Result<Vec<Command>> {
+        let text = format!("eval {}", single_quote(body));
+        let mut parser = self.nested_parser(&text)?;
+        let script = parser.parse_inner()?;
+        self.fuel.set(self.fuel.get().min(parser.fuel.get()));
+        Ok(script.commands)
+    }
+
     /// Parse the recorded `$(...)` bodies in source order. Keep this frame
     /// small: it is the word-level link of every nested substitution parse.
     #[inline(never)]
@@ -5741,7 +5811,7 @@ impl<'a> Parser<'a> {
         body.pop();
         match self.parse_substitution_body(&body) {
             Ok(script) => {
-                let printed = print_cmd::inline_commands(&script.commands);
+                let printed = print_cmd::comsub_commands(&script.commands);
                 if printed.starts_with('(') {
                     out.push(' ');
                 }
@@ -5876,6 +5946,23 @@ fn finish_scanned_word(scanned: Box<ScannedWord>, preserve_empty: bool) -> Word 
         saw_quote_marker,
         in_quoted_segment,
     )
+}
+
+/// Offset in a fused `<((` body of the first `)` that ends a here-document
+/// on its delimiter's line, when command grammar reads the body.
+fn fused_heredoc_cut(body: &str) -> Option<usize> {
+    let mut scanner = subst_scan::SubstScanner::new();
+    // A blank first keeps the leading `(` a subshell, as command text.
+    scanner.feed(' ');
+    for c in body.chars().chain(std::iter::once(')')) {
+        if scanner.feed(c) == subst_scan::Step::Close {
+            break;
+        }
+    }
+    scanner
+        .heredoc_paren()
+        .map(|offset| offset - 1)
+        .filter(|&cut| cut < body.len())
 }
 
 /// Bash parses a non-arithmetic `$((` span only when it expands, so its

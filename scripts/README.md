@@ -126,7 +126,8 @@ when Bash succeeds and the candidate exits 2 with empty stdout because the
 candidate cannot execute substitutions or compound commands yet. Parse
 rejections and status 127 are mismatches. Structural shrinking keeps the opener,
 context and process-failure signature. Mismatch shapes are written to
-`/work/tmp/brush-web-subst-gen/mismatches.json`.
+`brush-web-subst-mismatches.json` in the scratch parent below, or to
+`FUZZ_SUBST_MISMATCHES` when set.
 
 The fuzzer never builds. It self-queues through the host light queue and removes
 its per-run directory (parent: `FUZZ_SUBST_SCRATCH`, else `RUNNER_TEMP`, else the

@@ -1410,6 +1410,19 @@ async fn dispatch_simple_command(
         let bindings = fds.borrow().clone();
         return builtins::run(&name, args, state, bindings, context).await;
     }
+    // A pipe named by an open descriptor exists but cannot be executed.
+    if name.starts_with("/dev/fd/")
+        && device_endpoint(&name, &fds.borrow()).is_some_and(|endpoint| endpoint.is_ok())
+    {
+        let diagnostic = format!("/usr/bin/bash: {name}: Permission denied\n");
+        let stderr = fds.borrow().get(2);
+        if let Some(stderr) = stderr {
+            let _ = stderr
+                .write_all(diagnostic.as_bytes(), &context.cancel)
+                .await;
+        }
+        return Ok(Outcome::status(126));
+    }
     let (mut env, cwd) = {
         let s = state.borrow();
         (s.environment(), s.cwd.clone())

@@ -849,12 +849,23 @@ impl Expansion<'_> {
                     .await;
             }
             if let WordPart::ProcessSubstitution { commands, is_input } = part {
+                // Bash expands an empty body (`<()`) to nothing at all.
+                if commands.is_empty() {
+                    return self.segment("", Protection::All, false).await;
+                }
                 let runner = self.work.substitutions.clone().ok_or(2)?;
                 let fd = runner.process(commands.clone(), *is_input, state)?;
                 self.work.admit_storage(16)?;
                 return self
                     .segment(&format!("/dev/fd/{fd}"), Protection::All, false)
                     .await;
+            }
+            if matches!(part, WordPart::UnparsedProcessSubstitution { .. }) {
+                self.work.admit_storage(256)?;
+                return Err(Error::ShellBoundary {
+                    stage: ShellBoundaryStage::Expansion,
+                    line: None,
+                });
             }
             if let WordPart::UnparsedCommandSubstitution { source, error } = part {
                 return self
@@ -965,9 +976,14 @@ impl Expansion<'_> {
                 continue;
             }
             let begin = index + 2;
-            let (end, fused) = self.slice_body_end(source, begin).await?;
-            // A fused `<((` span is parsed only if it expands.
-            if c != '$' && !fused {
+            let (mut end, fused) = self.slice_body_end(source, begin, false).await?;
+            if c != '$' {
+                // Bash reads a process substitution here by parsing commands
+                // up to their closing `)` (`xparse_dolparen`), so a fused
+                // `<((` span ends where command grammar ends it.
+                if fused {
+                    end = self.slice_body_end(source, begin, true).await?.0;
+                }
                 self.validate_slice_body(&source[begin..end]).await?;
             }
             while chars.peek().is_some_and(|&(index, _)| index <= end) {
@@ -982,12 +998,17 @@ impl Expansion<'_> {
         &mut self,
         source: &str,
         begin: usize,
+        command: bool,
     ) -> Result<(usize, bool), Error> {
         // Reserve initial scanner buffers, then their conservative cumulative
         // growth allowance before each character. Text after its closing `)`
         // must not consume scanner storage.
         self.work.admit_storage(2048)?;
         let mut scanner = shell_parser::parser::CommandBoundaryScanner::new();
+        if command {
+            // A blank first keeps a leading `(` a subshell, not arithmetic.
+            scanner.feed(' ');
+        }
         for (index, c) in source[begin..].char_indices() {
             self.work.checkpoint(self.cancel).await?;
             if index > 4096 {
