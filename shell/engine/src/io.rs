@@ -11,12 +11,20 @@ use std::{
 /// Neither operation may block the executor; dropped futures must unregister
 /// readiness waits. The host endpoint's last Rc drop closes its runtime handle.
 pub trait HostEndpoint {
+    /// Descriptor in the shared preview1/runtime_proc namespace, when spawnable.
+    fn runtime_fd(&self) -> Option<u32> {
+        None
+    }
     fn read<'a>(&'a self, output: &'a mut [u8]) -> LocalBoxFuture<'a, Result<usize, IoError>>;
     fn write<'a>(&'a self, input: &'a [u8]) -> LocalBoxFuture<'a, Result<usize, IoError>>;
 }
 /// Live runtime filesystems may await service readiness but must never block an
 /// executor task. Callers race opens with their job's cancellation token.
 pub trait FileSystem {
+    /// Pipeline endpoints must belong to the same host as spawned processes.
+    fn pipe(&self) -> Result<(Endpoint, Endpoint), IoError> {
+        Ok(pipe())
+    }
     fn open<'a>(
         &'a self,
         path: &'a str,
@@ -36,6 +44,7 @@ pub enum IoError {
     NotFound,
     InvalidPath,
     WriteZero,
+    Runtime(i32),
 }
 impl IoError {
     pub fn status(&self) -> i32 {
@@ -48,6 +57,9 @@ impl IoError {
 }
 impl std::fmt::Display for IoError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Self::Runtime(errno) = self {
+            return write!(f, "runtime I/O error: errno {errno}");
+        }
         f.write_str(match self {
             Self::BadDescriptor => "bad descriptor",
             Self::BrokenPipe => "broken pipe",
@@ -56,6 +68,7 @@ impl std::fmt::Display for IoError {
             Self::NotFound => "file not found",
             Self::InvalidPath => "invalid path",
             Self::WriteZero => "write made no progress",
+            Self::Runtime(_) => unreachable!(),
         })
     }
 }
@@ -127,6 +140,12 @@ pub fn pipe() -> (Endpoint, Endpoint) {
     )
 }
 impl Endpoint {
+    pub fn runtime_fd(&self) -> Option<u32> {
+        match self.0.as_ref() {
+            Open::Host(host) => host.runtime_fd(),
+            _ => None,
+        }
+    }
     pub fn null() -> Self {
         Self(Rc::new(Open::Null))
     }

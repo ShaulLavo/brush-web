@@ -103,6 +103,11 @@
     "licenseSha256": "b3e3b2f3fd15c45106e08434a52c5ad9ca97f15a1cc9894ab5b01078124cf613",
     "changeLog": [
       {
+        "paths": ["shell/parser/src/limits.rs"],
+        "change": "Extend the original limits adapter with a synchronous cancellation probe at parser work-budget checkpoints. No copied parser implementation or upstream assertions changed.",
+        "reason": "Browser SIGINT must be observed while WASM is CPU-running, without waiting for the JavaScript worker event loop. The shell checks runtime_proc.interrupted through its foreground cancellation probe."
+      },
+      {
         "paths": [
           "shell/parser/src/lib.rs",
           "shell/parser/src/error.rs",

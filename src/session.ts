@@ -5,7 +5,9 @@ import type { WorkerControl } from "./shell.worker";
 import type { StartupTimeline } from "./startup";
 import { ProcessBroker } from "./process-broker";
 import type { SpawnRequest, ProcessSample } from "./process-protocol";
-export type Engine = "brush" | "just-bash" | "bashkit" | "bashkit-terminal";
+import type { Shell } from "./shell";
+import type { BrowserRuntime } from "./runtime/browser-runtime";
+export type Engine = "brush" | "just-bash" | "bashkit" | "bashkit-terminal" | "own-shell";
 export type SessionOptions = {
   engine: Engine;
   cols: number;
@@ -42,10 +44,12 @@ type SessionMetrics = {
 };
 export class BrowserSession {
   private readonly bridge = new SharedBridge();
-  private readonly worker: Worker;
-  private readonly processes = new ProcessBroker();
+  private readonly worker?: Worker;
+  private readonly processes?: ProcessBroker;
+  private runtime?: BrowserRuntime;
+  private shell?: Shell;
   private readonly profileBuffer;
-  private readonly api;
+  private readonly api?: ReturnType<typeof wrap<WorkerControl>>;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private phase = -1;
   private disposed = false;
@@ -72,10 +76,12 @@ export class BrowserSession {
   };
   private constructor(private readonly options: SessionOptions) {
     this.profileBuffer = options.profile ? ExecutionProfile.createBuffer() : undefined;
+    if (options.engine === "own-shell") return;
+    this.processes = new ProcessBroker();
     this.worker = new Worker(new URL("./shell.worker.ts", import.meta.url), { type: "module" });
     this.api = wrap<WorkerControl>(this.worker);
     this.worker.addEventListener("message", (event: MessageEvent<SpawnRequest | ProcessSample>) => {
-      if (event.data.kind === "external-spawn") void this.processes.spawn(event.data);
+      if (event.data.kind === "external-spawn") void this.processes!.spawn(event.data);
       if (event.data.kind === "external-complete") {
         if (this.metrics.externalCommands.length === 256) this.metrics.externalCommands.shift();
         this.metrics.externalCommands.push(event.data);
@@ -115,14 +121,16 @@ export class BrowserSession {
       });
       try {
         const result = await Promise.race([
-          session.api.initialize(
-            session.bridge.buffer,
-            options.engine,
-            new URL("brush/brush-browser.wasm", document.baseURI).href,
-            options.baselineState ?? "isolated",
-            session.profileBuffer,
-            options.profile === "cost",
-          ),
+          options.engine === "own-shell"
+            ? session.initializeRuntimeShell()
+            : session.api!.initialize(
+                session.bridge.buffer,
+                options.engine,
+                new URL("brush/brush-browser.wasm", document.baseURI).href,
+                options.baselineState ?? "isolated",
+                session.profileBuffer,
+                options.profile === "cost",
+              ),
           failure,
         ]);
         session.metrics.wasmBytes = result.wasmBytes;
@@ -139,6 +147,37 @@ export class BrowserSession {
       throw error;
     }
   }
+  private async initializeRuntimeShell(): Promise<{ wasmBytes: number; startup: undefined }> {
+    const { createBrowserRuntime, createShell } = await import("./standalone");
+    if (this.disposed) throw new Error("Shell startup was cancelled.");
+    const runtime = (this.runtime = createBrowserRuntime());
+    const shell = await createShell({ runtime, terminal: this.bridge });
+    if (this.disposed) {
+      shell.dispose();
+      throw new Error("Shell startup was cancelled.");
+    }
+    this.shell = shell;
+    void shell.done.then((result) => {
+      if (result.error && !this.disposed) this.fail(result.error);
+    });
+    return { wasmBytes: shell.process.wasmBytes, startup: undefined };
+  }
+  runtimeSnapshot() {
+    const runtime = this.runtime?.snapshot();
+    if (!runtime) return undefined;
+    return {
+      ...runtime,
+      terminal: {
+        inputCapacity: this.bridge.input.length,
+        outputCapacity: this.bridge.output.length,
+        inputQueued: this.bridge.availableInput(),
+        outputQueued:
+          (Atomics.load(this.bridge.state, control.outputWrite) -
+            Atomics.load(this.bridge.state, control.outputRead)) >>>
+          0,
+      },
+    };
+  }
   input(bytes: Uint8Array) {
     if (this.disposed || this.failed) return;
     if (bytes.length === 1 && bytes[0] === 3) {
@@ -146,7 +185,8 @@ export class BrowserSession {
       this.queuedBytes = 0;
       this.pendingInputTime = 0;
       this.renderPending = false;
-      this.bridge.interrupt();
+      if (this.shell) this.shell.interrupt();
+      else this.bridge.interrupt();
       this.phase = -1;
       this.options.onState("interrupting");
       return;
@@ -170,7 +210,7 @@ export class BrowserSession {
     this.bridge.signal();
   }
   crash() {
-    this.worker.terminate();
+    this.worker?.terminate();
     this.fail("Worker stopped unexpectedly. Restart the session to recover.");
   }
   dispose() {
@@ -178,10 +218,12 @@ export class BrowserSession {
     this.startupReject?.(new Error("Shell startup was cancelled."));
     this.disposed = true;
     this.bridge.close();
-    this.processes.dispose();
+    this.processes?.dispose();
+    this.shell?.dispose();
+    this.runtime?.dispose();
     clearTimeout(this.timer);
-    this.worker.terminate();
-    this.api[releaseProxy]();
+    this.worker?.terminate();
+    this.api?.[releaseProxy]();
     this.queued = [];
     this.queuedBytes = 0;
   }

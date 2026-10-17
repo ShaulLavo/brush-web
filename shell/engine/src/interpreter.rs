@@ -118,6 +118,7 @@ struct Core {
     next: Cell<u64>,
     next_job: Cell<u64>,
     foreground: RefCell<Option<Job>>,
+    exit_requested: Cell<bool>,
 }
 #[derive(Clone)]
 pub(crate) struct Context {
@@ -247,12 +248,16 @@ impl Session {
                 next: Cell::new(1),
                 next_job: Cell::new(1),
                 foreground: RefCell::new(None),
+                exit_requested: Cell::new(false),
             }),
             state: State::default().shared(),
         }
     }
     pub fn state(&self) -> SharedState {
         self.state.clone()
+    }
+    pub fn exit_requested(&self) -> bool {
+        self.core.exit_requested.get()
     }
     pub fn background_jobs(&self) -> usize {
         self.core.jobs.borrow().len()
@@ -280,10 +285,12 @@ impl Session {
             max_input_bytes: self.core.limits.source_bytes,
             ..Default::default()
         };
+        let host = self.core.host.clone();
         let budget = shell_parser::limits::ExecutionBudget::new(
             &parser_limits,
             std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        );
+        )
+        .with_cancellation_probe(Rc::new(move || host.interrupted()));
         let (script, error) = Parser::with_limits_and_timeout(
             source,
             parser_limits.max_ast_depth,
@@ -305,7 +312,8 @@ impl Session {
             Some(error) => return Err(error.to_string()),
         };
         let group = self.core.host.allocate_group();
-        let cancel = Cancel::new();
+        let host = self.core.host.clone();
+        let cancel = Cancel::with_probe(Rc::new(move || host.interrupted()));
         let foreground_cancel = cancel.clone();
         let context = Context {
             core: self.core.clone(),
@@ -333,6 +341,9 @@ impl Session {
                 let mut work = expansion_work(context.limits());
                 let error = work.admit_storage(256).err().unwrap_or(error);
                 result = expansion_failure(error.into(), &context.core.descriptors, &context).await;
+            }
+            if result.flow == Flow::Exit {
+                context.core.exit_requested.set(true);
             }
             let code = context.finish_group(&mut processes, result.code).await;
             state.borrow_mut().status = code;
@@ -464,6 +475,15 @@ fn execute(
                     state.borrow_mut().pipestatus = vec![2];
                     return Outcome::status(2);
                 }
+                // Reserve all endpoints before starting any stage: a pipe error
+                // cannot leave an already-running producer without a consumer.
+                let mut pipes = std::collections::VecDeque::new();
+                for _ in 1..count {
+                    match context.fs().pipe() {
+                        Ok(pipe) => pipes.push_back(pipe),
+                        Err(error) => return Outcome::status(error.status()),
+                    }
+                }
                 let mut previous = None;
                 let mut tasks = Vec::new();
                 for (index, command) in pipeline.commands.into_iter().enumerate() {
@@ -472,7 +492,7 @@ fn execute(
                         stage_fds.insert(0, input);
                     }
                     if index + 1 < count {
-                        let (reader, writer) = io::pipe();
+                        let (reader, writer) = pipes.pop_front().expect("reserved pipeline pipe");
                         stage_fds.insert(1, writer);
                         previous = Some(reader);
                     }
@@ -828,7 +848,7 @@ fn background(
         state.borrow_mut().pipestatus = vec![2];
         return Outcome::status(2);
     }
-    let group = context.core.host.allocate_group();
+    let group = context.core.host.allocate_background_group();
     let cancel = Cancel::new();
     let child_context = Context {
         core: context.core.clone(),

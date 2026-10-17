@@ -29,6 +29,7 @@ interface BrowserTestAccess {
   };
   metrics(): BrowserSession["metrics"] | undefined;
   outputTimings(): readonly TerminalOutputTiming[];
+  runtimeSnapshot(): ReturnType<BrowserSession["runtimeSnapshot"]>;
   restart(engine?: Engine): Promise<void>;
   crash(): void;
 }
@@ -115,6 +116,7 @@ async function openTerminal(host: HTMLElement): Promise<Terminal> {
 function Workbench(handle: Handle) {
   const requestedEngine = query.get("engine");
   let engine: Engine =
+    requestedEngine === "own-shell" ||
     requestedEngine === "bashkit" ||
     requestedEngine === "bashkit-terminal" ||
     requestedEngine === "just-bash"
@@ -344,6 +346,7 @@ function Workbench(handle: Handle) {
         firstFrameMs,
       }),
       metrics: () => session?.metrics,
+      runtimeSnapshot: () => session?.runtimeSnapshot(),
       outputTimings: () => outputTimings,
       restart: start,
       crash: () => session?.crash(),
@@ -397,6 +400,14 @@ function Workbench(handle: Handle) {
               mix={on("click", () => selectEngine("brush"))}
             >
               Brush <span class="engine-detail">Rust · WASM</span>
+            </button>
+            <button
+              type="button"
+              aria-pressed={engine === "own-shell"}
+              disabled={busy}
+              mix={on("click", () => selectEngine("own-shell"))}
+            >
+              Own shell <span class="engine-detail">runtime peer</span>
             </button>
             <button
               type="button"
@@ -499,7 +510,14 @@ function Workbench(handle: Handle) {
             <div class="loading-overlay" role="status">
               <span class="loading-dot" />
               Starting{" "}
-              {engine === "brush" ? "Brush" : engine === "just-bash" ? "just-bash" : "Bashkit"}…
+              {engine === "brush"
+                ? "Brush"
+                : engine === "own-shell"
+                  ? "Own shell"
+                  : engine === "just-bash"
+                    ? "just-bash"
+                    : "Bashkit"}
+              …
             </div>
           )}
         </div>

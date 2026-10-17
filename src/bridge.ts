@@ -14,6 +14,8 @@ export const control = {
   phase: 11,
   status: 12,
   memory: 13,
+  inputLock: 14,
+  outputLock: 15,
 } as const;
 export const INPUT_CAPACITY = 65536;
 export const OUTPUT_CAPACITY = 262144;
@@ -70,12 +72,62 @@ export class SharedBridge {
     Atomics.store(this.state, control.inputRead, read + bytes.length);
     return bytes;
   }
+  // Immediate, bounded I/O for runtime_proc. Multiple guest processes can inherit this terminal.
+  // A contended endpoint returns EAGAIN rather than waiting on the page or another guest.
+  tryRead(chunks: readonly Uint8Array[]): number {
+    if (!chunks.some((chunk) => chunk.length)) return 0;
+    if (Atomics.compareExchange(this.state, control.inputLock, 0, 1) !== 0) return -6;
+    try {
+      let read = Atomics.load(this.state, control.inputRead);
+      let available = this.availableInput();
+      if (!available) return this.closed() ? 0 : -6;
+      let total = 0;
+      for (const chunk of chunks) {
+        const count = Math.min(chunk.length, available);
+        if (count) chunk.set(copyFromRing(this.input, read, count));
+        read += count;
+        available -= count;
+        total += count;
+        if (!available) break;
+      }
+      Atomics.store(this.state, control.inputRead, read);
+      this.signal();
+      return total;
+    } finally {
+      Atomics.store(this.state, control.inputLock, 0);
+    }
+  }
+  tryWrite(chunks: readonly Uint8Array[]): number {
+    if (!chunks.some((chunk) => chunk.length)) return 0;
+    if (this.closed()) return -29;
+    if (Atomics.compareExchange(this.state, control.outputLock, 0, 1) !== 0) return -6;
+    try {
+      let write = Atomics.load(this.state, control.outputWrite);
+      let free =
+        this.output.length - ((write - Atomics.load(this.state, control.outputRead)) >>> 0);
+      if (!free) return -6;
+      let total = 0;
+      for (const chunk of chunks) {
+        const count = Math.min(chunk.length, free);
+        copyIntoRing(this.output, write, chunk.subarray(0, count));
+        write += count;
+        free -= count;
+        total += count;
+        if (!free) break;
+      }
+      Atomics.store(this.state, control.outputWrite, write);
+      this.signal();
+      return total;
+    } finally {
+      Atomics.store(this.state, control.outputLock, 0);
+    }
+  }
   drain(limit = 32768): Uint8Array {
     const read = Atomics.load(this.state, control.outputRead);
     const available = (Atomics.load(this.state, control.outputWrite) - read) >>> 0;
     const bytes = copyFromRing(this.output, read, Math.min(limit, available));
     Atomics.store(this.state, control.outputRead, read + bytes.length);
-    if (bytes.length) Atomics.notify(this.state, control.outputRead);
+    if (bytes.length) this.signal();
     return bytes;
   }
   // Only the shell worker calls this. The main thread drains instead of waiting.

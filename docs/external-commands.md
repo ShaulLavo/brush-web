@@ -30,6 +30,27 @@ The new shell integration consumes the vendored runtime package, not Brush's old
 
 The guest, runtime sources, and historical Brush host have distinct pins. A runtime-only change need not rebuild unchanged guest code; a guest-code change requires a new traced artifact and hashes. The historical measurements below retain their recorded artifact identities.
 
+### Browser host adaptations
+
+The following source adapters use the same immutable runtime revision above. Every adapted file carries its original path/revision in its header; none is presented as an unchanged copy.
+
+| Classification | Upstream path → local path | Local changes and reason |
+| --- | --- | --- |
+| Adapted browser worker/control plane | `web/src/{worker.ts,subprocess-broker.ts,subprocess.ts,worker-pipes.ts,shared-fs.ts,fs-worker.ts}` → `src/runtime/` with the same names | Runtime peer imports and Vite worker URLs; persistent preview1 shell root; shared descriptor/terminal transport; memory sampling and process/pipe observability; confirmed asynchronous disposal. Reuses the generic process service rather than the historical single-child Brush host. |
+| Adapted engine host dependencies | `web/src/{engine-host.js,engine-host.d.ts,crypto-host.js,crypto-inputs.js,native-stream-state.ts,buffer-transfer.ts}` → `src/runtime/` with the same names | Peer import paths and local worker types. Preserve the actual Bun guest engine/crypto/stream host implementations rather than replacing Bun with a fixture. |
+| Adapted networking support | `web/src/net/{host.ts,protocol.ts,trampoline.ts,ring.ts}` → `src/runtime/net/` | Runtime peer imports and worker-local paths; retains the engine host's existing network dependency boundaries. |
+| Adapted terminal codec | `web/src/runtime-terminals.ts` → `src/runtime/runtime-terminals.ts` | Replaces callback/EOF terminals with transferable fixed-capacity shared terminal endpoint tokens; preserves arbitrary fd remapping and exposes immediate operations for `runtime_proc`. |
+| Adapted root lifecycle | `web/src/runner.ts` → `src/runtime/browser-runtime.ts` | Extracted outcome/lifecycle fencing for a persistent preview1 root; Bun registry resolves a separate actual Bun module, never the shell module. One runtime instance can be supplied by an embedding. |
+| Original shell embedding adapters | No upstream source → `src/{shell.ts,standalone.ts}`, `src/runtime/{limits.ts,terminal.test.ts}`, `shell/engine/src/runtime{.rs,/wasi.rs,/tests.rs}`, `shell/engine/src/{runtime_main.rs,terminal.rs}` | Injected peer-runtime shell facade, standalone host entry, synchronous guest process imports, notification reactor, terminal editor and original regression tests. These implement the documented ABI; they are not copied upstream shell implementations. |
+
+### Embedding and browser acceptance
+
+`createShell({ runtime })` from `brush-web/shell` consumes a page-supplied runtime peer. It does not create or dispose the page's runtime. `brush-web/standalone` separately exports `createBrowserRuntime` for the demo. Runtime imports use `@bun-wasm/runtime` peer subpaths; a local source alias selects the pinned copy. The future `waffle` package switch belongs at that import boundary.
+
+Brush remains the default. Select `?engine=own-shell` to run the Rust `shell-runtime` guest (published as `programs/shell-engine.wasm`). The new path owns a persistent filesystem worker and shell worker, plus a worker per external guest. Browser cleanup assertions compare against this startup baseline, not the historical assumption that a session always has exactly one worker.
+
+`tests/pipelines.acceptance.spec.ts` retains the sixteen pipeline cases and explicitly asserts the selected engine. `tests/runtime-shell.spec.ts` adds foreground CPU interruption/background survival, descendant confirmation, arbitrary fd inheritance, handled EPIPE, continuing background output, and bounded shell/transport memory. Chromium and Firefox run these cases in CI. Safari remains an owner-Mac verification gate; no Linux browser result is presented as Safari evidence. Child programs can deliberately accumulate input in their own heaps; per-program memory policy is a separate runtime concern, not evidence of shell buffering.
+
 ## Build the Bun asset
 
 `npm run build` runs `npm run build:programs`. That script expands the pinned `third-party/bun-wasm/bun.wasm.gz` into ignored `public/programs/bun.wasm`, which Vite copies into `dist/programs/`. It verifies the gzip and uncompressed SHA-256 against `sources.lock.json`. A fresh checkout needs no Bun checkout or separate binary download.

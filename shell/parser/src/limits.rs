@@ -63,6 +63,13 @@ pub enum LimitExceeded {
     Cancelled,
 }
 
+struct CancellationProbe(Rc<dyn Fn() -> bool>);
+impl std::fmt::Debug for CancellationProbe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CancellationProbe")
+    }
+}
+
 #[derive(Debug)]
 struct Budget {
     used: Cell<u64>,
@@ -70,6 +77,7 @@ struct Budget {
     started_at: Instant,
     timeout: Duration,
     cancelled: Arc<AtomicBool>,
+    probe: Option<CancellationProbe>,
     failure: Cell<Option<LimitExceeded>>,
 }
 
@@ -89,15 +97,27 @@ impl ExecutionBudget {
             started_at: Instant::now(),
             timeout: limits.timeout,
             cancelled,
+            probe: None,
             failure: Cell::new(None),
         }))
+    }
+
+    /// Synchronous guest checkpoints can observe runtime signals without waiting
+    /// for the browser worker message loop. The callback must never block.
+    pub fn with_cancellation_probe(mut self, probe: Rc<dyn Fn() -> bool>) -> Self {
+        Rc::get_mut(&mut self.0)
+            .expect("install probe before sharing budget")
+            .probe = Some(CancellationProbe(probe));
+        self
     }
 
     pub fn check(&self) -> Result<(), LimitExceeded> {
         if let Some(failure) = self.0.failure.get() {
             return Err(failure);
         }
-        let failure = if self.0.cancelled.load(Ordering::Relaxed) {
+        let failure = if self.0.cancelled.load(Ordering::Relaxed)
+            || self.0.probe.as_ref().is_some_and(|probe| (probe.0)())
+        {
             LimitExceeded::Cancelled
         } else if self.0.started_at.elapsed() >= self.0.timeout {
             LimitExceeded::Timeout(self.0.timeout)
@@ -143,6 +163,17 @@ mod tests {
             },
             Arc::new(AtomicBool::new(false)),
         )
+    }
+
+    #[test]
+    fn synchronous_guest_probe_latches_cancellation() {
+        let interrupted = Rc::new(Cell::new(false));
+        let probe = interrupted.clone();
+        let budget = budget(10).with_cancellation_probe(Rc::new(move || probe.replace(false)));
+        assert_eq!(budget.check(), Ok(()));
+        interrupted.set(true);
+        assert_eq!(budget.consume_work(1), Err(LimitExceeded::Cancelled));
+        assert_eq!(budget.clone().check(), Err(LimitExceeded::Cancelled));
     }
 
     #[test]

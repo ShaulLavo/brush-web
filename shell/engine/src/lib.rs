@@ -7,5 +7,6 @@ mod expand;
 pub mod interpreter;
 pub mod io;
 pub mod process;
+pub mod runtime;
 pub mod state;
 pub use interpreter::{Limits, Session};
