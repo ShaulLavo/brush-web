@@ -501,7 +501,8 @@ ctx.onmessage = async (event: MessageEvent<RunRequest>) => {
         // All shell guests import this namespace. Only an interactive root owns page phase.
         shell_terminal: shellTerminalImports(
           req.terminal,
-          req.runtimeProcess?.bindings.map((binding) => binding.fd),
+          // The interactive root receives stdio from its terminal, not transport bindings.
+          req.terminal ? [0, 1, 2] : req.runtimeProcess?.bindings.map((binding) => binding.fd),
         ),
       },
       trace: req.trace ? (line) => console.debug(`[wasi] ${line}`) : undefined,

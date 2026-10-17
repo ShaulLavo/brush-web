@@ -103,13 +103,16 @@ impl Options {
 
 /// Original deliberately small GNU BRE adapter, not Bashkit's full grep_pattern
 /// implementation. Unescaped ()+?|{} are literals, their escaped forms are
-/// operators outside brackets. Backreferences are rejected by the linear-time
-/// regex engine, not routed through a potentially backtracking fallback.
+/// operators outside brackets. A caret anchors only at branch start and a
+/// dollar only at branch end (including escaped BRE groups/alternation).
+/// Backreferences are rejected by the linear-time regex engine, not routed
+/// through a potentially backtracking fallback.
 fn basic_pattern(pattern: &str) -> Result<String, String> {
     let mut result = String::new();
     let mut chars = pattern.chars().peekable();
     let mut bracket = false;
     let mut bracket_first = false;
+    let mut branch_start = true;
     while let Some(ch) = chars.next() {
         if bracket {
             if ch == ']' && !bracket_first {
@@ -127,6 +130,7 @@ fn basic_pattern(pattern: &str) -> Result<String, String> {
         }
         match ch {
             '[' => {
+                branch_start = false;
                 bracket = true;
                 bracket_first = true;
                 result.push(ch);
@@ -139,6 +143,7 @@ fn basic_pattern(pattern: &str) -> Result<String, String> {
             }
             '\\' => {
                 let next = chars.next().ok_or("trailing backslash")?;
+                branch_start = matches!(next, '(' | '|');
                 if matches!(next, '(' | ')' | '+' | '?' | '|' | '{' | '}') {
                     result.push(next);
                 } else {
@@ -146,11 +151,37 @@ fn basic_pattern(pattern: &str) -> Result<String, String> {
                     result.push(next);
                 }
             }
+            '^' => {
+                if !branch_start {
+                    result.push('\\');
+                }
+                result.push(ch);
+                branch_start = false;
+            }
+            '$' => {
+                // Only inspect the next two characters: no suffix allocation or
+                // rescan, and escaped literal backslashes cannot open a branch.
+                let mut tail = chars.clone();
+                let branch_end = match tail.next() {
+                    None => true,
+                    Some('\\') => matches!(tail.next(), Some(')' | '|')),
+                    _ => false,
+                };
+                if !branch_end {
+                    result.push('\\');
+                }
+                result.push(ch);
+                branch_start = false;
+            }
             '(' | ')' | '+' | '?' | '|' | '{' | '}' => {
                 result.push('\\');
                 result.push(ch);
+                branch_start = false;
             }
-            _ => result.push(ch),
+            _ => {
+                result.push(ch);
+                branch_start = false;
+            }
         }
     }
     Ok(result)

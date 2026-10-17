@@ -1,38 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
 test.setTimeout(60000);
-test.beforeEach(async ({ page }) => {
-  page.on("pageerror", (error) => console.error("RUNTIME_PAGE_ERROR", error.message));
-  page.on("console", (message) => {
-    if (message.type() === "error") console.error("RUNTIME_CONSOLE", message.text());
-  });
-});
-test.afterEach(async ({ page }, info) => {
-  if (info.status !== info.expectedStatus) {
-    if ((await page.evaluate(() => window.brushWeb?.snapshot().state)) === "ready") {
-      await page.locator("textarea").focus();
-      await page.keyboard.insertText(`printf '\\r\\nRUNTIME_STATUS:%s\\r\\n' "$?"`);
-      await page.keyboard.press("Enter");
-      await page
-        .waitForFunction(
-          () => window.brushWeb?.readLines().some((line) => /RUNTIME_STATUS:\d+/.test(line)),
-          undefined,
-          { timeout: 2000 },
-        )
-        .catch(() => {});
-    }
-    console.error(
-      "RUNTIME_FAILURE",
-      JSON.stringify(
-        await page.evaluate(() => ({
-          lines: window.brushWeb?.readLines(),
-          snapshot: window.brushWeb?.snapshot(),
-          runtime: window.brushWeb?.runtimeSnapshot(),
-        })),
-      ),
-    );
-  }
-});
 async function ready(page: Page) {
   await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("ready");
 }
@@ -165,6 +133,74 @@ test("the registered shell program can run as a child without owning the root te
   await command(page, `/programs/shell-engine.wasm -c 'echo CHILD_SHELL_OK'`);
   await output(page, "CHILD_SHELL_OK");
   await ready(page);
+  await expect.poll(() => page.workers().length).toBe(baseline);
+});
+
+for (const scenario of [
+  {
+    name: "closed stderr",
+    source: 'printf "CLOSED_STDERR_OK\\n"',
+    redirections: "2>&-",
+    marker: "CLOSED_STDERR_OK",
+    status: 0,
+  },
+  {
+    name: "closed stdin",
+    source: 'printf "CLOSED_STDIN_OK\\n"',
+    redirections: "0<&-",
+    marker: "CLOSED_STDIN_OK",
+    status: 0,
+  },
+  { name: "unused closed stdout", source: ":", redirections: "1>&-", status: 0 },
+  {
+    name: "writing to closed stdout",
+    source: "printf inaccessible",
+    redirections: "1>&-",
+    status: 1,
+  },
+  { name: "all stdio closed", source: ":", redirections: "0<&- 1>&- 2>&-", status: 0 },
+  { name: "a parse error and closed stderr", source: "if", redirections: "2>&-", status: 2 },
+]) {
+  test(`a runtime shell child tolerates ${scenario.name} without inventing descriptors`, async ({
+    page,
+  }) => {
+    const baseline = await open(page);
+    await command(
+      page,
+      `/programs/shell-engine.wasm -c '${scenario.source}' ${scenario.redirections}; printf 'CHILD_STDIO_STATUS:%s\\n' "$?"`,
+    );
+    if (scenario.marker) await output(page, scenario.marker);
+    await output(page, `CHILD_STDIO_STATUS:${scenario.status}`);
+    await ready(page);
+    await expect.poll(() => page.workers().length).toBe(baseline);
+  });
+}
+
+test("an interactive expansion error aborts its command but preserves the session", async ({
+  page,
+}) => {
+  const baseline = await open(page);
+  await command(
+    page,
+    "RECOVERY_SENTINEL=alive; unset missing; echo ${missing:?required}; echo BAD_AFTER_EXPANSION",
+  );
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window.brushWeb?.readLines().some((line) => line.includes("missing: required")),
+      ),
+    )
+    .toBe(true);
+  await ready(page);
+  await command(
+    page,
+    `printf 'EXPANSION_STATUS:%s:%s\\n' "$?" "$RECOVERY_SENTINEL"; echo EXPANSION_RECOVERED`,
+  );
+  await output(page, "EXPANSION_STATUS:127:alive");
+  await output(page, "EXPANSION_RECOVERED");
+  await ready(page);
+  const lines = await page.evaluate(() => window.brushWeb?.readLines().map((line) => line.trim()));
+  expect(lines).not.toContain("BAD_AFTER_EXPANSION");
   await expect.poll(() => page.workers().length).toBe(baseline);
 });
 

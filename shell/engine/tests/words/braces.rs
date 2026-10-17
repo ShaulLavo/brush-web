@@ -463,10 +463,13 @@ fn command_substitution_deepest_nesting_is_rejected_without_stack_overflow() {
         // The engine's own limits may stop it earlier, by depth or by work.
         let rig = Rig::new(Limits::default());
         match rig.shell.start(&source) {
-            Err(error) => assert!(
-                error.contains("AST nesting too deep") || error.contains("fuel exhausted"),
-                "{template}: {error}"
-            ),
+            Err(error) => {
+                let message = error.to_string();
+                assert!(
+                    message.contains("AST nesting too deep") || message.contains("fuel exhausted"),
+                    "{template}: {error}"
+                );
+            }
             Ok(job) => assert_eq!(rig.finish(job), 2, "{template}"),
         }
         assert_eq!(rig.run("args recovered"), 0);

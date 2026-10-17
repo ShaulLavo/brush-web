@@ -4019,3 +4019,5 @@ mod indirect;
 mod readonly;
 #[path = "words/scoped_prefix.rs"]
 mod scoped_prefix;
+#[path = "words/session.rs"]
+mod session;

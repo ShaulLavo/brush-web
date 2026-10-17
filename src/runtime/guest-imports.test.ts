@@ -141,3 +141,36 @@ test("shell metadata distinguishes an empty binding list from default root stdio
     [0, 1, 2, -1],
   );
 });
+
+test("production worker keeps terminal stdio for an empty root transport but not an empty child", async () => {
+  // Evaluate the actual production wiring, not just the helper's default argument.
+  // Root transports intentionally have no bindings: their stdio comes from req.terminal.
+  const source = await readFile(resolve("src/runtime/worker.ts"), "utf8");
+  const calls = Array.from(
+    source.matchAll(/shell_terminal:\s*(shellTerminalImports\([\s\S]*?\n {8}\)),?\n/g),
+    (match) => match[1]!,
+  );
+  assert.equal(calls.length, 1, "locate the worker's actual shell metadata import wiring");
+  const install = new Function("req", "shellTerminalImports", `return ${calls[0]};`);
+  const bridge = new SharedBridge();
+  const root = install(
+    { terminal: bridge.buffer, runtimeProcess: { bindings: [] } },
+    shellTerminalImports,
+  ) as ReturnType<typeof shellTerminalImports>;
+  assert.deepEqual(
+    Array.from({ length: 4 }, (_, index) => root.inherited_fd(index)),
+    [0, 1, 2, -1],
+  );
+  const child = install({ runtimeProcess: { bindings: [] } }, shellTerminalImports) as ReturnType<
+    typeof shellTerminalImports
+  >;
+  assert.equal(child.inherited_fd(0), -1);
+  const redirected = install(
+    { runtimeProcess: { bindings: [{ fd: 1 }, { fd: 3 }, { fd: MAX_DESCRIPTOR }] } },
+    shellTerminalImports,
+  ) as ReturnType<typeof shellTerminalImports>;
+  assert.deepEqual(
+    Array.from({ length: 4 }, (_, index) => redirected.inherited_fd(index)),
+    [1, 3, MAX_DESCRIPTOR, -1],
+  );
+});

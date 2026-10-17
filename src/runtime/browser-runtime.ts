@@ -63,7 +63,6 @@ export class BrowserRuntime implements ShellRuntimePeer {
         "/usr/local/bin/bun",
         "/usr/local/bin/node",
         "/programs/shell-engine.wasm",
-        "/dev/null",
       ])
         if (!(await this.filesystem.lookup(path)))
           await this.filesystem.writeFile(path, new Uint8Array());
@@ -124,7 +123,20 @@ export class BrowserRuntime implements ShellRuntimePeer {
       module: () => this.module("programs/shell-engine.wasm").then((result) => result.module),
       adapter: "preview1",
     });
-    const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
+    } catch (error) {
+      // No guest received this identity, so it is already quiescent. Retire the fork
+      // even when the embedding owns the filesystem and keeps the runtime alive.
+      filesystem.port.close();
+      try {
+        this.filesystem.reap(identity);
+      } finally {
+        await Promise.all([quiesceTerminal(terminalAdmission), broker.dispose()]);
+      }
+      throw error;
+    }
     let resolveDone!: (result: RuntimeExit) => void;
     const done = new Promise<RuntimeExit>((resolve) => {
       resolveDone = resolve;

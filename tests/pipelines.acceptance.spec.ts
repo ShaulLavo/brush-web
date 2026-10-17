@@ -5,38 +5,6 @@ import { execFileSync } from "node:child_process";
 // Runtime owns a persistent filesystem worker as well as the guest shell.
 const baselineWorkers = new WeakMap<Page, number>();
 
-test.beforeEach(async ({ page }) => {
-  page.on("pageerror", (error) => console.error("RUNTIME_PAGE_ERROR", error.message));
-  page.on("console", (message) => {
-    if (message.type() === "error") console.error("RUNTIME_CONSOLE", message.text());
-  });
-});
-test.afterEach(async ({ page }, info) => {
-  if (info.status !== info.expectedStatus) {
-    if ((await page.evaluate(() => window.brushWeb?.snapshot().state)) === "ready") {
-      await page.locator("textarea").focus();
-      await page.keyboard.insertText(`printf '\\r\\nRUNTIME_STATUS:%s\\r\\n' "$?"`);
-      await page.keyboard.press("Enter");
-      await page
-        .waitForFunction(
-          () => window.brushWeb?.readLines().some((line) => /RUNTIME_STATUS:\d+/.test(line)),
-          undefined,
-          { timeout: 2000 },
-        )
-        .catch(() => {});
-    }
-    console.error(
-      "RUNTIME_FAILURE",
-      JSON.stringify(
-        await page.evaluate(() => ({
-          lines: window.brushWeb?.readLines(),
-          snapshot: window.brushWeb?.snapshot(),
-          runtime: window.brushWeb?.runtimeSnapshot(),
-        })),
-      ),
-    );
-  }
-});
 async function ready(page: Page) {
   await expect.poll(() => page.evaluate(() => window.brushWeb?.snapshot().state)).toBe("ready");
 }

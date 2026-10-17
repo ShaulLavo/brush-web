@@ -5,6 +5,7 @@ const root = resolve(import.meta.dirname, "..");
 const compiled = await build({
   entryPoints: [
     resolve(root, "src/runtime/terminal.test.ts"),
+    resolve(root, "src/runtime/browser-runtime.test.ts"),
     resolve(root, "src/runtime/subprocess-broker.test.ts"),
     resolve(root, "src/runtime/guest-imports.test.ts"),
     resolve(root, "src/shell-terminal-output.test.ts"),

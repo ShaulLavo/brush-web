@@ -50,6 +50,7 @@ impl Default for Limits {
 pub(crate) enum Flow {
     Normal,
     Exit,
+    Abort,
     Return,
     DiscardReadUnit,
 }
@@ -224,6 +225,31 @@ impl Context {
         Ok(())
     }
 }
+/// Failure before a foreground job starts. Embeddings must preserve interrupt
+/// status rather than reporting parser cancellation as a syntax error.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StartError {
+    Interrupted,
+    Invalid(String),
+}
+impl StartError {
+    pub fn status(&self) -> i32 {
+        match self {
+            Self::Interrupted => 130,
+            Self::Invalid(_) => 2,
+        }
+    }
+}
+impl std::fmt::Display for StartError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Interrupted => f.write_str("request cancelled"),
+            Self::Invalid(message) => f.write_str(message),
+        }
+    }
+}
+impl std::error::Error for StartError {}
+
 /// A persistent shell session. The embedding drives `Executor`, delivers
 /// interrupts without a message-loop round trip, and drains terminal endpoints.
 pub struct Session {
@@ -274,12 +300,14 @@ impl Session {
         *self.core.descriptors.borrow_mut() = fds;
         Ok(())
     }
-    pub fn start(&self, source: &str) -> Result<JoinHandle<i32>, String> {
+    pub fn start(&self, source: &str) -> Result<JoinHandle<i32>, StartError> {
         if self.core.foreground.borrow().is_some() {
-            return Err("foreground job is already running".into());
+            return Err(StartError::Invalid(
+                "foreground job is already running".into(),
+            ));
         }
         if source.len() > self.core.limits.source_bytes {
-            return Err("shell source limit exceeded".into());
+            return Err(StartError::Invalid("shell source limit exceeded".into()));
         }
         let parser_limits = shell_parser::limits::ExecutionLimits {
             max_input_bytes: self.core.limits.source_bytes,
@@ -302,14 +330,17 @@ impl Session {
         // top level stays lenient; substitution bodies get bash's grammar.
         .with_strict_substitution_bodies()
         .parse_recovering();
-        budget.check().map_err(|error| error.to_string())?;
+        budget.check().map_err(|error| match error {
+            shell_parser::limits::LimitExceeded::Cancelled => StartError::Interrupted,
+            error => StartError::Invalid(error.to_string()),
+        })?;
         let word_error = match error {
             None => None,
             Some(shell_parser::Error::ShellWord { line }) => Some(expand::Error::ShellBoundary {
                 stage: expand::ShellBoundaryStage::Word,
                 line: Some(line),
             }),
-            Some(error) => return Err(error.to_string()),
+            Some(error) => return Err(StartError::Invalid(error.to_string())),
         };
         let group = self.core.host.allocate_group();
         let host = self.core.host.clone();
@@ -416,7 +447,7 @@ async fn script_sequence(
         if context.cancel.is_cancelled() {
             return Outcome::status(130);
         }
-        if matches!(result.flow, Flow::Exit | Flow::Return) {
+        if matches!(result.flow, Flow::Exit | Flow::Abort | Flow::Return) {
             break;
         }
     }
@@ -680,7 +711,9 @@ async fn expansion_failure(error: CommandError, fds: &Descriptors, context: &Con
     ) {
         Flow::DiscardReadUnit
     } else {
-        Flow::Exit
+        // Abort this submitted script, not the persistent interactive session.
+        // Only the explicit exit builtin requests session shutdown.
+        Flow::Abort
     };
     let (name, message, line, status) = match error {
         expand::Error::Status(code) => return Outcome::status(code),

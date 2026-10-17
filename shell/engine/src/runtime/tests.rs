@@ -834,3 +834,40 @@ fn empty_inherited_shell_bindings_do_not_recreate_stdio() {
     assert_eq!(fds.iter().count(), 0);
     assert_eq!(fake.fds.borrow().len(), 3);
 }
+
+#[test]
+fn noninteractive_shell_preserves_closed_stdio_and_requires_only_used_descriptors() {
+    for (inherited, source, status, expected) in [
+        (vec![0, 1], "printf CLOSED_STDERR_OK", 0, "CLOSED_STDERR_OK"),
+        (vec![1, 2], "printf CLOSED_STDIN_OK", 0, "CLOSED_STDIN_OK"),
+        (vec![0, 2], ":", 0, ""),
+        (vec![0, 2], "printf inaccessible", 1, ""),
+        (vec![], ":", 0, ""),
+        (vec![], "printf inaccessible", 1, ""),
+    ] {
+        let (executor, fake, runtime) = setup();
+        *fake.inherited.borrow_mut() = inherited.clone();
+        fake.fds.borrow_mut().retain(|fd, _| inherited.contains(fd));
+        let session = Session::new(
+            executor.clone(),
+            Rc::new(runtime.clone()),
+            Rc::new(runtime.clone()),
+            Limits::default(),
+        );
+        let fds = runtime.stdio().unwrap();
+        assert_eq!(fds.iter().map(|(&fd, _)| fd).collect::<Vec<_>>(), inherited);
+        session.set_descriptors(fds).unwrap();
+        let job = session.start(source).unwrap();
+        assert_eq!(finish(&executor, &runtime, job), status, "{source}");
+        assert_eq!(fake.output.bytes(), expected.as_bytes(), "{source}");
+        finish(
+            &executor,
+            &runtime,
+            executor.spawn(async move { session.shutdown().await }),
+        );
+        assert_eq!(
+            fake.fds.borrow().keys().copied().collect::<Vec<_>>(),
+            inherited
+        );
+    }
+}

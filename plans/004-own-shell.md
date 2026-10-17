@@ -131,6 +131,13 @@ they are removed, and they remain mandatory before step 6 replaces Brush:
   non-preopen descriptors. Do not invent successful directory metadata or invalid
   prestat tags. Builtins and direct `runtime_proc` shell children retain active
   arbitrary-fd/root-preopen browser coverage; those do not use Bun's libc scan.
+- **Shared-filesystem devices.** The runtime has no device nodes yet. Do not
+  create a regular `/dev/null`: it retains writes instead of discarding them.
+  Waffle will provide real `/dev/null` (discard writes, EOF reads), `/dev/zero`,
+  `/dev/urandom`, `/dev/stdin`, `/dev/stdout`, `/dev/stderr` and `/dev/fd/N`
+  aliases resolved against the opening process's descriptors. `/dev/tty` follows
+  the terminal step. Missing devices are a known limitation, not shell-only
+  implementations; child programs must observe the same semantics.
 - **Filesystem stall/cancellation.** Rust `Runtime::open` currently calls Preview1
   `path_open`; directory creation/stat likewise use synchronous Preview1 calls.
   `FilesystemClient.call` can enter an indefinite `Atomics.wait`.

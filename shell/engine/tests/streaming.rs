@@ -1110,3 +1110,45 @@ fn grep_always_ready_unmatched_input_still_observes_cancellation() {
     assert_eq!(rig.finish(job), 130);
     assert_eq!(rig.host.active_count(), 0);
 }
+
+#[test]
+fn grep_basic_anchors_only_at_bre_branch_boundaries() {
+    // GNU grep observations: internal ^/$ are literal in BRE, but escaped
+    // groups and alternation establish new branch-start/end anchor positions.
+    let lines = b"a^b\na$b\na\n^a\na$\n^^a\na$$\nab\nb\n^b\n";
+    for (pattern, expected) in [
+        ("a^b", "1:a^b\n"),
+        ("a$b", "2:a$b\n"),
+        ("^^a", "4:^a\n"),
+        ("a$$", "5:a$\n"),
+        (r"a\^b", "1:a^b\n"),
+        (r"a\$b", "2:a$b\n"),
+        (r"\(^a$\)", "3:a\n"),
+        (r"\(^a$\)\|\(^b$\)", "3:a\n9:b\n"),
+        (r"z\|^b", "9:b\n"),
+        (r"a$\|z", "3:a\n4:^a\n6:^^a\n"),
+        (r"z\|^^b", "10:^b\n"),
+        (r"\(^\^a\)", "4:^a\n"),
+        (r"\(a$\)b", ""),
+        (r"a\(^b\)", ""),
+        // Unescaped parentheses and pipes are literals, not BRE boundaries.
+        ("(^a", ""),
+        ("z|^b", ""),
+        ("a$)", ""),
+    ] {
+        let rig = Rig::new();
+        rig.fs.write_file("/home/guest/lines", lines).unwrap();
+        assert_eq!(
+            rig.run(&format!("grep -n '{pattern}' < lines")),
+            i32::from(expected.is_empty()),
+            "{pattern}: {}",
+            rig.text(),
+        );
+        assert_eq!(rig.text(), expected, "{pattern}");
+    }
+    let rig = Rig::new();
+    rig.fs.write_file("/home/guest/lines", lines).unwrap();
+    assert_eq!(rig.run("grep -nE 'a^b' lines"), 1);
+    assert_eq!(rig.run("grep -nF 'a$b' lines"), 0);
+    assert_eq!(rig.text(), "2:a$b\n");
+}

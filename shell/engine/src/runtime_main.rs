@@ -69,9 +69,9 @@ mod guest {
             }
         }
         let fds = runtime.stdio().unwrap_or_else(|error| report(error));
-        let input = fds.get(0).unwrap();
-        let output = fds.get(1).unwrap();
-        let errors = fds.get(2).unwrap();
+        let input = fds.get(0);
+        let output = fds.get(1);
+        let errors = fds.get(2);
         session
             .set_descriptors(fds)
             .unwrap_or_else(|error| report(error));
@@ -117,11 +117,16 @@ mod guest {
     async fn write(endpoint: &Endpoint, bytes: &[u8]) -> Result<(), IoError> {
         endpoint.write_all(bytes, &Cancel::new()).await
     }
+    async fn diagnostic(endpoint: &Option<Endpoint>, bytes: &[u8]) {
+        if let Some(endpoint) = endpoint {
+            let _ = write(endpoint, bytes).await;
+        }
+    }
     async fn run(
         session: Rc<Session>,
-        input: Endpoint,
-        output: Endpoint,
-        errors: Endpoint,
+        input: Option<Endpoint>,
+        output: Option<Endpoint>,
+        errors: Option<Endpoint>,
         command: Option<String>,
         input_cancel: Rc<RefCell<Cancel>>,
     ) -> i32 {
@@ -130,11 +135,16 @@ mod guest {
             return match session.start(&source) {
                 Ok(job) => job.await,
                 Err(error) => {
-                    let _ = write(&errors, format!("shell: {error}\n").as_bytes()).await;
-                    2
+                    diagnostic(&errors, format!("shell: {error}\n").as_bytes()).await;
+                    error.status()
                 }
             };
         }
+        // A -c script needs only the descriptors it actually uses. The interactive
+        // editor, unlike a script, cannot operate without both input and output.
+        let (Some(input), Some(output)) = (input, output) else {
+            return 1;
+        };
         let mut editor = Editor::default();
         let mut skip_lf = false;
         loop {
@@ -210,7 +220,7 @@ mod guest {
             let source = match String::from_utf8(source) {
                 Ok(source) => source,
                 Err(_) => {
-                    let _ = write(&errors, b"shell: command is not UTF-8\n").await;
+                    diagnostic(&errors, b"shell: command is not UTF-8\n").await;
                     continue;
                 }
             };
@@ -226,8 +236,8 @@ mod guest {
                     }
                 }
                 Err(error) => {
-                    let _ = write(&errors, format!("shell: {error}\n").as_bytes()).await;
-                    session.state().borrow_mut().status = 2;
+                    diagnostic(&errors, format!("shell: {error}\n").as_bytes()).await;
+                    session.state().borrow_mut().status = error.status();
                 }
             }
         }
