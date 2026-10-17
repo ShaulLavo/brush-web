@@ -29,6 +29,12 @@ unsafe extern "C" {
     #[link_name = "signal"]
     fn proc_signal(signal: i32, disposition: i32) -> i32;
 }
+// Original shell-launch metadata, separate from the shared runtime_proc ABI.
+#[link(wasm_import_module = "shell_terminal")]
+unsafe extern "C" {
+    #[link_name = "inherited_fd"]
+    fn shell_inherited_fd(index: u32) -> i32;
+}
 #[link(wasm_import_module = "wasi_snapshot_preview1")]
 unsafe extern "C" {
     fn fd_close(fd: u32) -> u16;
@@ -63,12 +69,23 @@ fn result(value: i32) -> Result<u32, i32> {
 }
 pub struct WasiAbi {
     root: u32,
+    inherited: Vec<u32>,
 }
 impl WasiAbi {
     pub fn new() -> Result<Self, i32> {
-        // The embedder supplies a workspace-root preopen. Discover it instead of
-        // assuming fd 3: pipes and terminal dup bindings live in this same table.
-        for fd in 3..256 {
+        let mut inherited = Vec::new();
+        for index in 0.. {
+            let fd = unsafe { shell_inherited_fd(index) };
+            if fd < 0 {
+                break;
+            }
+            inherited.push(fd as u32);
+        }
+        // The host relocates the workspace root to the lowest free descriptor.
+        // At most one slot per inherited binding can precede it; do not cap the
+        // scan at 256 or scan up to a sparse inherited fd such as 1000000.
+        let last = 3u32.checked_add(inherited.len() as u32).ok_or(28)?;
+        for fd in 3..=last {
             let mut stat = [0; 8];
             if unsafe { fd_prestat_get(fd, stat.as_mut_ptr()) } != 0 || stat[0] != 0 {
                 continue;
@@ -79,7 +96,10 @@ impl WasiAbi {
             }
             let mut name = [0];
             if unsafe { fd_prestat_dir_name(fd, name.as_mut_ptr(), 1) } == 0 && name[0] == b'/' {
-                return Ok(Self { root: fd });
+                return Ok(Self {
+                    root: fd,
+                    inherited,
+                });
             }
         }
         Err(44)
@@ -91,6 +111,9 @@ impl WasiAbi {
     }
 }
 impl Abi for WasiAbi {
+    fn inherited_fds(&self) -> Vec<u32> {
+        self.inherited.clone()
+    }
     fn spawn(&self, request: &RuntimeSpawn) -> Result<u32, i32> {
         let json = serde_json::to_vec(request).map_err(|_| 28)?;
         result(unsafe { proc_spawn(json.as_ptr(), json.len()) })

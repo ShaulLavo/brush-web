@@ -499,7 +499,10 @@ ctx.onmessage = async (event: MessageEvent<RunRequest>) => {
       namespaces: {
         runtime_proc: processImports,
         // All shell guests import this namespace. Only an interactive root owns page phase.
-        shell_terminal: shellTerminalImports(req.terminal),
+        shell_terminal: shellTerminalImports(
+          req.terminal,
+          req.runtimeProcess?.bindings.map((binding) => binding.fd),
+        ),
       },
       trace: req.trace ? (line) => console.debug(`[wasi] ${line}`) : undefined,
     });

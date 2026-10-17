@@ -85,6 +85,9 @@ impl PollEvent {
 /// Errnos are positive WASI errnos here; the WASM adapter decodes negative results.
 /// `wait_job` confirms descendant teardown and reaps runtime-owned tombstones.
 pub trait Abi {
+    /// The embedder's initial logical bindings, excluding private directory preopens
+    /// and descriptors subsequently allocated by this guest.
+    fn inherited_fds(&self) -> Vec<u32>;
     fn spawn(&self, request: &RuntimeSpawn) -> Result<u32, i32>;
     fn job_of(&self, pid: u32) -> Result<u32, i32>;
     fn wait(&self, pid: u32) -> Result<i32, i32>;
@@ -115,7 +118,9 @@ struct Waiter {
     waker: Waker,
 }
 struct Group {
-    runtime_job: Option<u32>,
+    // Runtime jobs seal when their last member exits. A shell group may start
+    // later commands, so each direct child owns a job (including its descendants).
+    runtime_jobs: Vec<u32>,
     background: bool,
     closing: bool,
 }
@@ -153,9 +158,11 @@ impl Runtime {
             fd,
         }))
     }
+    /// Bootstrap the shell's logical namespace with every inherited binding,
+    /// not just stdio. Private physical duplicates keep endpoint ownership separate.
     pub fn stdio(&self) -> Result<FdTable, IoError> {
         let mut fds = FdTable::default();
-        for fd in 0..3 {
+        for fd in self.0.abi.inherited_fds() {
             fds.insert(fd, self.endpoint(self.0.abi.dup(fd).map_err(io_error)?));
         }
         Ok(fds)
@@ -216,7 +223,7 @@ impl Runtime {
         self.0.groups.borrow_mut().insert(
             id,
             Group {
-                runtime_job: None,
+                runtime_jobs: Vec::new(),
                 background,
                 closing: false,
             },
@@ -377,13 +384,13 @@ impl ProcessHost for Runtime {
         if let Some(parent) = request.parent {
             return Err(ProcessError::InvalidParent(parent));
         }
-        let (job, background) = self
+        let background = self
             .0
             .groups
             .borrow()
             .get(&request.group)
             .filter(|group| !group.closing)
-            .map(|group| (group.runtime_job, group.background))
+            .map(|group| group.background)
             .ok_or(ProcessError::GroupClosed(request.group))?;
         let executable = request
             .argv
@@ -406,9 +413,7 @@ impl ProcessHost for Runtime {
             argv: request.argv,
             env: request.env,
             cwd: request.cwd,
-            job: job
-                .map(|job| job as i32)
-                .unwrap_or(if background { -1 } else { 0 }),
+            job: if background { -1 } else { 0 },
             fds,
         };
         let pid = self.0.abi.spawn(&spec).map_err(ProcessError::Runtime)?;
@@ -435,7 +440,8 @@ impl ProcessHost for Runtime {
             .borrow_mut()
             .get_mut(&request.group)
             .unwrap()
-            .runtime_job = Some(runtime_job);
+            .runtime_jobs
+            .push(runtime_job);
         self.0.children.borrow_mut().insert(
             pid as u64,
             Rc::new(Child {
@@ -477,21 +483,29 @@ impl ProcessHost for Runtime {
             .map_err(ProcessError::Runtime)
     }
     fn kill_group(&self, group: GroupId, signal: i32) -> Result<(), ProcessError> {
-        let job = self.0.groups.borrow_mut().get_mut(&group).map(|group| {
-            group.closing = true;
-            group.runtime_job
-        });
-        if let Some(Some(job)) = job {
-            self.0
-                .abi
-                .kill_job(job, signal)
-                .map_err(ProcessError::Runtime)?;
+        // runtime_proc accepts signals 1..64, not signal-zero existence probes.
+        // An invalid request must not close admission to an otherwise live group.
+        if !(1..=64).contains(&signal) {
+            return Err(ProcessError::InvalidSignal);
         }
-        Ok(())
+        let jobs = self.0.groups.borrow_mut().get_mut(&group).map(|group| {
+            group.closing = true;
+            group.runtime_jobs.clone()
+        });
+        let mut error = None;
+        for job in jobs.into_iter().flatten() {
+            if let Err(errno) = self.0.abi.kill_job(job, signal) {
+                // One failed delivery must not strand later children/descendants.
+                error.get_or_insert(ProcessError::Runtime(errno));
+            }
+        }
+        error.map_or(Ok(()), Err)
     }
     fn wait_group(&self, group: GroupId) -> LocalBoxFuture<'static, Result<(), ProcessError>> {
         let runtime = self.clone();
         async move {
+            let mut error = None;
+            let mut failed_jobs = Vec::new();
             loop {
                 let batch: Vec<_> = runtime
                     .0
@@ -502,26 +516,43 @@ impl ProcessHost for Runtime {
                     .map(|(&pid, _)| runtime.wait(pid))
                     .collect();
                 if batch.is_empty() {
-                    let job = runtime
-                        .0
-                        .groups
-                        .borrow()
-                        .get(&group)
-                        .and_then(|group| group.runtime_job);
-                    if let Some(job) = job {
-                        loop {
-                            match runtime.0.abi.wait_job(job) {
-                                Ok(_) => break,
-                                Err(AGAIN) => runtime.ready(4, job).await,
-                                Err(errno) => return Err(ProcessError::Runtime(errno)),
+                    let job = runtime.0.groups.borrow().get(&group).and_then(|group| {
+                        group
+                            .runtime_jobs
+                            .iter()
+                            .copied()
+                            .find(|job| !failed_jobs.contains(job))
+                    });
+                    let Some(job) = job else {
+                        if let Some(error) = error {
+                            return Err(error);
+                        }
+                        runtime.0.groups.borrow_mut().remove(&group);
+                        return Ok(());
+                    };
+                    loop {
+                        match runtime.0.abi.wait_job(job) {
+                            Ok(_) => {
+                                if let Some(group) = runtime.0.groups.borrow_mut().get_mut(&group) {
+                                    group.runtime_jobs.retain(|retained| *retained != job);
+                                }
+                                break;
+                            }
+                            Err(AGAIN) => runtime.ready(4, job).await,
+                            Err(errno) => {
+                                failed_jobs.push(job);
+                                error.get_or_insert(ProcessError::Runtime(errno));
+                                break;
                             }
                         }
                     }
-                    runtime.0.groups.borrow_mut().remove(&group);
-                    return Ok(());
-                }
-                for result in futures::future::join_all(batch).await {
-                    result?;
+                    // A shell task may have admitted more children while a prior
+                    // child's descendant confirmation was pending. Recheck both
+                    // children and jobs before releasing the logical group.
+                } else {
+                    for result in futures::future::join_all(batch).await {
+                        result?;
+                    }
                 }
             }
         }

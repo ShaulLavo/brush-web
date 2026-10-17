@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { test } from "node:test";
 import { Wasi } from "@bun-wasm/runtime/core";
+import { MAX_DESCRIPTOR } from "../../third-party/bun-wasm/runtime/core/descriptors";
 import { MemFS } from "../../third-party/bun-wasm/runtime/fs/memory";
 import { SharedBridge, control } from "../bridge";
 import { HOST_CALL_FD, installHostSlotsViaImport } from "./net/trampoline";
@@ -113,4 +114,30 @@ test("shell terminal columns follow the live bridge and default to 80 for a chil
   Atomics.store(bridge.state, control.cols, 0);
   assert.equal(root.columns(), 2);
   assert.equal(shellTerminalImports().columns(), 80);
+});
+
+test("shell metadata enumerates exact inherited bindings, including the maximum fd", () => {
+  assert.equal(
+    MAX_DESCRIPTOR,
+    0x7fffffff,
+    "the signed metadata sentinel must stay outside the fd domain",
+  );
+  const inherited = [0, 1, 2, 3, 4, 1000000, MAX_DESCRIPTOR];
+  const imports = shellTerminalImports(undefined, inherited);
+  assert.deepEqual(
+    Array.from({ length: inherited.length }, (_, index) => imports.inherited_fd(index)),
+    inherited,
+  );
+  assert.equal(imports.inherited_fd(inherited.length), -1);
+  // The -1 sentinel is outside the runtime's descriptor domain (MAX_DESCRIPTOR=0x7fffffff).
+  assert.equal(imports.inherited_fd(inherited.length - 1), 0x7fffffff);
+});
+
+test("shell metadata distinguishes an empty binding list from default root stdio", () => {
+  assert.equal(shellTerminalImports(undefined, []).inherited_fd(0), -1);
+  const root = shellTerminalImports();
+  assert.deepEqual(
+    Array.from({ length: 4 }, (_, index) => root.inherited_fd(index)),
+    [0, 1, 2, -1],
+  );
 });

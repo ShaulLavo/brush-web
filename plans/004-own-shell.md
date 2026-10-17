@@ -145,9 +145,26 @@ they are removed, and they remain mandatory before step 6 replaces Brush:
   completion-before-registration, completion/cancel ownership and invalid output
   memory are separate pending cases. These TODOs are not execution evidence.
 
-Runtime delivery order after its package split is slot recycling, then 7b, then
-asynchronous filesystem requests. The current PR does not implement substitute
-cross-transport job fencing or a blocking filesystem fallback.
+**Approved job-lifetime transition (2026-10-17).** The current runtime seals a
+job when its pending membership reaches zero, before it is reaped. A shell job
+can launch another command later in a loop or after a pipeline; joining that
+sealed runtime job fails with ECHILD and shell status 127. Until creator-owned
+job handles land, the small Rust `Runtime` group adapter starts one runtime job
+per direct child and retains every job ID under the logical shell group. Group
+kill closes admission before signaling every job; group wait confirms and reaps
+all jobs, including descendants and members admitted while an earlier wait was
+pending. Background groups remain separate from each other and the foreground.
+This fanout is not the final runtime job model. After slot recycling, add an
+explicit creator hold that keeps a job open across temporarily empty membership:
+job-empty/wait-job becomes true only after release and no remaining members,
+and kill-job covers all current members. Then replace the contained adapter
+fanout with one shell job to one runtime job handle, retaining the same dynamic
+membership, cancellation, isolation and descendant-confirmation regressions.
+
+Runtime delivery order after its package split is slot recycling and creator-held
+job handles, then 7b, then asynchronous filesystem requests. The current PR does
+not implement substitute cross-transport job fencing or a blocking filesystem
+fallback.
 
 2. **Scoreboard.** Add the new shell as an engine in `scripts/bash-compat.mjs`, run all three corpora, commit the fixed GNU bash observations and baseline, and wire the exact-count comparison into CI. Target-branch baseline comparison must prevent lowering the candidate baseline from concealing a regression. Expect a low first score; the point is the number. This step can use tested native/WASI process-host stand-ins. The first fixed baseline is 288/1,682 Oils, 295/1,888 Brush-suite and 445/2,222 Bashkit-suite; two fresh GNU bash nondeterminism exclusions reduce the secondary denominators. Exact category counts and case outcomes are committed in `docs/evidence/own-shell-baseline.json`. The historical Brush targets above use their earlier case sets and must be rescored under the same fixed identity before comparison. Candidate baselines must match current per-case pass membership, including gains, while target-branch comparison enforces corpus nonregression.
 

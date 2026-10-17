@@ -16,6 +16,7 @@ struct FakeChild {
 struct Fake {
     executor: Executor,
     fds: RefCell<BTreeMap<u32, Endpoint>>,
+    inherited: RefCell<Vec<u32>>,
     next_fd: Cell<u32>,
     next_pid: Cell<u32>,
     children: RefCell<BTreeMap<u32, FakeChild>>,
@@ -25,6 +26,8 @@ struct Fake {
     signals: RefCell<Vec<(bool, u32, i32)>>,
     held_jobs: RefCell<BTreeSet<u32>>,
     reaped_jobs: RefCell<Vec<u32>>,
+    kill_job_errors: RefCell<BTreeMap<u32, i32>>,
+    wait_job_errors: RefCell<BTreeMap<u32, i32>>,
     interrupt: Cell<i32>,
     fs: MemoryFs,
     output: Capture,
@@ -39,6 +42,7 @@ impl Fake {
                 (1, stdout),
                 (2, Endpoint::null()),
             ])),
+            inherited: RefCell::new(vec![0, 1, 2]),
             next_fd: Cell::new(10),
             next_pid: Cell::new(100),
             children: RefCell::new(BTreeMap::new()),
@@ -48,6 +52,8 @@ impl Fake {
             signals: RefCell::new(Vec::new()),
             held_jobs: RefCell::new(BTreeSet::new()),
             reaped_jobs: RefCell::new(Vec::new()),
+            kill_job_errors: RefCell::new(BTreeMap::new()),
+            wait_job_errors: RefCell::new(BTreeMap::new()),
             interrupt: Cell::new(0),
             fs: MemoryFs::new(4 * 1024 * 1024),
             output,
@@ -61,7 +67,25 @@ impl Fake {
     }
 }
 impl Abi for Fake {
+    fn inherited_fds(&self) -> Vec<u32> {
+        self.inherited.borrow().clone()
+    }
     fn spawn(&self, request: &RuntimeSpawn) -> Result<u32, i32> {
+        // The real runtime seals a job when its pending membership reaches zero,
+        // even before wait_job reaps it. Do not hide illegal sequential joins.
+        if request.job > 0 {
+            let job = request.job as u32;
+            if self.reaped_jobs.borrow().contains(&job)
+                || !(self.held_jobs.borrow().contains(&job)
+                    || self
+                        .children
+                        .borrow()
+                        .values()
+                        .any(|child| child.job == job && child.status.get().is_none()))
+            {
+                return Err(12);
+            }
+        }
         let pid = self.next_pid.get();
         self.next_pid.set(pid + 1);
         let job = if request.job <= 0 {
@@ -149,6 +173,12 @@ impl Abi for Fake {
             .ok_or(AGAIN)
     }
     fn wait_job(&self, job: u32) -> Result<i32, i32> {
+        if self.reaped_jobs.borrow().contains(&job) {
+            return Err(12);
+        }
+        if let Some(&errno) = self.wait_job_errors.borrow().get(&job) {
+            return Err(errno);
+        }
         if self.held_jobs.borrow().contains(&job)
             || self
                 .children
@@ -171,6 +201,9 @@ impl Abi for Fake {
     }
     fn kill_job(&self, job: u32, signal: i32) -> Result<(), i32> {
         self.signals.borrow_mut().push((true, job, signal));
+        if let Some(&errno) = self.kill_job_errors.borrow().get(&job) {
+            return Err(errno);
+        }
         for child in self
             .children
             .borrow()
@@ -299,7 +332,7 @@ fn exact_sixteen_byte_wire_records() {
     );
 }
 #[test]
-fn groups_map_lazily_and_background_does_not_join_foreground() {
+fn groups_aggregate_fresh_jobs_and_background_does_not_join_foreground() {
     let (executor, fake, runtime) = setup();
     let group = runtime.allocate_group();
     let background = runtime.allocate_background_group();
@@ -310,7 +343,7 @@ fn groups_map_lazily_and_background_does_not_join_foreground() {
         .unwrap();
     let requests = fake.requests.borrow();
     assert_eq!(requests[0].job, 0);
-    assert_eq!(requests[1].job, first as i32 + 900);
+    assert_eq!(requests[1].job, 0);
     assert_eq!(requests[2].job, -1);
     assert_ne!(group, first + 900);
     drop(requests);
@@ -509,6 +542,193 @@ fn wait_group_observes_descendants_and_abandoned_group_confirms_cleanup() {
 }
 
 #[test]
+fn external_after_builtin_pipeline_starts_a_fresh_runtime_job() {
+    let (executor, fake, runtime) = setup();
+    let session = Session::new(
+        executor.clone(),
+        Rc::new(runtime.clone()),
+        Rc::new(runtime.clone()),
+        Limits::default(),
+    );
+    session.set_descriptors(runtime.stdio().unwrap()).unwrap();
+    let job = session
+        .start("emit | cat > /complete; runtime-cat < /complete")
+        .unwrap();
+    assert_eq!(finish(&executor, &runtime, job), 0);
+    assert_eq!(fake.output.bytes(), b"runtime bytes\n".repeat(64));
+    assert_eq!(fake.requests.borrow().len(), 2);
+    assert!(
+        fake.requests
+            .borrow()
+            .iter()
+            .all(|request| request.job == 0)
+    );
+    assert_eq!(fake.reaped_jobs.borrow().len(), 2);
+    assert!(runtime.0.groups.borrow().is_empty());
+    finish(
+        &executor,
+        &runtime,
+        executor.spawn(async move { session.shutdown().await }),
+    );
+    assert!(fake.fds.borrow().keys().all(|fd| *fd < 3));
+}
+
+#[test]
+fn group_wait_includes_later_children_and_every_descendant_confirmation() {
+    let (executor, fake, runtime) = setup();
+    let group = runtime.allocate_group();
+    let first = runtime.spawn(request(&runtime, "exit", group)).unwrap();
+    assert_eq!(
+        finish(&executor, &runtime, executor.spawn(runtime.wait(first))),
+        Ok(0)
+    );
+    let first_job = fake.job_of(first as u32).unwrap();
+    let mut sealed = fake.requests.borrow()[0].clone();
+    sealed.job = first_job as i32;
+    assert_eq!(
+        fake.spawn(&sealed),
+        Err(12),
+        "completed jobs cannot be joined"
+    );
+
+    fake.held_jobs.borrow_mut().insert(first_job);
+    let done = executor.spawn(runtime.wait_group(group));
+    executor.drive(64);
+    assert!(!done.is_finished());
+    let later = runtime.spawn(request(&runtime, "exit", group)).unwrap();
+    let later_job = fake.job_of(later as u32).unwrap();
+    assert_ne!(first_job, later_job);
+    fake.held_jobs.borrow_mut().insert(later_job);
+    executor.drive(64);
+    fake.held_jobs.borrow_mut().remove(&first_job);
+    runtime.poll(0).unwrap();
+    executor.drive(64);
+    assert!(
+        !done.is_finished(),
+        "later job's descendants still own the group"
+    );
+    assert_eq!(*fake.reaped_jobs.borrow(), vec![first_job]);
+    fake.held_jobs.borrow_mut().remove(&later_job);
+    runtime.poll(0).unwrap();
+    assert_eq!(finish(&executor, &runtime, done), Ok(()));
+    assert_eq!(*fake.reaped_jobs.borrow(), vec![first_job, later_job]);
+    assert_eq!(runtime.retained_count(), 0);
+    assert!(runtime.0.groups.borrow().is_empty());
+}
+
+#[test]
+fn killing_dynamic_background_group_rejects_new_members_and_isolates_siblings() {
+    let (executor, fake, runtime) = setup();
+    let group = runtime.allocate_background_group();
+    let foreground = runtime.allocate_group();
+    let sibling = runtime.allocate_background_group();
+    let first = runtime.spawn(request(&runtime, "exit", group)).unwrap();
+    assert_eq!(
+        finish(&executor, &runtime, executor.spawn(runtime.wait(first))),
+        Ok(0)
+    );
+    let first_job = fake.job_of(first as u32).unwrap();
+    fake.held_jobs.borrow_mut().insert(first_job);
+    let later = runtime.spawn(request(&runtime, "sleep", group)).unwrap();
+    let later_job = fake.job_of(later as u32).unwrap();
+    let foreground_pid = runtime
+        .spawn(request(&runtime, "sleep", foreground))
+        .unwrap();
+    let sibling_pid = runtime.spawn(request(&runtime, "sleep", sibling)).unwrap();
+    runtime.kill_group(group, 15).unwrap();
+    assert_eq!(
+        runtime.spawn(request(&runtime, "exit", group)),
+        Err(ProcessError::GroupClosed(group))
+    );
+    assert_eq!(
+        *fake.signals.borrow(),
+        vec![(true, first_job, 15), (true, later_job, 15)]
+    );
+    let done = executor.spawn(runtime.wait_group(group));
+    executor.drive(64);
+    runtime.poll(0).unwrap();
+    executor.drive(64);
+    assert!(!done.is_finished());
+    assert_eq!(fake.wait(foreground_pid as u32), Err(AGAIN));
+    assert_eq!(fake.wait(sibling_pid as u32), Err(AGAIN));
+    fake.held_jobs.borrow_mut().remove(&first_job);
+    runtime.poll(0).unwrap();
+    assert_eq!(finish(&executor, &runtime, done), Ok(()));
+    assert_eq!(*fake.reaped_jobs.borrow(), vec![first_job, later_job]);
+    for group in [foreground, sibling] {
+        runtime.kill_group(group, 9).unwrap();
+        assert_eq!(
+            finish(
+                &executor,
+                &runtime,
+                executor.spawn(runtime.wait_group(group))
+            ),
+            Ok(())
+        );
+    }
+    assert_eq!(runtime.retained_count(), 0);
+    assert!(runtime.0.groups.borrow().is_empty());
+    assert!(
+        fake.requests.borrow()[..2]
+            .iter()
+            .all(|request| request.job == -1)
+    );
+}
+
+#[test]
+fn group_fanout_continues_after_errors_and_invalid_signal_does_not_close_admission() {
+    let (executor, fake, runtime) = setup();
+    let group = runtime.allocate_group();
+    assert_eq!(
+        runtime.kill_group(group, 0),
+        Err(ProcessError::InvalidSignal)
+    );
+    let first = runtime.spawn(request(&runtime, "exit", group)).unwrap();
+    assert_eq!(
+        finish(&executor, &runtime, executor.spawn(runtime.wait(first))),
+        Ok(0)
+    );
+    let first_job = fake.job_of(first as u32).unwrap();
+    let later = runtime.spawn(request(&runtime, "sleep", group)).unwrap();
+    let later_job = fake.job_of(later as u32).unwrap();
+    fake.kill_job_errors.borrow_mut().insert(first_job, 71);
+    assert_eq!(
+        runtime.kill_group(group, 15),
+        Err(ProcessError::Runtime(71))
+    );
+    assert_eq!(
+        *fake.signals.borrow(),
+        vec![(true, first_job, 15), (true, later_job, 15)]
+    );
+    fake.wait_job_errors.borrow_mut().insert(first_job, 63);
+    assert_eq!(
+        finish(
+            &executor,
+            &runtime,
+            executor.spawn(runtime.wait_group(group))
+        ),
+        Err(ProcessError::Runtime(63))
+    );
+    assert_eq!(*fake.reaped_jobs.borrow(), vec![later_job]);
+    assert!(
+        runtime.0.groups.borrow().contains_key(&group),
+        "failed confirmation keeps cleanup ownership"
+    );
+    fake.wait_job_errors.borrow_mut().remove(&first_job);
+    assert_eq!(
+        finish(
+            &executor,
+            &runtime,
+            executor.spawn(runtime.wait_group(group))
+        ),
+        Ok(())
+    );
+    assert_eq!(*fake.reaped_jobs.borrow(), vec![later_job, first_job]);
+    assert!(runtime.0.groups.borrow().is_empty());
+    assert_eq!(runtime.retained_count(), 0);
+}
+
+#[test]
 fn sigint_registration_calls_runtime_with_handle_not_ignore() {
     // Exercise the same registration path WasiAbi passes to proc_signal, not a
     // mock preconfigured with handled signals. Pin the numeric wire arguments.
@@ -551,4 +771,66 @@ fn runtime_mkdir_uses_shared_filesystem_and_grep_reads_created_directory() {
     let job = session.start("mkdir -p result").unwrap();
     assert_eq!(finish(&executor, &runtime, job), 1);
     assert!(fake.requests.borrow().is_empty()); // Neither utility spawned a guest.
+}
+
+#[test]
+fn inherited_shell_bootstrap_preserves_extra_and_sparse_logical_bindings() {
+    let (executor, fake, runtime) = setup();
+    fake.fs
+        .write_file("/descriptor-data", b"shared-offset\nremaining")
+        .unwrap();
+    let file = fake
+        .fs
+        .open("/descriptor-data", &OpenOptions::default())
+        .unwrap();
+    let stdout = fake.fds.borrow().get(&1).unwrap().clone();
+    fake.fds.borrow_mut().extend([
+        (3, stdout),
+        (4, file),
+        (1_000_000, Endpoint::null()),
+        (i32::MAX as u32, Endpoint::null()),
+    ]);
+    *fake.inherited.borrow_mut() = vec![0, 1, 2, 3, 4, 1_000_000, i32::MAX as u32];
+    // A private physical descriptor must never become an inherited logical binding.
+    let private = fake.fd(Endpoint::null());
+    let fds = runtime.stdio().unwrap();
+    assert_eq!(
+        fds.iter().map(|(&fd, _)| fd).collect::<Vec<_>>(),
+        *fake.inherited.borrow()
+    );
+    assert!(fds.get(private).is_none());
+    let session = Session::new(
+        executor.clone(),
+        Rc::new(runtime.clone()),
+        Rc::new(runtime.clone()),
+        Limits::default(),
+    );
+    session.set_descriptors(fds).unwrap();
+    let job = session
+        .start("read -r -u 4 value; printf 'DIRECT_FD3:%s\\n' \"$value\" >&3")
+        .unwrap();
+    assert_eq!(finish(&executor, &runtime, job), 0);
+    assert_eq!(fake.output.bytes(), b"DIRECT_FD3:shared-offset\n");
+    // The inherited file was duplicated, not reopened: its original offset moved too.
+    let mut remaining = [0; 9];
+    assert_eq!(fake.read(4, &mut remaining), Ok(remaining.len()));
+    assert_eq!(&remaining, b"remaining");
+    finish(
+        &executor,
+        &runtime,
+        executor.spawn(async move { session.shutdown().await }),
+    );
+    assert_eq!(
+        fake.fds.borrow().keys().copied().collect::<Vec<_>>(),
+        vec![0, 1, 2, 3, 4, private, 1_000_000, i32::MAX as u32]
+    );
+}
+
+#[test]
+fn empty_inherited_shell_bindings_do_not_recreate_stdio() {
+    let (_executor, fake, runtime) = setup();
+    fake.inherited.borrow_mut().clear();
+    let fds = runtime.stdio().unwrap();
+    assert_eq!(fds.iter().count(), 0);
+    assert_eq!(fake.fds.borrow().len(), 3);
 }

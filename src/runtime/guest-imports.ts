@@ -34,8 +34,16 @@ export function preservePreopenDiscovery(
     return original(fd, ptr);
   };
 }
-export function shellTerminalImports(buffer?: SharedArrayBuffer) {
+export function shellTerminalImports(
+  buffer?: SharedArrayBuffer,
+  inherited: readonly number[] = [0, 1, 2],
+) {
   return {
+    // Enumerate only the launch bindings, never the root preopen or private fds
+    // allocated while the guest bootstraps. Sparse large fd numbers cost one entry.
+    inherited_fd(index: number) {
+      return inherited[index] ?? -1;
+    },
     columns() {
       return buffer ? Math.max(2, Atomics.load(new SharedBridge(buffer).state, control.cols)) : 80;
     },
