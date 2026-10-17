@@ -131,6 +131,7 @@ impl<const N: usize> ParameterScan<N> {
         let literal_single =
             single && (!frame.outer_quoted || frame.pattern || frame.header.single_quotes);
         if ch == '\0' || ch == '\\' && !literal_single && !(single && next == Some('\'')) {
+            frame.angle = false;
             return Step::Escape;
         }
         if frame.quote == Some(ch) {
