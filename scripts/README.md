@@ -76,8 +76,8 @@ invoking Bash and verifies the generator hash and every regenerated script.
 
 ## Brace lists and ranges
 
-`npm run fuzz:shell-braces -- --shell PATH --seed 1` compares 4,358 cases with
-GNU Bash 5.3.15: 3,000 original generated cases, 1,071 boundary cases and 287
+`npm run fuzz:shell-braces -- --shell PATH --seed 1` compares 5,318 cases with
+GNU Bash 5.3.15: 3,000 original generated cases, 2,031 boundary cases and 287
 fixed controls. Also run seed 42 and `--self-control` (two independent Bash
 processes). The original bounded grammar covers lists, adjacent/nested products,
 invalid enclosing groups, signed/padded numeric and ASCII-letter ranges,
@@ -87,8 +87,10 @@ resource tests are separate.
 
 The appended boundary grammar covers arithmetic/command-subshell ambiguity,
 case patterns, subshells and comment parentheses, plus protected dollars before
-parameter, command and arithmetic openers. Its full matrix crosses six contexts,
-nesting depths 0–3 and both outer quoting modes. Inactive guards avoid requiring
+parameter, command and arithmetic openers. Ambiguous forms vary one, two or three
+closing parentheses, distinguishing incomplete raw arithmetic spans from later
+command errors. Its full matrix crosses six contexts, nesting depths 0–3 and
+both outer quoting modes. Inactive guards avoid requiring
 unsupported command execution; syntax failures still count as observations.
 Selected literal/arithmetic controls and structural shrinking retain the phase
 distinctions. `--count` changes only the original generated stream, never the

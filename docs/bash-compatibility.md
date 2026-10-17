@@ -326,8 +326,8 @@ and 42 remain byte-identical, with 3,014 cases each.
 ## Brace expansion: lists and ranges
 
 `npm run fuzz:shell-braces -- --shell /path/to/native/shell-engine` compares
-4,358 cases with installed GNU Bash 5.3.15: 3,000 original generated cases,
-1,071 boundary cases and 287 fixed controls.
+5,318 cases with installed GNU Bash 5.3.15: 3,000 original generated cases,
+2,031 boundary cases and 287 fixed controls.
 Run both `--seed 1` (default) and `--seed 42`. `--self-control` instead compares
 two fresh Bash processes; `npm run test:fuzz-shell-braces` checks the generator,
 strict process matching and fixture validation without a shell build.
@@ -348,8 +348,10 @@ fallbacks. Structural shrinking preserves context, quoting and failure status.
 
 A structured boundary matrix systematically combines arithmetic/command-subshell
 ambiguity, case patterns, subshells, comment parentheses and protected dollars
-before parameter/command/arithmetic openers. Every feature crosses six enclosing
-contexts, depths 0–3 and both quoting modes; the original seeded stream is not
+before parameter/command/arithmetic openers. Ambiguous forms vary one, two or
+three closing parentheses so unmatched raw arithmetic spans remain distinct
+from syntax errors inside a complete command substitution. Every feature crosses
+six enclosing contexts, depths 0–3 and both quoting modes; the original seeded stream is not
 displaced. Command-bearing operands stay inactive, while selected literal and
 arithmetic controls exercise supported execution. Syntax failures are scored,
 not excluded. Shrinking retains boundary kind, protection, context and guards.
