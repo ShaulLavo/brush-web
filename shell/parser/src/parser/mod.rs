@@ -2293,14 +2293,21 @@ impl<'a> Parser<'a> {
             self.advance();
             self.skip_newlines()?;
 
-            // Parse commands until ;; or esac
+            // Parse commands until ;; or esac. A token that cannot start a
+            // command must fail here rather than spinning forever: malformed
+            // case bodies inside a substitution are reported by the child as
+            // status 127, not as parser fuel exhaustion (status 2).
             let mut commands = Vec::new();
             while !self.is_case_terminator()
                 && !self.is_keyword("esac")
                 && self.current_token.is_some()
             {
-                if let Some(cmd) = self.parse_command_list()? {
-                    commands.push(*cmd);
+                match self.parse_command_list()? {
+                    Some(cmd) => commands.push(*cmd),
+                    None => {
+                        self.pop_depth();
+                        return Err(self.error("unexpected token"));
+                    }
                 }
                 self.skip_newlines()?;
             }
