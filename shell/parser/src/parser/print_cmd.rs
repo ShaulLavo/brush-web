@@ -247,7 +247,7 @@ impl<'a> Printer<'a> {
 
     /// Prints a function body; returns the redirections of a `{ }` body,
     /// which print after its closing brace.
-    fn print_function_body<'a>(&mut self, body: &'a Command) -> &'a [Redirect] {
+    fn print_function_body<'cmd>(&mut self, body: &'cmd Command) -> &'cmd [Redirect] {
         match body {
             Command::Compound(CompoundCommand::BraceGroup(cmds), redirects) => {
                 self.print_list(cmds);

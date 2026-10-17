@@ -316,7 +316,7 @@
           "shell/parser/tests/api.rs"
         ],
         "classification": "Original changes to the owned Bashkit-derived parser; no upstream implementation copied. Semantics follow GNU Bash 5.3.15.",
-        "change": "Share parser fuel and request work with process-substitution operand printing, including nested reconstructed commands, and bound printed bytes before growth. Print flat elif vectors iteratively rather than recursing through sibling branches. Parse unquoted heredoc backticks through the typed backtick path: literal parenthesized bodies remain commands, and malformed bodies defer failure until expansion. Add parenthesized/malformed heredoc backtick and flat-elif printing-budget regressions.",
+        "change": "Share parser fuel and request work with process-substitution operand printing, including nested reconstructed commands, and bound printed bytes before growth. Print flat elif vectors iteratively rather than recursing through sibling branches. Keep function-body borrows independent of the printer budget lifetime. Parse unquoted heredoc backticks through the typed backtick path: literal parenthesized bodies remain commands, and malformed bodies defer failure until expansion. Add parenthesized/malformed heredoc backtick and flat-elif printing-budget regressions.",
         "reason": "Independent source review found process-substitution operand reconstruction could allocate or recurse outside parser limits, including for unselected parameter defaults. Rewriting heredoc backticks as dollar-parenthesis text could instead select arithmetic syntax or fail too early. The repairs preserve typed semantics and use shared bounded parse/print admission without changing upstream assertions."
       }
     ],
