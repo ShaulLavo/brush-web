@@ -2,11 +2,22 @@
 //! only unquoted source literal characters can be delimiters. No private Unicode
 //! placeholders or recursive AST clones are used.
 use super::{Cancel, Error, Word, Work, admit_string_growth, admit_vec_slot};
+use shell_parser::parser::WordPart;
 use std::borrow::Cow;
 
 enum Piece<'a> {
     Source(&'a str),
     Text(Cow<'a, str>, bool),
+}
+
+/// Brace expansion needs an unquoted literal `{`. Words without one skip the
+/// raw-source phase and its scanning, storage and reparse admission.
+pub(super) fn has_candidate(word: &Word) -> bool {
+    let has_part_quotes = word.part_quoted.iter().any(|&quoted| quoted);
+    word.parts.iter().enumerate().any(|(index, part)| {
+        !super::part_quoted(word, index, has_part_quotes)
+            && matches!(part, WordPart::Literal(value) if value.contains('{'))
+    })
 }
 impl Piece<'_> {
     fn character(&self) -> Option<char> {

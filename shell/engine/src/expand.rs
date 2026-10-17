@@ -1829,7 +1829,7 @@ async fn expand(
     scalar: bool,
     work: &mut Work,
 ) -> Result<Vec<String>, Error> {
-    let variants = if scalar {
+    let variants = if scalar || !braces::has_candidate(word) {
         None
     } else {
         braces::variants(word, max_fields.max(1), work, cancel).await?

@@ -2112,13 +2112,16 @@ fn selected_unsupported_operands_and_operator_targets_fail_without_dispatch() {
         "args ${1-x}",
         "args ${u:-~}",
         "args ${u:-*}",
-        "args ${u:-{a,b}}",
     ] {
         let rig = Rig::new(Limits::default());
         assert_eq!(rig.run(source), 2, "{source}");
         assert!(rig.calls.borrow().is_empty(), "{source}");
         assert!(!rig.shell.state().borrow().variables.contains_key("u"));
     }
+    // Brace expansion is supported now; bash leaves this operand's braces.
+    let rig = Rig::new(Limits::default());
+    assert_eq!(rig.run("args ${u:-{a,b}}"), 0);
+    assert_eq!(*rig.calls.borrow(), &[vec!["{a,b}"]]);
 }
 
 #[test]

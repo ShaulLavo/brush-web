@@ -45,7 +45,7 @@ impl Parser<'_> {
             angle = matches!(c, '<' | '>') && !angle;
             if angle && scanner.substring_unquoted() && chars.peek() == Some(&'(') {
                 chars.next();
-                self.read_parameter_command(&mut chars, bodies)?;
+                self.read_parameter_command(&mut chars, bodies, true)?;
                 angle = false;
                 continue;
             }
@@ -71,7 +71,7 @@ impl Parser<'_> {
             }
             Step::Command => {
                 chars.next();
-                self.read_parameter_command(chars, bodies)?;
+                self.read_parameter_command(chars, bodies, false)?;
                 Ok(false)
             }
             Step::Limit => Err(self.limit_error(LimitExceeded::ParameterBoundaryDepth)),
@@ -81,8 +81,15 @@ impl Parser<'_> {
 
     /// Read a `$(`, `<(` or `>(` body. Bash never parses a fused `$((` or
     /// `<((` span as commands before it expands.
-    fn read_parameter_command(&self, chars: &mut WordChars<'_>, bodies: &mut Vec<String>) -> Result<()> {
-        let (body, opaque) = self.parameter_command_body(chars)?;
+    /// `slice` bodies (`<(`/`>(` lookalikes in a substring operand) keep the
+    /// engine's 4096-byte slice admission; `$(` bodies are bounded by fuel.
+    fn read_parameter_command(
+        &self,
+        chars: &mut WordChars<'_>,
+        bodies: &mut Vec<String>,
+        slice: bool,
+    ) -> Result<()> {
+        let (body, opaque) = self.parameter_command_body(chars, slice)?;
         match opaque {
             // Bash still parses the `$(...)` bodies inside the raw text.
             Some(spans) => bodies.extend(spans.iter().map(|&(from, to)| body[from..to].to_string())),
@@ -96,6 +103,7 @@ impl Parser<'_> {
     fn parameter_command_body<'a>(
         &self,
         chars: &mut WordChars<'a>,
+        slice: bool,
     ) -> Result<(&'a str, Option<Vec<(usize, usize)>>)> {
         let source = chars.remaining();
         // `<((` and `$((` alike start a raw arithmetic-style span in bash.
@@ -103,7 +111,7 @@ impl Parser<'_> {
         let mut end = None;
         for c in source.chars() {
             self.tick()?;
-            if scanner.offset() > 4096 {
+            if slice && scanner.offset() > 4096 {
                 return Err(self.limit_error(LimitExceeded::ParameterCommandFuel));
             }
             if scanner.feed(c) == CommandStep::Close {

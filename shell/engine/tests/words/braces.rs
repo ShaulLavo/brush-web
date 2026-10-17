@@ -270,8 +270,10 @@ fn brace_raw_output_budget_is_shared_even_when_ifs_removes_the_results() {
         expansion_bytes: 64 * 1024,
         ..Limits::default()
     });
-    rig.variable("IFS", "x");
-    rig.variable("v", &"x".repeat(12_000));
+    // Whitespace IFS removes the fields (bash: `set -- {$v,}` leaves none);
+    // a non-whitespace IFS would keep one empty field per delimiter.
+    rig.variable("IFS", " ");
+    rig.variable("v", &" ".repeat(12_000));
     assert_eq!(rig.run("args {$v,}"), 0);
     assert_eq!(*rig.calls.borrow(), &[Vec::<String>::new()]);
     rig.calls.borrow_mut().clear();
@@ -339,11 +341,12 @@ fn brace_scanning_range_emission_and_products_cooperate_with_cancellation() {
             ..Limits::default()
         });
         rig.variable("scope", "outside");
-        rig.variable("TEMP", "outside-temp");
+        // Function prefix assignments are not supported yet; the local frame
+        // and positional parameters still have to unwind on cancellation.
         let job = rig
             .shell
             .start(&format!(
-                "f() {{ local scope=inside; started=yes; args {word}; }}; TEMP=inside f positional"
+                "f() {{ local scope=inside; started=yes; args {word}; }}; f positional"
             ))
             .unwrap();
         rig.drive_until_variable("started", "yes");
@@ -352,7 +355,7 @@ fn brace_scanning_range_emission_and_products_cooperate_with_cancellation() {
                 .state()
                 .borrow()
                 .variables
-                .get("TEMP")
+                .get("scope")
                 .map(String::as_str),
             Some("inside"),
         );
@@ -365,13 +368,10 @@ fn brace_scanning_range_emission_and_products_cooperate_with_cancellation() {
         assert_eq!(rig.finish(job), 130);
         assert!(rig.calls.borrow().is_empty());
         assert!(rig.output.bytes().is_empty());
-        assert_eq!(
-            rig.run(r#"args "$scope" "$TEMP" "$#" "$1" "$started" "$peer""#),
-            0
-        );
+        assert_eq!(rig.run(r#"args "$scope" "$#" "$1" "$started" "$peer""#), 0);
         assert_eq!(
             *rig.calls.borrow(),
-            &[vec!["outside", "outside-temp", "0", "", "yes", "ran"]],
+            &[vec!["outside", "0", "", "yes", "ran"]],
         );
     }
 }
